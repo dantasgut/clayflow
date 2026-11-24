@@ -125,6 +125,15 @@ type ChainKernel = (typeof CHAIN_KERNELS)[number];
 
 /** Contagens da fila lidas guardadas (a maior delas dimensiona os blocos). */
 const QUEUE_HISTORY = 30;
+/** A contagem de um registro `SetCount` lido de volta (o campo vem como lista de um valor, por ter `count`). */
+function countOf(record: Record<string, unknown>): number {
+    const count = record.count;
+    if (typeof count === 'number') return count;
+    return (count as ArrayLike<number> | undefined)?.[0] ?? 0;
+}
+
+/** Rodadas além da mais funda com caminho vivo nas últimas leituras. */
+const ROUND_MARGIN = 2;
 /** Palavras do cabeçalho da cadeia (`REFRACTION_CHAIN_HEADER`). */
 const CHAIN_HEADER = 8;
 /** Vagas por pixel (`REFRACTION_CHAIN_SLOTS`). */
@@ -176,6 +185,9 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     /** As contagens da fila lidas de volta (as últimas) e a leitura em voo. */
     private readonly queueSeen: number[] = [];
     private queueReading = false;
+    /** As rodadas com caminho vivo lidas de volta (as últimas; `Infinity`: vivo depois da última dada) e as dadas. */
+    private readonly roundsSeen: number[] = [];
+    private roundsGiven = 0;
     /** Os kernels da cadeia a preparar (o bloco mudou). */
     private chainPending = false;
     private prepared = false;
@@ -298,7 +310,9 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         const chunks = this.chunks(b);
         // Rodadas por bloco: um acerto por vaga em cada uma — a câmera e as interfaces seguintes até o teto da cena
         // (`Refraction.maxInterfaces`); a vaga que ainda segue depois conta como truncada.
-        const rounds = (bound.slots.refraction.resource as Refraction).maxInterfaces + 1;
+        const rounds = this.roundsOf(
+            (bound.slots.refraction.resource as Refraction).maxInterfaces + 1,
+        );
         frame.compute('RefractionFlow.trace', (pass) => {
             this.wave.reset(pass, bound);
             bind(pass, at(CAMERA_HITS));
@@ -378,17 +392,40 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     }
 
     /**
+     * Rodadas do quadro (spec 011, T114), até o teto `full` (as interfaces da cena mais uma): as que os caminhos usaram
+     * nas últimas leituras (`roundCount`: as rodadas ao fim das quais ainda havia caminho vivo) mais uma e a folga
+     * `ROUND_MARGIN`. O reflexo de um opaco liso termina no primeiro acerto (um opaco, o céu) e uma esfera de vidro em
+     * poucas interfaces: as rodadas vazias até o teto custavam ~0,2 ms cada (os despachos do acerto, do material de
+     * cada classe e da continuação). Sem leitura ainda, ou com caminho vivo depois da última rodada dada numa das
+     * leituras guardadas (um transmissivo que entrou no caminho), o teto.
+     */
+    private roundsOf(full: number): number {
+        const seen = this.roundsSeen.length === 0 ? Infinity : Math.max(...this.roundsSeen);
+        this.roundsGiven = Math.min(full, seen + 1 + ROUND_MARGIN);
+        return this.roundsGiven;
+    }
+
+    /**
      * Lê de volta a contagem da fila (uma leitura em voo por vez) pela C2 (`read`, spec 007): o lote sai depois do envio
      * do quadro, sem bloquear; guarda as últimas `QUEUE_HISTORY`.
      */
     private measureQueue(refraction: Refraction): void {
         if (this.queueReading) return;
         this.queueReading = true;
-        this.resources
-            .read(refraction, 'queueCount')
-            .then((record) => {
+        const given = this.roundsGiven;
+        Promise.all([
+            this.resources.read(refraction, 'queueCount'),
+            this.resources.read(refraction, 'roundCount'),
+        ])
+            .then(([record, depth]) => {
+                if (depth !== undefined) {
+                    // As rodadas ao fim das quais ainda havia caminho vivo: com vivo depois da última dada, o teto.
+                    const alive = countOf(depth);
+                    this.roundsSeen.push(alive >= given ? Infinity : alive);
+                    if (this.roundsSeen.length > QUEUE_HISTORY) this.roundsSeen.shift();
+                }
                 if (record === undefined) return;
-                this.queueSeen.push(Number(record.count ?? 0));
+                this.queueSeen.push(countOf(record));
                 if (this.queueSeen.length > QUEUE_HISTORY) this.queueSeen.shift();
             })
             .catch(() => {
@@ -526,14 +563,22 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         // As inversas de mundo (spec 037): o histórico leva o ponto atingido ao espaço do objeto por elas.
         this.resources.ensurePoolAllocated(Transform.worldInverseSchema.name);
         const count = this.resources.ensureAllocated(refraction, 'queueCount');
+        const depth = this.resources.ensureAllocated(refraction, 'roundCount');
         const views = textures.map(([id]) => this.resources.textureViewOf(refraction, id));
-        if (count?.subkind !== 'indirect' || views.some((v) => v === undefined)) {
+        if (
+            count?.subkind !== 'indirect'
+            || depth?.subkind !== 'indirect'
+            || views.some((v) => v === undefined)
+        ) {
             this.pixels = 0;
             return;
         }
-        const sources = [...views, count];
+        const sources = [...views, count, depth];
         if (sources.some((s, k) => s !== this.bound[k])) {
-            const binds = new Map<WgslResource, BindingSource>([[R.queueCount, count]]);
+            const binds = new Map<WgslResource, BindingSource>([
+                [R.queueCount, count],
+                [R.roundCount, depth],
+            ]);
             textures.forEach(([, resources], k) => {
                 for (const r of resources) binds.set(r, views[k]!);
             });
@@ -555,7 +600,11 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         this.strata = strata === undefined ? 0 : strata.width * strata.height;
         const rays = c.bound.slots.rays?.resource as RayScene | undefined;
         const cameraSlot = this.cameraSlot(c);
-        this.tracing = refraction.enabled && rays !== undefined && cameraSlot !== undefined;
+        // A refração dos transmissivos ou o reflexo dos opacos lisos (a fila só leva os pedidos do caminho ligado).
+        this.tracing =
+            (refraction.enabled || refraction.reflection)
+            && rays !== undefined
+            && cameraSlot !== undefined;
         if (rays !== undefined) {
             // As luzes nos acertos: o pool existe mesmo sem nenhuma luz na cena (só emissores ou só o céu).
             this.resources.ensurePool(Light.schema);

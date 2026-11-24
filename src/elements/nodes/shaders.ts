@@ -42,8 +42,15 @@ export const nodeMap = wgslModule({ name: 'node_map', source: mapSource });
 /** Nós de ruído (spec 031): valor, gradiente, celular e fBm com semente, sobre a `wgslLib.noise`. */
 export const nodeNoise = wgslModule({ name: 'node_noise', source: noiseSource, requires: [noise] });
 
-/** Nós de padrão procedural (spec 038): o xadrez em 2D e 3D, filtrado pela largura do pixel. */
-export const nodePattern = wgslModule({ name: 'node_pattern', source: patternSource });
+/**
+ * Nós de padrão procedural: o xadrez em 2D e 3D, filtrado pela largura do pixel (spec 038); a trama, as células, os anéis
+ * e o grão, com a altura e o gradiente dela (spec 011).
+ */
+export const nodePattern = wgslModule({
+    name: 'node_pattern',
+    source: patternSource,
+    requires: [noise, constants],
+});
 
 /** Nós de rampa de cor (spec 031). */
 export const nodeColor = wgslModule({ name: 'node_color', source: colorSource, requires: [color] });
@@ -81,7 +88,7 @@ export const nodeField = wgslModule({
 
 /**
  * Nós de superfície (spec 031): métrica, curvaturas, direções principais da amostra de superfície; as ondulações (spec
- * 034).
+ * 034); o espaço dos padrões no uv e o relevo pela altura (spec 011).
  */
 export const nodeSurface = wgslModule({
     name: 'node_surface',

@@ -3,17 +3,18 @@
 // canais 1 e 2 que a dispersão abre, 4 o lobo menor das interfaces lisas — e cada rodada traça um acerto por vaga viva (`refraction_chain_hit_main`, sem
 // material), avalia o material por classe na onda (duas entradas por vaga: o acerto e a dielétrica coincidente) e segue
 // (`refraction_chain_follow_main`, com a luz do ponto opaco da passada `refraction_chain_light_main`): na primeira interface, os dois lobos (a reflexão na vaga 0); depois, na interface
-// lisa sem dispersão, o lobo maior sem sorteio e o menor na vaga 4 livre (cortado sem ela), senão um lobo pela roleta
-// de Fresnel; a borda que não muda o meio segue reto. O caminho que termina guarda a luz na própria vaga; o
+// lisa (sem dispersão, ou com ela adiada ou repetida pelos canais abertos), o lobo maior sem sorteio e o menor na vaga 4
+// livre (cortado sem ela), senão um lobo pela roleta de Fresnel; a borda que não muda o meio segue reto. O caminho que termina guarda a luz na própria vaga; o
 // fechamento por pixel (`refraction_chain_resolve_main`) soma as vagas na ordem delas. Os pixels vão em blocos de
 // `REFRACTION_CHAIN_PIXELS`; o número de rodadas e de despachos é fixo. Nenhuma fila, nenhum laço sem teto.
 // Limite medido: a vaga da reflexão não abre canais (num meio que dispersa ela segue pelo índice do verde).
 // Cada rodada percorre só as vagas vivas: duas listas em pingue-pongue (a corrente e a da rodada seguinte), do tamanho
 // das vagas do bloco (nunca estouram); a onda é indexada pela posição na lista corrente.
 // Cabeçalho (`refraction_path_queue`): [0] os pixels da fila no quadro; [1] o primeiro pixel do bloco corrente; [2] a
-// lista corrente; [3] e [4] as contagens das duas listas; as listas a partir de `REFRACTION_CHAIN_HEADER`.
+// lista corrente; [3] e [4] as contagens das duas listas; [5] as rodadas feitas no bloco; as listas a partir de
+// `REFRACTION_CHAIN_HEADER`.
 // Requer: WORKGROUP_SIZE, NONE, REFRACTION_FRAME_COUNT, refraction, refraction_path, refraction_queue_in,
-// refraction_frame, refraction_request, REFRACTION_REQUEST_VALID, refraction_block, ray_volume_begin, ray_wave, RefractionChainState, refraction_paths, refraction_path_queue, refraction_radiance_out,
+// refraction_frame, refraction_request, REFRACTION_REQUEST_VALID, REFRACTION_REQUEST_REFLECT, refraction_block, ray_volume_begin, ray_wave, RefractionChainState, refraction_paths, refraction_path_queue, refraction_round_count, refraction_radiance_out,
 // refraction_hit_out, refraction_hit_previous, refraction_albedo_out, refraction_noise_out, refraction_blocks,
 // refraction_stamps, refraction_splits.
 
@@ -148,6 +149,7 @@ fn refraction_chain_reset_main() {
     atomicStore(&refraction_path_queue[0], textureLoad(refraction_frame, vec2u(REFRACTION_FRAME_COUNT, 0u), 0).x);
     // O complemento de dois (−N em u32) sem a subtração, que o avaliador de constantes do naga recusa por transbordar.
     atomicStore(&refraction_path_queue[1], ~REFRACTION_CHAIN_PIXELS + 1u);
+    atomicStore(&refraction_round_count[0], 0u);
 }
 
 /** O bloco seguinte, com as listas vazias. */
@@ -157,14 +159,31 @@ fn refraction_chain_chunk_main() {
     atomicStore(&refraction_path_queue[2], 0u);
     atomicStore(&refraction_path_queue[3], 0u);
     atomicStore(&refraction_path_queue[4], 0u);
+    atomicStore(&refraction_path_queue[5], 0u);
 }
 
-/** O fim de uma rodada: a lista seguinte vira a corrente, e a outra fica vazia. */
+/**
+ * O fim de uma rodada: a lista seguinte vira a corrente, e a outra fica vazia. Com vaga viva para a rodada seguinte, as
+ * rodadas feitas no bloco vão à contagem do quadro (`refraction_round_count`: a maior entre os blocos) — o estágio a lê
+ * de volta e despacha só as rodadas que os caminhos usam.
+ */
 @compute @workgroup_size(1)
 fn refraction_chain_swap_main() {
     let next = 1u - atomicLoad(&refraction_path_queue[2]);
     atomicStore(&refraction_path_queue[2], next);
     atomicStore(&refraction_path_queue[3u + (1u - next)], 0u);
+    let done = atomicAdd(&refraction_path_queue[5], 1u) + 1u;
+    if (atomicLoad(&refraction_path_queue[3u + next]) > 0u) { atomicMax(&refraction_round_count[0], done); }
+}
+
+/** A direção unitária das coordenadas octaédricas de 16 + 16 bits `word` (as do pedido de reflexo). */
+fn refraction_request_dir(word: u32) -> vec3f {
+    let e = vec2f(f32(word & 0xFFFFu), f32(word >> 16u)) / 65535.0 * 2.0 - 1.0;
+    var v = vec3f(e, 1.0 - abs(e.x) - abs(e.y));
+    let t = max(-v.z, 0.0);
+    v.x += select(t, -t, v.x >= 0.0);
+    v.y += select(t, -t, v.y >= 0.0);
+    return normalize(v);
 }
 
 /**
@@ -189,7 +208,7 @@ fn refraction_chain_roots_main(@builtin(global_invocation_id) gid: vec3u, @built
         p.channel = -1;
         p.interfaces = 0u;
         p.flags = 0u;
-        p.steps = 0u;
+        p.replay = 0u;
         p.pixel = NONE;
         // As outras vagas do pixel só marcadas vazias (o estado inteiro tem centenas de bytes).
         for (var k = 0u; k < REFRACTION_CHAIN_SLOTS; k++) {
@@ -220,6 +239,19 @@ fn refraction_chain_roots_main(@builtin(global_invocation_id) gid: vec3u, @built
         p.stack = refraction_camera_stack();
         // A absorção desde o plano próximo da câmera (dentro de um meio, ela conta desde ali) até o começo do raio.
         p.weight = refraction_absorb(vec3f(1.0), refraction_current(p.stack), start);
+        if ((request.y & REFRACTION_REQUEST_REFLECT) != 0u) {
+            // O pedido de reflexo de um opaco liso (spec 011, T114): o caminho parte da superfície do pixel na direção
+            // refletida que o desenho gravou, já depois da primeira superfície (o trecho tem a névoa dos caminhos, e a
+            // interface que ele achar segue o lobo maior com o menor na vaga 4). O peso é 1: o do lobo fica com a
+            // composição (`reflectance`).
+            let d = bitcast<f32>(request.x);
+            let dir = refraction_request_dir(request.z);
+            p.travelled = d;
+            p.origin = refraction_departure(ray.origin + ray.dir * d, refraction_request_dir(request.w), dir);
+            p.dir = dir;
+            p.flags = 0u;
+            p.weight = vec3f(1.0);
+        }
         refraction_paths[REFRACTION_CHAIN_SLOTS * i + REFRACTION_SLOT_MAIN] = p;
         refraction_chain_push(0u, REFRACTION_CHAIN_SLOTS * i + REFRACTION_SLOT_MAIN);
     }
@@ -334,26 +366,55 @@ fn refraction_chain_disperse(p: RefractionChainState, s: u32, n: RefractionNode,
 }
 
 /**
+ * O estado do sorteio na interface em que a dispersão adiada começa, pelo pixel e pelo quadro: nas interfaces que o
+ * verde resolve sem sorteio do lobo, o vermelho e o azul fazem ao repeti-las os mesmos sorteios do nó (a transmissão
+ * parcial, a microfaceta) — a cor só aparece onde as direções se separam.
+ */
+fn refraction_chain_split_state(pixel: u32) -> u32 {
+    return pcg_hash(refraction_seed(pixel, refraction.frame) ^ 0x9e3779b9u);
+}
+
+/**
+ * O estado do sorteio do canal `channel` aberto, depois das interfaces que o verde resolveu sem sorteio: daí em diante
+ * (a roleta de Fresnel, a interface áspera) cada canal sorteia por si — com o mesmo sorteio nos três, a escolha de um
+ * lobo valia para a luminância inteira (medido na `dispersed`: o ruído da esfera 2,02× o sem dispersão, contra 1,8×
+ * com os sorteios independentes).
+ */
+fn refraction_chain_channel_state(state: u32, channel: i32) -> u32 {
+    return pcg_hash(state ^ (0x85ebca6bu * u32(channel + 1)));
+}
+
+/**
  * Marca a continuação `c` da vaga `s` (a transmissão do verde com os três canais) como dispersão adiada, quando `on`, e
  * grava o registro dela (`refraction_splits[s]`): o ponto de partida, o lado, as direções do vermelho e do azul e o peso
- * dos canais na interface; o ângulo entre os canais e o afastamento deles (ainda nenhum).
+ * dos canais na interface; o ângulo entre os canais e o afastamento deles (ainda nenhum); as interfaces resolvidas desde
+ * ela (ainda nenhuma).
  */
 fn refraction_chain_split(c0: RefractionChainState, s: u32, on: bool, red: vec3f, blue: vec3f) -> RefractionChainState {
     var c = c0;
     if (!on) { return c; }
     c.flags |= REFRACTION_CHAIN_SPLIT;
+    // O sorteio recomeça aqui num estado que só depende do pixel e do quadro: o vermelho e o azul, se a dispersão se
+    // abrir, partem desta interface com o mesmo (`refraction_chain_open`).
+    c.state = refraction_chain_split_state(c.pixel);
     refraction_splits[s] = RefractionSplit(c.origin, c.side, red, length(red - blue), blue, 0.0, c.weight, 0u, c.stack);
     return c;
 }
 
 /**
  * A dispersão adiada segue na continuação `c` da vaga `s` por uma interface sem se abrir: o ângulo entre os canais é o
- * de antes vezes o ganho da interface (`gain`) mais o que ela própria separa (`extra`).
+ * de antes vezes o ganho da interface (`gain`) mais o que ela própria separa (`extra`), e a interface conta nas
+ * resolvidas desde o começo (`steps`, nos 16 bits de baixo: as que o vermelho e o azul repetem se a dispersão se abrir)
+ * e, enquanto todas desde o começo foram resolvidas sem sorteio (`exact`), nas primeiras sem sorteio (os 16 de cima).
  */
-fn refraction_chain_carry(c0: RefractionChainState, s: u32, gain: f32, extra: f32) -> RefractionChainState {
+fn refraction_chain_carry(c0: RefractionChainState, s: u32, gain: f32, extra: f32, exact: bool)
+    -> RefractionChainState {
     var c = c0;
     c.flags |= REFRACTION_CHAIN_SPLIT;
     refraction_splits[s].angle = refraction_splits[s].angle * gain + extra;
+    let steps = refraction_splits[s].steps;
+    let leading = (steps >> 16u) == (steps & 0xFFFFu);
+    refraction_splits[s].steps = steps + 1u + select(0u, 0x10000u, exact && leading);
     return c;
 }
 
@@ -373,7 +434,11 @@ fn refraction_spread_gain(d_in: vec3f, d_out: vec3f, nf: vec3f) -> f32 {
 
 /**
  * A dispersão adiada se abre (a vaga `s` da transmissão): o vermelho e o azul partem da interface em que ela começou, nas
- * vagas dos canais, e esta segue só com o verde.
+ * vagas dos canais, e esta segue só com o verde. Os dois repetem o trecho que o verde já percorreu com os três canais
+ * (`replay`, como `RefractionSplit.steps`: as interfaces resolvidas nele e, delas, as primeiras sem sorteio), com o
+ * estado do sorteio do começo: as mesmas escolhas do verde. Nesse trecho, o que o verde já somou pelos três canais na
+ * direção dele — o brilho das luzes nas interfaces, a luz espalhada no meio e, nas interfaces sem sorteio, o lobo menor
+ * (na vaga 4) — não entra de novo por eles.
  */
 fn refraction_chain_open(p0: RefractionChainState, s: u32) -> RefractionChainState {
     var p = p0;
@@ -394,8 +459,10 @@ fn refraction_chain_open(p0: RefractionChainState, s: u32) -> RefractionChainSta
         c.radiance = vec3f(0.0);
         c.moving = vec3f(0.0);
         c.truncated = vec3f(0.0);
-        // O mesmo sorteio do verde (as mesmas escolhas de lobo nos três canais).
-        c.state = p.state;
+        // O mesmo sorteio do verde nas interfaces que ele resolveu sem sorteio do lobo desde o começo da dispersão.
+        c.state = refraction_chain_split_state(p.pixel);
+        c.replay = split.steps;
+        if ((c.replay >> 16u) == 0u) { c.state = refraction_chain_channel_state(c.state, c.channel); }
         c.alive = 1u;
         c.flags &= ~REFRACTION_CHAIN_CAMERA;
         let at = first + 2u + u32(k);
@@ -471,6 +538,10 @@ fn refraction_chain_follow_one(j: u32) {
         }
     }
     let carry = (p.flags & REFRACTION_CHAIN_SPLIT) != 0u;
+    // O canal aberto ainda repete o trecho que o verde percorreu com os três canais (`refraction_chain_open`) e, nele,
+    // as primeiras interfaces que o verde resolveu sem sorteio.
+    let replaying = (p.replay & 0xFFFFu) > 0u;
+    let replaying_exact = (p.replay >> 16u) > 0u;
     var extra = 0.0;
     // Os sorteios do nó: a transmissão parcial (opaco ou interface), a microfaceta áspera e, no ponto opaco, a luz
     // escolhida entre mais que as exatas.
@@ -483,14 +554,15 @@ fn refraction_chain_follow_one(j: u32) {
     let segment = refraction_current(p.stack);
     if (any(refraction_medium_scatter(segment) > vec3f(0.0))) {
         let reach = select(p.hit_t, REFRACTION_FAR, p.hit_instance == NONE);
-        p.radiance += p.weight * refraction_inscatter(segment, p.origin, p.dir, reach, &state);
+        let scattered = refraction_inscatter(segment, p.origin, p.dir, reach, &state);
+        if (!replaying) { p.radiance += p.weight * scattered; }
         p.flags |= REFRACTION_CHAIN_SAMPLED;
     }
     if ((p.flags & REFRACTION_CHAIN_CAMERA) == 0u) {
         // A névoa no trecho depois da primeira interface (T075): a do trecho da câmera vem dos froxels na composição.
         let fog_reach = select(p.hit_t, REFRACTION_FOG_REACH, p.hit_instance == NONE);
         let fog_light = refraction_fog_inscatter(segment, p.origin, p.dir, fog_reach, &state);
-        if (any(fog_light > vec3f(0.0))) {
+        if (any(fog_light > vec3f(0.0)) && !replaying) {
             p.radiance += p.weight * fog_light;
             p.flags |= REFRACTION_CHAIN_SAMPLED;
         }
@@ -507,8 +579,7 @@ fn refraction_chain_follow_one(j: u32) {
         return;
     }
     p.interfaces = n.interfaces;
-    p.steps += 1u;
-    if (!n.passes) {
+    if (!n.passes && !replaying) {
         // O brilho das luzes refletido pela interface (o realce do sol na água e no vidro), antes da escolha do lobo.
         let glint = refraction_glint(ray_wave_entries[2u * j].closure, n.p, n.nf, -p.dir);
         p.radiance += p.weight * glint.xyz;
@@ -523,6 +594,9 @@ fn refraction_chain_follow_one(j: u32) {
         refraction_chain_keep(s);
         return;
     }
+    p.replay -= select(0u, 1u, replaying) + select(0u, 0x10000u, replaying_exact);
+    // Além das interfaces sem sorteio, cada canal com o próprio sorteio (`refraction_chain_channel_state`).
+    if (replaying_exact && (p.replay >> 16u) == 0u) { p.state = refraction_chain_channel_state(p.state, p.channel); }
     let after = refraction_after_node(p.stack, n);
     let camera = (p.flags & REFRACTION_CHAIN_CAMERA) != 0u;
     // Os lobos: a reflexão e a transmissão (com dispersão, por canal).
@@ -565,6 +639,13 @@ fn refraction_chain_follow_one(j: u32) {
             transmit_dir = tg.dir;
             transmit_weight = (vec3f(1.0) - f) * vec3f(tr.weight, tg.weight, tb.weight);
             p_single = (f.x + f.y + f.z) / 3.0;
+        } else if (s % REFRACTION_CHAIN_SLOTS != REFRACTION_SLOT_MAIN && n.alpha <= REFRACTION_SMOOTH_ALPHA) {
+            // A vaga que não abre canais (a da reflexão da primeira interface, a do lobo menor) numa interface lisa do
+            // meio que dispersa: os três canais juntos pelo índice do verde (o limite medido), com os lobos sem
+            // sorteio como no meio sem dispersão — pela roleta, o lobo menor dentro do vidro saía em grão.
+            disperse = false;
+            transmit_dir = tg.dir;
+            transmit_weight = (vec3f(1.0) - f) * tg.weight;
         }
     }
     let reflection_slot = s - (s % REFRACTION_CHAIN_SLOTS) + REFRACTION_SLOT_REFLECT;
@@ -593,14 +674,25 @@ fn refraction_chain_follow_one(j: u32) {
         refraction_chain_keep(s);
         return;
     }
-    // Depois da primeira interface. Na interface lisa (a água, o vidro; α ≤ `REFRACTION_SMOOTH_ALPHA`) sem dispersão as
-    // direções dos lobos são exatas: sem sorteio, o caminho segue o de mais energia com o peso exato (na reflexão total,
-    // a própria reflexão) e o menor vai à vaga 4 do pixel, se livre (`refraction_chain_spare`); sem vaga, ele é cortado (a
-    // energia dele conta como truncada — escolha do usuário pela variante A recomendada pelo agente, 2026-10-29 — sem ficar claro na proposta que ela cortava o lobo menor sem vaga: sem o ruído da escolha nem os vagalumes, ao
-    // preço do lobo menor além das vagas). Na interface áspera, ou com a dispersão (adiada, aberta ou nesta interface:
-    // as vagas são dos canais dela), um lobo pela roleta de Fresnel (sem viés), com a probabilidade de cada lobo de ao
-    // menos `REFRACTION_ROULETTE_FLOOR` quando os dois levam luz.
-    if (n.alpha <= REFRACTION_SMOOTH_ALPHA && !disperse && !carry && p.channel < 0) {
+    // Depois da primeira interface. Na interface lisa (a água, o vidro; α ≤ `REFRACTION_SMOOTH_ALPHA`) as direções dos
+    // lobos são exatas: sem sorteio, o caminho segue o de mais energia com o peso exato (na reflexão total, a própria
+    // reflexão) e o menor vai à vaga 4 do pixel, se livre (`refraction_chain_spare`). Sem dispersão e sem vaga, ele é
+    // cortado (a energia dele conta como truncada — escolha do usuário pela variante A recomendada pelo agente, 2026-10-29 — sem ficar claro na proposta que ela cortava o lobo menor sem vaga: sem o ruído da escolha nem os vagalumes, ao
+    // preço do lobo menor além das vagas). Com a dispersão adiada é o mesmo enquanto o lobo menor tem a vaga (os três
+    // canais seguem juntos pelo índice do verde, e o lobo menor vai à vaga 4 com os três): pela roleta, o verde e depois
+    // o vermelho e o azul, ao repetir o trecho, escolhiam cada um o seu lobo — pontos verdes e rosa no vidro liso que
+    // dispersa, e o fim do caminho pulava de um quadro para o outro (a reconstrução lia cena mudada e o filtro temporal
+    // recomeçava: o grão não sumia com a imagem parada). O canal aberto que repete essas interfaces do verde
+    // (`replaying_exact`) segue o lobo maior; o menor já foi pelos três canais. Na interface áspera, com a dispersão
+    // adiada sem a vaga 4 (cortar ali somava 3,7 pontos ao erro da `dispersed`), aberta além do trecho sem sorteio, ou
+    // começando nesta interface sem todos os canais passarem, um lobo pela roleta de Fresnel (sem viés; cada canal
+    // aberto com o próprio sorteio), com a probabilidade de cada lobo de ao menos `REFRACTION_ROULETTE_FLOOR` quando os dois
+    // levam luz.
+    let polished = n.alpha <= REFRACTION_SMOOTH_ALPHA && !disperse;
+    let lobes_exact = replaying_exact
+        || (p.channel < 0 && (!carry || refraction_chain_spare(s) != NONE
+            || all(min(reflect_weight, transmit_weight) <= vec3f(0.0))));
+    if (polished && lobes_exact) {
         let reflects_major = luminance(reflect_weight) > luminance(transmit_weight);
         let major_dir = select(transmit_dir, reflect_dir, reflects_major);
         let major_weight = select(transmit_weight, reflect_weight, reflects_major);
@@ -608,7 +700,7 @@ fn refraction_chain_follow_one(j: u32) {
         let minor_weight = select(reflect_weight, transmit_weight, reflects_major);
         let spare = refraction_chain_spare(s);
         var cut = vec3f(0.0);
-        if (any(minor_weight > vec3f(0.0))) {
+        if (any(minor_weight > vec3f(0.0)) && !replaying_exact) {
             if (spare != NONE) {
                 var o = refraction_chain_continue(p, n, minor_dir, refraction_stack_pick(p.stack, after, reflects_major),
                     minor_weight);
@@ -632,6 +724,11 @@ fn refraction_chain_follow_one(j: u32) {
             refraction_chain_continue(p, n, major_dir, refraction_stack_pick(p.stack, after, !reflects_major),
                 major_weight),
             s, split && !reflects_major, split_red, split_blue);
+        if (carry) {
+            // A reflexão não separa as cores nem amplia o ângulo.
+            let gain = select(refraction_spread_gain(p.dir, major_dir, n.nf), 1.0, reflects_major);
+            c = refraction_chain_carry(c, s, gain, select(extra, 0.0, reflects_major), true);
+        }
         c.truncated += cut;
         refraction_paths[s] = c;
         refraction_chain_keep(s);
@@ -666,7 +763,7 @@ fn refraction_chain_follow_one(j: u32) {
     if (carry) {
         // A reflexão não separa as cores nem amplia o ângulo.
         let gain = select(refraction_spread_gain(p.dir, dir, n.nf), 1.0, reflects);
-        c = refraction_chain_carry(c, s, gain, select(extra, 0.0, reflects));
+        c = refraction_chain_carry(c, s, gain, select(extra, 0.0, reflects), false);
     }
     refraction_paths[s] = c;
     refraction_chain_keep(s);

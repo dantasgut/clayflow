@@ -1,4 +1,156 @@
+import { cotton, denim, sheerFabric, silk, velvet, wool } from './fabric';
+import {
+    brass,
+    carPaint,
+    carPaintFlake,
+    carPaintSilver,
+    chrome,
+    copper,
+    gold,
+    metalBrushed,
+    metalOxidized,
+    metalPolished,
+} from './metal';
+import { aluminiumAnodized, bronzePatina, castIron, metalHammered } from './metalFinish';
+import { carbonFiber, ice, ivory, motherOfPearl, paper, snow, soap } from './organic';
 import { openpbr } from './openpbr';
+import { bark, barkPine, corkStopper, leaf, leafDry, leafMatte } from './plant';
+import { roofSlate, roofTile } from './roof';
+import {
+    ceramic,
+    leather,
+    plasticGloss,
+    plasticMatte,
+    rubber,
+    woodRaw,
+    woodRough,
+} from './surface';
+import {
+    asphalt,
+    brick,
+    concrete,
+    driedMud,
+    granite,
+    plaster,
+    sand,
+    sandstone,
+    terracotta,
+    tile,
+} from './stone';
+import {
+    eye,
+    glass,
+    jade,
+    lips,
+    marble,
+    milk,
+    porcelain,
+    skin,
+    skinDetailed,
+    wax,
+} from './translucent';
+import { woodVarnishedGloss, woodVarnishedMatte } from './wood';
+import {
+    barkBirch,
+    cork,
+    woodAsh,
+    woodAshBrushed,
+    woodPineFine,
+    woodSolid,
+    woodFloorHerringbone,
+    woodFloorPlanks,
+    woodMahogany,
+    woodOak,
+    woodOakVarnished,
+    woodPine,
+    woodWalnut,
+} from './woodSpecies';
 
-/** Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de materiais prontos. */
-export const material = { openpbr } as const;
+/**
+ * Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de 71 materiais prontos — cada um um nó
+ * sem ligações obrigatórias que devolve o fechamento, com os parâmetros expostos (valor por uso, sem recompilar) também
+ * como entradas (ligáveis a outros nós). Usados inteiros (`Materials.x()`), abertos e religados, ou como nó de um grafo
+ * maior.
+ */
+export const material = {
+    openpbr,
+    woodRaw,
+    woodRough,
+    woodVarnishedGloss,
+    woodVarnishedMatte,
+    cotton,
+    wool,
+    velvet,
+    silk,
+    denim,
+    sheerFabric,
+    leather,
+    rubber,
+    ceramic,
+    porcelain,
+    plasticMatte,
+    plasticGloss,
+    metalPolished,
+    metalBrushed,
+    carPaint,
+    carPaintSilver,
+    carPaintFlake,
+    glass,
+    metalOxidized,
+    skin,
+    skinDetailed,
+    eye,
+    lips,
+    wax,
+    marble,
+    jade,
+    milk,
+    gold,
+    copper,
+    brass,
+    chrome,
+    aluminiumAnodized,
+    metalHammered,
+    castIron,
+    bronzePatina,
+    concrete,
+    granite,
+    sandstone,
+    brick,
+    plaster,
+    asphalt,
+    tile,
+    terracotta,
+    driedMud,
+    sand,
+    woodOak,
+    woodWalnut,
+    woodPine,
+    woodMahogany,
+    woodOakVarnished,
+    woodAsh,
+    woodAshBrushed,
+    woodPineFine,
+    woodSolid,
+    woodFloorPlanks,
+    woodFloorHerringbone,
+    bark,
+    barkPine,
+    barkBirch,
+    cork,
+    corkStopper,
+    leaf,
+    leafMatte,
+    leafDry,
+    roofTile,
+    roofSlate,
+    paper,
+    carbonFiber,
+    ice,
+    soap,
+    ivory,
+    motherOfPearl,
+    snow,
+} as const;
+
+export { relief } from './relief';

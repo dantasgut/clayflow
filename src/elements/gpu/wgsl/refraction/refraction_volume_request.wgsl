@@ -26,7 +26,7 @@ fn refraction_camera_in_volume() -> bool {
 }
 
 struct RefractionVolumeRequestOut {
-    @location(0) request: vec2u,
+    @location(0) request: vec4u,
     @builtin(frag_depth) depth: f32,
 }
 
@@ -56,7 +56,7 @@ fn refraction_volume_request_fs(@builtin(position) frag: vec4f) -> RefractionVol
     let clip = cam.viewProjection * vec4f(p, 1.0);
     var out: RefractionVolumeRequestOut;
     let marks = select(REFRACTION_REQUEST_VALID, REFRACTION_REQUEST_VALID | REFRACTION_REQUEST_BACK_FACE, v.inside);
-    out.request = vec2u(bitcast<u32>(distance(cam.position.xyz, p)), marks);
+    out.request = vec4u(bitcast<u32>(distance(cam.position.xyz, p)), marks, 0u, 0u);
     out.depth = clamp(clip.z / clip.w, 0.0, 1.0);
     return out;
 }

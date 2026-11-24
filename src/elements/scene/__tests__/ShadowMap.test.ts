@@ -54,7 +54,8 @@ describe('ShadowMap', () => {
                 id: 'requests',
                 role: 'storage-rw',
                 schema: GpuWordSchema,
-                count: SHADOW_MAX_LEVELS * 4 * 4,
+                // Duas palavras por página virtual: a faixa de profundidade de quem a pediu.
+                count: SHADOW_MAX_LEVELS * 4 * 4 * 2,
                 upload: 'never',
                 history: { depth: 2 },
             },

@@ -1,6 +1,6 @@
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
 import { Light, type LightValues } from './Light';
-import { poolLightContribution } from './points/lightContributions';
+import { poolLightContribution, poolTransmittedContribution } from './points/lightContributions';
 import { shadowCasterContributions } from './points/shadowContribution';
 import { ShadowMap, type ShadowMapOptions } from './ShadowMap';
 
@@ -31,6 +31,7 @@ export class DirectionalLight extends Light {
             direction: values.direction ?? [0, -1, 0, 0],
             color: values.color ?? [1, 1, 1, 1],
             cones: [0, 0, Math.max(0, values.angularRadius ?? 0), 0],
+            axis: [0, 0, 0, 0],
         };
         this.shadowMap = castShadow ? new ShadowMap(values.shadow) : undefined;
         if (this.shadowMap !== undefined) this.add(this.shadowMap);
@@ -40,6 +41,7 @@ export class DirectionalLight extends Light {
                 : [
                       poolLightContribution,
                       ...shadowCasterContributions(() => this.data.castShadow === 1),
+                      poolTransmittedContribution,
                   ];
     }
 
@@ -47,7 +49,8 @@ export class DirectionalLight extends Light {
 
     /**
      * O laço das luzes do pool no ponto `scene_direct_lighting` e, com o mapa de sombra, a sombra desta luz em
-     * `light_visibility` (spec 011).
+     * `light_visibility` (spec 011), a espessura que ela atravessa em `light_thickness` e a luz que atravessa os
+     * materiais com subsuperfície em `scene_transmitted_lighting` (T113).
      */
     getSceneContributions(): readonly SceneContribution[] {
         return this.contributions;

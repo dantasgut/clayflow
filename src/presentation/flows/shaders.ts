@@ -117,6 +117,7 @@ export const shadowPageChannels = Object.freeze({
     atlas: 'atlas',
     rects: 'rects',
     clusterBoxes: 'clusterBoxes',
+    matrices: 'matricesSeries',
 });
 
 /** Recursos das páginas do mapa de sombra virtual (spec 034, T060), privados do `ShadowFlow` salvo as séries. */
@@ -132,6 +133,11 @@ export const shadowResources = {
     /** Os argumentos dos desenhos indiretos (5 palavras por registro; a contagem de instâncias por atômico). */
     args: privateStorage('sp_args', 'read_write', 'atomic<u32>'),
     /** Os pares instância × página suja, por grupo. */
+    /**
+     * Os despachos indiretos das etapas pelas páginas sujas do quadro (dois registros de quatro palavras, escritos pela
+     * alocação): o fundo delas e os pares instância × página suja.
+     */
+    dispatch: privateStorage('sp_dispatch', 'read_write', 'u32'),
     pairs: privateStorage('sp_pairs', 'read_write', 'u32'),
     /** Os pares, lidos no desenho. */
     pairsRead: privateStorage('sp_pairs_read', 'read', 'u32'),
@@ -170,13 +176,21 @@ export const shadowResources = {
         frequency: 'stage',
         provider: { slot: shadowPageChannels.atlas, lag: 0 },
     }),
-    /** Os pedidos do quadro anterior (uma palavra por página virtual). */
+    /** Os pedidos do quadro anterior (duas palavras por página virtual: a faixa de profundidade de quem pediu). */
     requestsPrevious: wgslResource({
         name: 'sp_requests_previous',
         binding: { storage: 'read' },
         type: { wgsl: 'u32', array: true },
         frequency: 'stage',
         provider: { slot: shadowPageChannels.requests, lag: 1 },
+    }),
+    /** O referencial do quadro anterior (a série `ShadowMatrix`, atraso 1): o dos pedidos do quadro anterior. */
+    matricesPrevious: wgslResource({
+        name: 'sp_matrices_previous',
+        binding: { storage: 'read' },
+        type: { schema: ShadowMap.matrixSchema, array: true },
+        frequency: 'stage',
+        provider: { slot: shadowPageChannels.matrices, lag: 1 },
     }),
     /** Os retângulos das instâncias: os de agora (escritos) e os do quadro anterior. */
     rects: wgslResource({
@@ -267,12 +281,14 @@ export const shadowPages = wgslModule({
         shadowResources.scratch,
         shadowResources.groups,
         shadowResources.args,
+        shadowResources.dispatch,
         shadowResources.pairs,
         vertexBounds,
         shadowResources.clusterIndices,
         shadowResources.geometry,
         shadowResources.atlas,
         shadowResources.requestsPrevious,
+        shadowResources.matricesPrevious,
         shadowResources.rects,
         shadowResources.rectsPrevious,
         shadowResources.atlasStamps,
@@ -497,11 +513,11 @@ export const shadowDepth = wgslModule({
 /** Recursos dos pedidos de páginas (o `ShadowRequestFlow`). */
 export const shadowRequestResources = {
     params: privateUniform('sr', ShadowRequestParamsSchema, 'stage'),
-    /** Os pedidos de agora (escritos; uma palavra por página virtual). */
+    /** Os pedidos de agora (escritos; duas palavras por página virtual: a faixa de profundidade de quem pediu). */
     requests: wgslResource({
         name: 'sr_requests',
         binding: { storage: 'read_write' },
-        type: { wgsl: 'u32', array: true },
+        type: { wgsl: 'atomic<u32>', array: true },
         frequency: 'stage',
         provider: { slot: 'requests', lag: 0 },
     }),

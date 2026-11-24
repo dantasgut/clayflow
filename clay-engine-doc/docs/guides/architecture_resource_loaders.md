@@ -2100,7 +2100,7 @@ A pool key é o `schema.name` do recurso; quando o Resource declara FlowDescript
 | `PlaneCollider`, `BoxCollider`, `SphereCollider`, `MeshCollider` | colliders tipados | `ColliderSet` (LCP e fluidos) | atual |
 | `ParticlePhysics` | física das partículas (um por World) | fluidos | atual |
 | `DiffuseParticleSchema` | partícula secundária (posição e tipo; velocidade e vida), só GPU | `DiffuseFlow` | atual |
-| `Light` | luz unificada (kind discriminado) | pontos de cena (spec 031): `scene_light_direction` (luz que projeta sombra), `scene_any_light_direction` (primeira luz viva: sprites de partículas); `ShadowMatrixFlow` (`lights[r.lightSlot]`, do registro `ShadowRecord`) | atual (cor e intensidade no sombreamento: F4) |
+| `Light` | luz unificada (kind discriminado) | ponto de cena `scene_direct_lighting` (o laço das luzes do pool, spec 011: forward e sprites; os acertos dos raios leem o mesmo pool por `light_incoming`); `ShadowMatrixFlow` (`lights[r.lightSlot]`, do registro `ShadowRecord`) | atual (cor e intensidade no sombreamento pelo ponto `scene_direct_lighting`, spec 011: ver "Pontos de luz por luz") |
 
 **Políticas comuns:**
 - Stride do buffer global é fixo (ditado pelo WGSL struct) — engine usa `schema.pack(resource.data)` para produzir bytes conforme o layout.
@@ -5317,6 +5317,45 @@ estágios abaixo leem pelos slots. Um estágio sem o recurso que lê (sem `Refra
 | 25 | `ui` | 0 | `UIFlow` | render `UIFlow` (canvas, `loadOp: 'load'`) |
 
 Flows registrados pela aplicação entram na mesma ordem pela fase e pela prioridade que declaram.
+
+### Pontos de luz por luz (spec 011)
+
+O desenho não conhece nenhuma classe de luz. O forward e os sprites chamam **pontos de cena**
+(`src/elements/scene/points/lighting.ts`); os acertos dos raios (a refração, a luz rebatida) fazem o próprio laço sobre
+o mesmo pool (`ray_direct`, com a sombra pela estrutura de raios) e chamam os mesmos pontos de meio, de luz rebatida e
+de cáusticas. Cada Resource de luz contribui um
+módulo por `getSceneContributions()`, a C2 combina os contribuintes presentes pelo `combine` do ponto (soma ou
+produto) e põe o resultado no lugar do pronto em todo pipeline que o requer. Inserir ou retirar uma luz recompõe em
+transição; sem contribuinte, vale o pronto (nenhuma luz, sem sombra, meio transparente).
+
+| Ponto de cena | Assinatura | Combina | Pronto |
+|---|---|---|---|
+| `scene_direct_lighting` | `fn scene_direct_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f` | soma | 0 |
+| `scene_indirect_lighting` | `fn scene_indirect_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f` | soma | 0 |
+| `scene_lighting` | a direta mais a rebatida (as duas acima) | — | — |
+| `scene_caustic_lighting` | `fn scene_caustic_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f` | soma | 0 |
+| `light_visibility` | `fn light_visibility(light: u32, p: vec3f, n: vec3f) -> f32` | produto, por luz | 1 |
+| `light_transmission` | `fn light_transmission(light: u32, p: vec3f) -> vec3f` | produto, por luz | 1 |
+| `scene_ambient` | `fn scene_ambient(p: vec3f) -> vec3f` | soma | 0 |
+| `scene_environment` | `fn scene_environment(dir: vec3f) -> vec3f` | soma | 0 |
+| `scene_background` | `fn scene_background(dir: vec3f) -> vec3f` | soma | 0 |
+
+O que cada luz contribui:
+
+| Resource | Ponto | O que entra |
+|---|---|---|
+| `DirectionalLight`, `PointLight`, `SpotLight` | `scene_direct_lighting` | o laço das luzes do pool `Light` (`poolLightContribution`, um só para todas: a C2 o compõe uma vez): para cada slot vivo, a luz que chega (`light_incoming`: lux na direcional; candela pelo inverso do quadrado com a janela do alcance na pontual e na spot, e os cones da spot) × `light_visibility` × `light_transmission`, avaliada pelo fechamento (`closure_eval`). Até `LIGHT_LIMIT` (1024) luzes; as de slot acima não iluminam, com um aviso único |
+| `DirectionalLight` com `castShadow` (`ShadowMap`) | `light_visibility` | a sombra desta luz (páginas virtuais com PCSS), por slot da luz |
+| `HemisphereLight` | `scene_direct_lighting`, `scene_ambient`, `scene_environment`, `scene_background` | o céu e o chão sobre o fechamento (`closure_ambient`), a radiância média que os meios espalham, o ambiente que os raios veem ao escapar e, quando pedido, o fundo visível |
+| `Sky` | `scene_direct_lighting`, `scene_ambient`, `scene_environment`, `scene_background`, `light_transmission` | o céu físico como fonte e como fundo; a cor do sol pela atmosfera |
+| `GlobalIllumination` | `scene_indirect_lighting`, `scene_ambient` | a luz rebatida das sondas (com ela, os estágios padrão retiram o hemisfério) |
+| `Caustics` | `scene_caustic_lighting`, `scene_direct_lighting` | a luz que chegou por caminhos especulares (os fótons) |
+| `Froxels`, `CloudLayer`, `FluidField` | `light_transmission` | o meio entre a luz e o ponto: a névoa, as nuvens, a água |
+
+A intensidade e a cor de cada luz entram no sombreamento por `light_incoming`, do registro do pool `Light`: o
+material devolve o fechamento (`Closure`) e a luz o avalia — nenhum material conhece uma luz, nenhuma luz conhece um
+material. Os guias de uso estão em [Iluminação](./lighting.md) e a lista completa dos pontos de cena em
+[Shaders](./shaders.md).
 
 ### Aplicação — entry point reativo
 

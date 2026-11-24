@@ -3,6 +3,12 @@ export { BoxGeometry, type BoxGeometryData } from './BoxGeometry';
 export { SphereGeometry, type SphereGeometryData } from './SphereGeometry';
 export { PlaneGeometry, type PlaneGeometryData } from './PlaneGeometry';
 export {
+    MeshGeometry,
+    type MeshGeometryData,
+    type MeshGeometryValues,
+    type ObjOptions,
+} from './MeshGeometry';
+export {
     PointCloudGeometry,
     type PointCloudGeometryData,
     type PointCloudGeometryValues,

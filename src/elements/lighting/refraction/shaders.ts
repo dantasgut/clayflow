@@ -25,6 +25,7 @@ import refractionCompositeSource from '../../gpu/wgsl/refraction/refraction_comp
 import refractionCompositeDenoisedSource from '../../gpu/wgsl/refraction/refraction_composite_denoised.wgsl?raw';
 import refractionScreenSource from '../../gpu/wgsl/refraction/refraction_screen.wgsl?raw';
 import refractionMotionSource from '../../gpu/wgsl/refraction/refraction_motion.wgsl?raw';
+import refractionReflectionSource from '../../gpu/wgsl/refraction/refraction_reflection.wgsl?raw';
 import {
     basis,
     bsdf,
@@ -57,7 +58,11 @@ import {
     rayVolumeTypes,
 } from '../../raytrace/points';
 import { cameraSpace } from '../../scene/flows/shaders';
-import { sceneEnvironmentReady, sceneIndirectLightingReady } from '../../scene/points/lighting';
+import {
+    sceneAmbientLightingReady,
+    sceneEnvironmentReady,
+    sceneIndirectLightingReady,
+} from '../../scene/points/lighting';
 import {
     sceneAmbientReady,
     sceneFogReady,
@@ -82,6 +87,7 @@ import {
     REFRACTION_QUEUE_FORMAT,
     REFRACTION_RADIANCE_FORMAT,
     REFRACTION_REQUEST_BACK_FACE,
+    REFRACTION_REQUEST_REFLECT,
     REFRACTION_REQUEST_VALID,
 } from './Refraction';
 
@@ -174,6 +180,14 @@ export const refractionResources = Object.freeze({
         frequency: 'frame',
         provider: 'private',
     }),
+    /** As rodadas ao fim das quais ainda havia caminho vivo (a palavra 0; lida de volta pelo estágio). */
+    roundCount: wgslResource({
+        name: 'refraction_round_count',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
+        frequency: 'frame',
+        provider: 'private',
+    }),
     frameOut: storageTexture('refraction_frame_out', 'rgba32uint'),
     frame: texture('refraction_frame'),
     radianceOut: storageTexture('refraction_radiance_out', REFRACTION_RADIANCE_FORMAT),
@@ -191,6 +205,8 @@ export const refractionResources = Object.freeze({
     gradientOut: storageTexture('refraction_gradient_out', REFRACTION_GRADIENT_FORMAT),
     gradient: texture('refraction_gradient', 'f32'),
     requestDepth: texture('refraction_request_depth', 'depth'),
+    /** O peso do reflexo traçado dos opacos lisos (spec 011, T114), lido pela composição dele. */
+    reflectance: texture('refraction_reflectance', 'f32'),
     /** A refração com trabalho fixo por pixel (spec 039 refeita): as vagas de um bloco e o cabeçalho do quadro. */
     paths: priv('refraction_paths', 'read_write', { schema: RefractionChainSchema, array: true }),
     /** A dispersão adiada de cada vaga (o mesmo índice das vagas), à parte do estado lido em cada rodada. */
@@ -220,7 +236,9 @@ export const refractionQueue = wgslModule({
     requires: [
         WORKGROUP_SIZE.module,
         REFRACTION_REQUEST_VALID.module,
+        REFRACTION_REQUEST_REFLECT.module,
         REFRACTION_FRAME_COUNT.module,
+        refractionParamsResource,
         refractionBlock,
         R.request,
         R.queueOut,
@@ -301,6 +319,7 @@ export const refractionPath = wgslModule({
         closureEval,
         sceneEnvironmentReady,
         sceneIndirectLightingReady,
+        sceneAmbientLightingReady,
         sceneAmbientReady,
         sceneWetnessSlopeReady,
         sceneWetnessMovingReady,
@@ -320,6 +339,7 @@ export const refractionChain = wgslModule({
     requires: [
         WORKGROUP_SIZE.module,
         REFRACTION_REQUEST_VALID.module,
+        REFRACTION_REQUEST_REFLECT.module,
         R.request,
         refractionBlock,
         rayVolumeBeginReady,
@@ -340,6 +360,7 @@ export const refractionChain = wgslModule({
         R.paths,
         R.splits,
         R.pathQueue,
+        R.roundCount,
         R.blocks,
         R.stamps,
     ],
@@ -361,6 +382,7 @@ export const refractionGradient = wgslModule({
     requires: [
         WORKGROUP_SIZE.module,
         REFRACTION_REQUEST_VALID.module,
+        REFRACTION_REQUEST_REFLECT.module,
         R.request,
         R.albedo,
         R.gradientOut,
@@ -400,6 +422,7 @@ export const refractionDenoiseSource = wgslModule({
     source: refractionDenoiseSourceSource,
     requires: [
         REFRACTION_REQUEST_VALID.module,
+        REFRACTION_REQUEST_REFLECT.module,
         refractionHistory,
         refractionBlock,
         R.request,
@@ -477,6 +500,7 @@ export const refractionComposite = wgslModule({
     requires: [
         refractionScreen,
         REFRACTION_REQUEST_VALID.module,
+        REFRACTION_REQUEST_REFLECT.module,
         refractionParamsResource,
         cameraSpace,
         sceneFogReady,
@@ -493,8 +517,27 @@ export const refractionCompositeDenoised = wgslModule({
     requires: [
         refractionComposite,
         REFRACTION_REQUEST_VALID.module,
+        REFRACTION_REQUEST_REFLECT.module,
         R.request,
         temporalFilterResources.output,
+    ],
+});
+
+/**
+ * A composição do reflexo traçado dos opacos lisos (spec 011, T114): a radiância do raio refletido pelo peso do lobo,
+ * somada à cor da cena nos pixels com pedido de reflexo.
+ */
+export const refractionReflection = wgslModule({
+    name: 'refraction_reflection',
+    source: refractionReflectionSource,
+    requires: [
+        refractionScreen,
+        REFRACTION_REQUEST_VALID.module,
+        REFRACTION_REQUEST_REFLECT.module,
+        refractionParamsResource,
+        R.request,
+        R.radiance,
+        R.reflectance,
     ],
 });
 
@@ -510,6 +553,7 @@ export const refractionMotion = wgslModule({
         cameraSpace,
         refractionScreen,
         REFRACTION_REQUEST_VALID.module,
+        REFRACTION_REQUEST_REFLECT.module,
         refractionParamsResource,
         camera,
         camerasResource,

@@ -25,7 +25,8 @@ describe('Subgraph (spec 031, T079)', () => {
             inputs: { t: 'f32' },
             expose: ['w.amp'],
         });
-        expect(sub.inputs).toEqual({ t: 'f32' });
+        // As entradas: o argumento do grafo e o parâmetro exposto (entrada com valor, spec 011).
+        expect(sub.inputs).toEqual({ t: 'f32', w_amp: 'f32' });
         expect(sub.outputs).toEqual({ value: 'f32' });
         expect(Object.keys(sub.params)).toEqual(['w_amp']);
         expect(sub.params.w_amp!.default).toBe(2);
@@ -62,6 +63,39 @@ describe('Subgraph (spec 031, T079)', () => {
                 .code.source,
         ).toBe(sub.code.source);
         expect(fn.point).toBe(probePoint);
+    });
+
+    it('entrada com padrão (spec 011): sem ligação vale a expressão; ligada, a ligação', () => {
+        const sub = Subgraph.point(inner(), {
+            name: 'sub.default',
+            inputs: { t: 'f32' },
+            // Padrão de uma entrada que o sub-grafo não tem: ignorado.
+            defaults: { t: 'time_now', other: '1.0' },
+        });
+        expect(sub.defaults).toEqual({ t: 'time_now' });
+        // Sem a ligação o grafo é válido (sem o padrão seria `unconnected-input`) e a chamada leva a expressão.
+        const loose = new NodeGraph({ nodes: { a: sub }, links: [], output: 'a.value' });
+        expect(new ProbeGraphFunction({ graph: loose }).code).toMatch(
+            /sub_[0-9a-f]{8}\(time_now\)/,
+        );
+        expect(
+            () =>
+                new NodeGraph({
+                    nodes: {
+                        a: Subgraph.point(inner(), { name: 'sub.none', inputs: { t: 'f32' } }),
+                    },
+                    links: [],
+                    output: 'a.value',
+                }),
+        ).toThrow(NodeGraphError);
+        const linked = new NodeGraph({
+            nodes: { s: graphArgument('s', { time: 'f32' }), a: sub },
+            links: [['s.time', 'a.t']],
+            output: 'a.value',
+        });
+        expect(new ProbeGraphFunction({ graph: linked }).code).toMatch(
+            /sub_[0-9a-f]{8}\(s\.time\)/,
+        );
     });
 
     it('ciclo através de sub-grafo detectado; parâmetro exposto inexistente', () => {

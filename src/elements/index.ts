@@ -55,5 +55,6 @@ export {
     type LightPaths,
     type RenderProfile,
     type RendererOptions,
+    type SubsurfaceSettings,
     type TracingSettings,
 } from './render/Renderer';

@@ -13,6 +13,7 @@ export const CLOSURE_FIELDS = [
     ['subsurface_weight', 1],
     ['subsurface_color', 3],
     ['subsurface_radius', 3],
+    ['subsurface_scale', 1],
     ['dielectric_weight', 1],
     ['dielectric_ior', 1],
     ['dielectric_tint', 3],
@@ -22,6 +23,9 @@ export const CLOSURE_FIELDS = [
     ['specular_roughness', 1],
     ['specular_anisotropy', 1],
     ['tangent', 3],
+    ['glint_cells', 3],
+    ['glint_count', 1],
+    ['glint_roughness', 1],
     ['film_weight', 1],
     ['film_thickness', 1],
     ['film_ior', 1],
@@ -103,6 +107,7 @@ export function closureZero(): Closure {
         transmission_color: [1, 1, 1],
         transmission_ior: 1.5,
         opacity: 1,
+        subsurface_scale: 1,
     };
 }
 
@@ -194,11 +199,12 @@ export const closureSheen = (color: Vec3, roughness: number): Closure => ({
     sheen_roughness: clamp(roughness, 0.03, 1),
 });
 
-export const closureSubsurface = (color: Vec3, radius: Vec3): Closure => ({
+export const closureSubsurface = (color: Vec3, radius: Vec3, scale: number): Closure => ({
     ...closureZero(),
     subsurface_weight: 1,
     subsurface_color: c3(color),
-    subsurface_radius: c3(radius),
+    subsurface_radius: max03(radius),
+    subsurface_scale: scale > 0 ? scale : 1,
 });
 
 export const closureEmission = (color: Vec3, luminance: number): Closure => ({
@@ -247,6 +253,10 @@ export function closureScale(c: Closure, k: number): Closure {
 export function closureAdd(a: Closure, b: Closure): Closure {
     const wsa = a.dielectric_weight + a.conductor_weight;
     const wsb = b.dielectric_weight + b.conductor_weight;
+    // Os brilhos pontuais não se fundem: valem os do lado que os tem; se os dois, os do lado de maior peso especular.
+    const glintA = a.glint_count > 0 && wsa > 0;
+    const glintB = b.glint_count > 0 && wsb > 0;
+    const fromB = glintB && (!glintA || wsb > wsa);
     const wta = a.transmission_weight;
     const wtb = b.transmission_weight;
     const wna =
@@ -273,6 +283,12 @@ export function closureAdd(a: Closure, b: Closure): Closure {
             a.subsurface_radius,
             a.subsurface_weight,
             b.subsurface_radius,
+            b.subsurface_weight,
+        ),
+        subsurface_scale: merge1(
+            a.subsurface_scale,
+            a.subsurface_weight,
+            b.subsurface_scale,
             b.subsurface_weight,
         ),
         dielectric_weight: a.dielectric_weight + b.dielectric_weight,
@@ -304,6 +320,9 @@ export function closureAdd(a: Closure, b: Closure): Closure {
         specular_roughness: mergeRoughness(a.specular_roughness, wsa, b.specular_roughness, wsb),
         specular_anisotropy: merge1(a.specular_anisotropy, wsa, b.specular_anisotropy, wsb),
         tangent: mergeDir(a.tangent, wsa, b.tangent, wsb),
+        glint_cells: fromB ? b.glint_cells : a.glint_cells,
+        glint_count: fromB ? b.glint_count : glintA ? a.glint_count : 0,
+        glint_roughness: fromB ? b.glint_roughness : a.glint_roughness,
         film_weight: a.film_weight + b.film_weight,
         film_thickness: merge1(a.film_thickness, a.film_weight, b.film_thickness, b.film_weight),
         film_ior: merge1(a.film_ior, a.film_weight, b.film_ior, b.film_weight),
@@ -395,6 +414,48 @@ export const closureThinFilm = (c: Closure, thickness: number, ior: number): Clo
     film_thickness: clamp(thickness, 0, 2000),
     film_ior: Math.max(ior, 1),
 });
+
+/** `closure_glints`. */
+export const closureGlints = (
+    c: Closure,
+    cells: Vec3,
+    count: number,
+    roughness: number,
+): Closure => ({
+    ...c,
+    glint_cells: c3(cells),
+    glint_count: Math.max(count, 0),
+    glint_roughness: clamp(roughness, 0.02, 1),
+});
+
+/**
+ * `closure_glint_count`: o número de flocos alinhados entre `count`, cada um com a probabilidade `p`, para o sorteio
+ * `u` em [0, 1) — a Poisson de média `count · p` (até 24 termos) abaixo de 8, a normal de mesma média e variância
+ * acima disso.
+ */
+export function glintCount(count: number, p: number, u: number): number {
+    const mean = count * p;
+    if (mean >= 8) {
+        const q = clamp(Math.min(u, 1 - u), 1e-7, 0.5);
+        const t = Math.sqrt(-2 * Math.log(q));
+        const z =
+            (t
+                - (2.515517 + t * (0.802853 + t * 0.010328))
+                    / (1 + t * (1.432788 + t * (0.189269 + t * 0.001308))))
+            * (u > 0.5 ? 1 : -1);
+        return clamp(Math.round(mean + Math.sqrt(mean * (1 - p)) * z), 0, count);
+    }
+    let term = Math.exp(-mean);
+    let cdf = term;
+    let k = 0;
+    for (let i = 1; i <= 24; i++) {
+        if (u < cdf) break;
+        k = i;
+        term *= mean / k;
+        cdf += term;
+    }
+    return Math.min(k, count);
+}
 
 /** `closure_opacity`. */
 export const closureOpacity = (c: Closure, alpha: number): Closure => ({

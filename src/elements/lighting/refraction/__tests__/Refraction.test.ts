@@ -35,8 +35,15 @@ describe('Refraction (spec 034, T040)', () => {
             time: 0,
             checkerboard: 0,
             sample_origin: 0,
+            reflection: 1,
         });
         expect([r.enabled, r.maxInterfaces]).toEqual([true, REFRACTION_DEFAULT_INTERFACES]);
+        // O reflexo traçado dos opacos lisos: ligado por padrão, mudado sem tocar a refração.
+        expect(r.reflection).toBe(true);
+        expect(new Refraction({ reflection: false }).data.reflection).toBe(0);
+        r.reflection = false;
+        expect([r.data.reflection, r.enabled]).toEqual([0, true]);
+        r.reflection = true;
         expect(new Refraction({ enabled: false, maxInterfaces: 32 }).data).toMatchObject({
             enabled: 0,
             max_interfaces: REFRACTION_MAX_INTERFACES,
@@ -70,7 +77,7 @@ describe('Refraction (spec 034, T040)', () => {
             id: 'request',
             role: 'texture',
             allocation: 'onDemand',
-            textureShape: { format: 'rg32uint', sizeFromCanvas: true },
+            textureShape: { format: 'rgba32uint', sizeFromCanvas: true },
         });
         expect(byId.get('requestDepth')).toEqual({
             id: 'requestDepth',
@@ -115,7 +122,20 @@ describe('Refraction (spec 034, T040)', () => {
             textureShape: { format: 'rgba32uint', sizeFromCanvas: true, access: 'write-only' },
             history: { depth: 2 },
         });
-        expect(byId.size).toBe(12);
+        // O peso do reflexo dos opacos lisos (spec 011, T114) e a contagem das rodadas com caminho vivo.
+        expect(byId.get('reflectance')).toEqual({
+            id: 'reflectance',
+            role: 'texture',
+            allocation: 'onDemand',
+            textureShape: { format: 'rgba16float', sizeFromCanvas: true },
+        });
+        expect(byId.get('roundCount')).toMatchObject({
+            role: 'indirect',
+            count: 1,
+            upload: 'never',
+            allocation: 'onDemand',
+        });
+        expect(byId.size).toBe(14);
     });
 
     it('a C2 aloca só os parâmetros na inserção; os alvos quando pedidos, no tamanho do canvas, e recriados quando ele muda', async () => {
@@ -134,7 +154,7 @@ describe('Refraction (spec 034, T040)', () => {
         rs.ensureAllocated(r, 'request');
         const request = rs.textureOf(r, 'request')!;
         // O pedido é alvo de render do desenho e lido como textura pela fila.
-        expect([request.width, request.height, request.format]).toEqual([800, 600, 'rg32uint']);
+        expect([request.width, request.height, request.format]).toEqual([800, 600, 'rgba32uint']);
         expect(request.usage & GPUTextureUsage.RENDER_ATTACHMENT).toBeTruthy();
         expect(request.usage & GPUTextureUsage.TEXTURE_BINDING).toBeTruthy();
         const count = rs.ensureAllocated(r, 'queueCount')!;

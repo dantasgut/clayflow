@@ -18,3 +18,5 @@ export {
 } from './virtual/VirtualTextures';
 export { VirtualTextureFlow } from './virtual/VirtualTextureFlow';
 export type { VirtualColorSpace, VirtualWrap } from './virtual/layout';
+export { Materials, type MaterialFactory, type MaterialName } from './Materials';
+export { Displacements, type DisplacementFactory, type DisplacementName } from './Displacements';

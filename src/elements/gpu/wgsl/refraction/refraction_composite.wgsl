@@ -6,7 +6,8 @@
 // traçado, e a luz guardada do opaco de trás reiluminaria o histórico da resolução temporal (T065h) — o que muda no que
 // o vidro mostra quem diz é a máscara reativa. Sem pedido, nada muda. Nenhuma leitura da cor da cena: o que está atrás vem só do raio. Com o antisserrilhado temporal, a
 // cor traçada é a filtrada (`refraction_composite_denoised`).
-// Requer: refraction_screen, refraction, camera_space, scene_fog, REFRACTION_REQUEST_VALID, refraction_request,
+// Requer: refraction_screen, refraction, camera_space, scene_fog, REFRACTION_REQUEST_VALID, REFRACTION_REQUEST_REFLECT,
+// refraction_request,
 // refraction_radiance, refraction_request_depth.
 
 struct RefractionCompositeOut {
@@ -31,6 +32,8 @@ fn refraction_composed(px: vec2u, request: vec2u, traced: vec3f) -> RefractionCo
 fn refraction_composite_fs(@builtin(position) frag: vec4f) -> RefractionCompositeOut {
     let px = vec2u(frag.xy);
     let request = textureLoad(refraction_request, px, 0);
-    if ((request.y & REFRACTION_REQUEST_VALID) == 0u) { discard; }
+    // Só os pedidos dos transmissivos (o reflexo dos opacos soma-se à cor: `refraction_reflection_fs`), com a refração
+    // ligada.
+    if (refraction.enabled == 0u || (request.y & (REFRACTION_REQUEST_VALID | REFRACTION_REQUEST_REFLECT)) != REFRACTION_REQUEST_VALID) { discard; }
     return refraction_composed(px, request.xy, textureLoad(refraction_radiance, px, 0).rgb);
 }

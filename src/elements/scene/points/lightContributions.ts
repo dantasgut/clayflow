@@ -5,13 +5,17 @@ import type { SceneContribution } from '../../../scene/shaders/WgslPoint';
 import { sharedConstant } from '../../../scene/shaders/SharedConstant';
 import { NONE } from '../../../scene/shaders/engineConstants';
 import { poolLive } from '../../gpu/compute/shaders';
-import { closure, closureEval } from '../../material/pbr/shaders';
+import { constants } from '../../gpu/shaders/math';
+import { closure, closureArea, closureEval, subsurface } from '../../material/pbr/shaders';
 import { HemisphereLightSchema } from '../HemisphereLightSchema';
 import { Light } from '../Light';
 import { lightsResource } from '../resources';
 import {
+    lightThicknessReady,
     lightTransmissionReady,
     lightVisibilityReady,
+    sceneAmbientLightingPoint,
+    sceneTransmittedLightingPoint,
     sceneBackgroundPoint,
     sceneDirectLightingPoint,
     sceneEnvironmentPoint,
@@ -43,7 +47,10 @@ const hemisphereResource = wgslResource({
  * A luz que chega de uma fonte do pool a um ponto (spec 011; extraída na 033 para os acertos da iluminação global): a
  * direção para a luz, a radiância e a distância (`1e30` na direcional). A direcional sem queda (lux); a pontual e a spot
  * (candela) pelo inverso do quadrado com a janela suave até o alcance `(1 − (d/r)⁴)²`; a spot com a transição em
- * cosseno entre os cones. Radiância 0 fora do alcance.
+ * cosseno entre os cones. A de área retangular (cd/m²) vale aqui pelo centro dela: a intensidade luminosa do painel
+ * visto do ponto (a luminância pela área e pelo cosseno com a normal dele; zero atrás do painel), pelo inverso do
+ * quadrado — o que leem a luz rebatida, os acertos dos raios e a névoa; o desenho integra os lobos sobre o retângulo
+ * (`scene_lighting_rect`). Radiância 0 fora do alcance.
  */
 export const lightIncoming = wgslModule({
     name: 'light_incoming',
@@ -73,6 +80,10 @@ fn light_incoming(light: Light, p: vec3f) -> LightIncoming {
             let t = clamp((dot(-l, normalize(light.direction.xyz)) - cos_out) / max(cos_in - cos_out, 1e-4), 0.0, 1.0);
             radiance = radiance * t * t;
         }
+        if (light.kind == 3u) {
+            radiance = radiance * (4.0 * light.cones.x * light.cones.y)
+                * max(dot(-l, normalize(light.direction.xyz)), 0.0);
+        }
     }
     return LightIncoming(normalize(l), radiance, dist);
 }`,
@@ -81,6 +92,7 @@ fn light_incoming(light: Light, p: vec3f) -> LightIncoming {
 /**
  * As luzes do pool (`DirectionalLight` em lux, `PointLight` e `SpotLight` em candela) num laço sobre os slots vivos:
  * a luz que chega de cada uma (`light_incoming`), a sombra e o meio pelos pontos por luz, e a resposta do fechamento.
+ * As de área ficam com `scene_lighting_rect`.
  */
 const poolLights = wgslModule({
     name: 'scene_lighting_pool',
@@ -99,7 +111,7 @@ const poolLights = wgslModule({
     var sum = vec3f(0.0);
     let count = min(arrayLength(&lights), LIGHT_LIMIT);
     for (var i = 0u; i < count; i++) {
-        if (!pool_live(light_live[i >> 5u], i)) { continue; }
+        if (!pool_live(light_live[i >> 5u], i) || lights[i].kind == 3u) { continue; }
         let inc = light_incoming(lights[i], p);
         if (all(inc.radiance <= vec3f(0.0))) { continue; }
         let radiance = inc.radiance * light_visibility(i, p, n) * light_transmission(i, p);
@@ -109,15 +121,121 @@ const poolLights = wgslModule({
 }`,
 });
 
-/** O hemisfério céu/chão (radiâncias × intensidade), pelo ponto de transmissão com a luz ambiente (`NONE`). */
-const hemisphereLight = wgslModule({
-    name: 'scene_lighting_hemisphere',
-    requires: [closure, closureEval, NONE.module, hemisphereResource, lightTransmissionReady],
+/**
+ * As luzes de área retangulares do pool (`RectLight`, spec 011, R19) num laço sobre os slots vivos: a resposta do
+ * fechamento com cada lobo integrado sobre o retângulo (`closure_area_eval`), a radiância do painel (a luminância pela
+ * cor) com a janela do alcance pelo centro dele, e a sombra e o meio pelos pontos por luz.
+ */
+const rectLights = wgslModule({
+    name: 'scene_lighting_rect',
+    requires: [
+        closure,
+        closureArea,
+        poolLive,
+        LIGHT_LIMIT.module,
+        lightsResource,
+        lightLiveResource,
+        lightVisibilityReady,
+        lightTransmissionReady,
+    ],
     source: `fn scene_direct_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    var sum = vec3f(0.0);
+    let count = min(arrayLength(&lights), LIGHT_LIMIT);
+    for (var i = 0u; i < count; i++) {
+        if (!pool_live(light_live[i >> 5u], i) || lights[i].kind != 3u) { continue; }
+        let light = lights[i];
+        var radiance = light.color.rgb * light.intensity;
+        if (light.range > 0.0) {
+            let ratio = distance(light.position.xyz, p) / light.range;
+            let fade = clamp(1.0 - ratio * ratio * ratio * ratio, 0.0, 1.0);
+            radiance *= fade * fade;
+        }
+        if (all(radiance <= vec3f(0.0))) { continue; }
+        let normal = normalize(light.direction.xyz);
+        let ax = normalize(light.axis.xyz - normal * dot(normal, light.axis.xyz));
+        let rect = ClosureAreaRect(light.position.xyz, ax, cross(normal, ax), normal, light.cones.xy);
+        sum += closure_area_eval(c, n, v, p, rect, radiance * light_visibility(i, p, n) * light_transmission(i, p));
+    }
+    return sum;
+}`,
+});
+
+/**
+ * A luz das fontes do pool que atravessa o corpo até um ponto com subsuperfície (spec 011, T113): de cada luz do lado
+ * oposto à normal cuja espessura atravessada é conhecida (`light_thickness`: a do mapa de sombra dela), a irradiância
+ * na superfície de entrada (a radiância pelo cosseno lá) atenuada pelo perfil de difusão do fechamento nessa espessura
+ * (`subsurface_transmission`, por canal), sobre π.
+ */
+const poolTransmitted = wgslModule({
+    name: 'scene_transmitted_lighting_pool',
+    requires: [
+        constants,
+        closure,
+        subsurface,
+        poolLive,
+        LIGHT_LIMIT.module,
+        lightsResource,
+        lightLiveResource,
+        lightIncoming,
+        lightThicknessReady,
+        lightTransmissionReady,
+    ],
+    source: `fn scene_transmitted_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    if (c.subsurface_weight <= 0.0) { return vec3f(0.0); }
+    let d = subsurface_length(c);
+    var sum = vec3f(0.0);
+    let count = min(arrayLength(&lights), LIGHT_LIMIT);
+    for (var i = 0u; i < count; i++) {
+        if (!pool_live(light_live[i >> 5u], i)) { continue; }
+        let inc = light_incoming(lights[i], p);
+        if (all(inc.radiance <= vec3f(0.0)) || dot(n, inc.l) >= 0.0) { continue; }
+        let through = light_thickness(i, p, n);
+        if (through.x < 0.0) { continue; }
+        sum = sum + inc.radiance * light_transmission(i, p) * (through.y / PI)
+            * subsurface_transmission(through.x, d);
+    }
+    return sum;
+}`,
+});
+
+/**
+ * Contribuição das luzes do pool ao ponto `scene_transmitted_lighting` (spec 011, T113): a luz que atravessa as partes
+ * finas dos materiais com subsuperfície. Declarada pelas luzes que projetam sombra (as que conhecem a espessura).
+ */
+export const poolTransmittedContribution: SceneContribution = {
+    point: sceneTransmittedLightingPoint,
+    order: 0,
+    pools: [Light.schema],
+    build: () => poolTransmitted,
+};
+
+/** O hemisfério céu/chão (radiâncias × intensidade), pelo ponto de transmissão com a luz ambiente (`NONE`). */
+const hemisphereLighting = wgslModule({
+    name: 'hemisphere_lighting',
+    requires: [closure, closureEval, NONE.module, hemisphereResource, lightTransmissionReady],
+    source: `fn hemisphere_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
     let k = hemisphere.intensity;
     let up = normalize(hemisphere.up.xyz);
     return closure_ambient(c, n, v, hemisphere.skyColor.rgb * k, hemisphere.groundColor.rgb * k, up)
         * light_transmission(NONE, p);
+}`,
+});
+
+/** O hemisfério no desenho (`scene_direct_lighting`). */
+const hemisphereLight = wgslModule({
+    name: 'scene_lighting_hemisphere',
+    requires: [closure, hemisphereLighting],
+    source: `fn scene_direct_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    return hemisphere_lighting(c, p, n, v);
+}`,
+});
+
+/** O hemisfério nos acertos dos raios (`scene_ambient_lighting`): a mesma luz do desenho. */
+const hemisphereRayLight = wgslModule({
+    name: 'scene_ambient_lighting_hemisphere',
+    requires: [closure, hemisphereLighting],
+    source: `fn scene_ambient_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    return hemisphere_lighting(c, p, n, v);
 }`,
 });
 
@@ -144,12 +262,34 @@ export const poolLightContribution: SceneContribution = {
     },
 };
 
+/**
+ * Contribuição das luzes de área (`RectLight`, spec 011, R19) ao ponto `scene_direct_lighting`: o laço delas, uma vez,
+ * depois do das outras luzes do pool.
+ */
+export const rectLightContribution: SceneContribution = {
+    point: sceneDirectLightingPoint,
+    order: 1,
+    pools: [Light.schema],
+    build: () => rectLights,
+};
+
 /** Contribuição do hemisfério (spec 011, R7) ao ponto `scene_direct_lighting`, depois das luzes do pool. */
 export const hemisphereContribution: SceneContribution = {
     point: sceneDirectLightingPoint,
     order: 10,
     pools: [],
     build: () => hemisphereLight,
+};
+
+/**
+ * Contribuição do hemisfério ao ponto `scene_ambient_lighting`: a luz ambiente dele nos pontos opacos que os raios
+ * atingem (a refração), a mesma do desenho.
+ */
+export const hemisphereRayLightingContribution: SceneContribution = {
+    point: sceneAmbientLightingPoint,
+    order: 10,
+    pools: [],
+    build: () => hemisphereRayLight,
 };
 
 /** O hemisfério como radiância média de todas as direções (céu e chão, metade cada), pelo meio da luz ambiente. */

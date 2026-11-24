@@ -14,6 +14,7 @@ export const LOBES = {
     anisotropy: 256,
     opacity: 512,
     translucent: 1024,
+    glint: 2048,
 } as const;
 
 /** Nome de um lobo. */

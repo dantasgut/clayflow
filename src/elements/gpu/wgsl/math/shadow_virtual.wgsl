@@ -83,9 +83,24 @@ fn sv_table_word(m: ShadowMatrix, slot: vec2u) -> u32 {
     return (slot.y * m.pagesPerLevel + slot.x) * 4u;
 }
 
-/** Palavra do pedido da entrada `slot` (de `sv_slot`) no buffer dos pedidos. */
+/**
+ * Primeira palavra do pedido da entrada `slot` (de `sv_slot`) no buffer dos pedidos — duas por página virtual: a menor
+ * e a maior profundidade (espaço da luz, na ordem de `sv_order`) dos pontos que a pediram; sem pedido, a maior é 0. Com
+ * a faixa de profundidade, o pedido de um quadro vale no referencial de outro (a luz que mudou de direção): a página
+ * pedida é um prisma do mundo, não só um retângulo do plano da luz.
+ */
 fn sv_request_word(m: ShadowMatrix, slot: vec2u) -> u32 {
-    return slot.y * m.pagesPerLevel + slot.x;
+    return (slot.y * m.pagesPerLevel + slot.x) * 2u;
+}
+
+/** O `f32` em `u32` na mesma ordem (o mínimo e o máximo atômicos dos inteiros valem para os reais); nunca 0 num finito. */
+fn sv_order(f: f32) -> u32 {
+    let b = bitcast<u32>(f);
+    return select(b | 0x80000000u, ~b, (b & 0x80000000u) != 0u);
+}
+
+fn sv_unorder(u: u32) -> f32 {
+    return bitcast<f32>(select(~u, u & 0x7FFFFFFFu, (u & 0x80000000u) != 0u));
 }
 
 /** Primeira palavra das páginas físicas no atlas, depois da tabela (todos os níveis reservados). */

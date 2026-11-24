@@ -22,8 +22,12 @@ export const REFRACTION_MAX_INTERFACES = 32;
  */
 export const REFRACTION_FRAME_COUNT = sharedConstant('REFRACTION_FRAME_COUNT', 8, 'u32');
 
-/** Formato do pedido por pixel: a distância da câmera à primeira interface (bits de f32) e as marcas. */
-export const REFRACTION_REQUEST_FORMAT: GPUTextureFormat = 'rg32uint';
+/**
+ * Formato do pedido por pixel: x a distância da câmera à primeira superfície (bits de f32), y as marcas e, nos pedidos
+ * de reflexo (`REFRACTION_REQUEST_REFLECT`), z a direção refletida e w a normal geométrica da superfície, cada uma em
+ * coordenadas octaédricas de 16 + 16 bits.
+ */
+export const REFRACTION_REQUEST_FORMAT: GPUTextureFormat = 'rgba32uint';
 /** Marcas do pedido (palavra y): há pedido; a primeira interface é uma face de trás (a câmera dentro do meio). */
 export const REFRACTION_REQUEST_VALID = sharedConstant('REFRACTION_REQUEST_VALID', 1, 'u32');
 export const REFRACTION_REQUEST_BACK_FACE = sharedConstant(
@@ -31,6 +35,17 @@ export const REFRACTION_REQUEST_BACK_FACE = sharedConstant(
     2,
     'u32',
 );
+/**
+ * Marca do pedido de reflexo (spec 011, T114): a primeira superfície do pixel é opaca com um lobo especular liso — o
+ * caminho parte dela na direção refletida, e a radiância traçada soma-se à cor do desenho pelo peso do lobo
+ * (`reflectance`) em vez de substituí-la.
+ */
+export const REFRACTION_REQUEST_REFLECT = sharedConstant('REFRACTION_REQUEST_REFLECT', 4, 'u32');
+/**
+ * Formato do peso do reflexo traçado (`reflectance`): rgb o que os lobos lisos do fechamento devolvem a quem vê por
+ * unidade de radiância que chega pela direção refletida, com a névoa até o ponto.
+ */
+export const REFRACTION_REFLECTANCE_FORMAT: GPUTextureFormat = 'rgba16float';
 /** Formato da radiância traçada (a transmitida mais a refletida na primeira interface; no alfa, a energia truncada). */
 export const REFRACTION_RADIANCE_FORMAT: GPUTextureFormat = 'rgba16float';
 /**
@@ -72,6 +87,11 @@ export interface RefractionValues {
      * luminância dela vai para o alfa de `radiance`, por pixel).
      */
     readonly maxInterfaces?: number;
+    /**
+     * Liga o reflexo traçado dos opacos lisos (o metal polido, o verniz, o plástico brilhante). Default `true`; só há
+     * traçado numa cena com a estrutura de raios (`RayScene`).
+     */
+    readonly reflection?: boolean;
 }
 
 /** Dado de um `Refraction` (layout de `Refraction.schema`). */
@@ -95,6 +115,8 @@ export interface RefractionData {
      * desde ele, como a sequência das posições da amostra, que recomeça no corte (T075).
      */
     sample_origin: number;
+    /** 1: o reflexo dos opacos lisos é traçado; 0: vem da luz indireta da cena. */
+    reflection: number;
 }
 
 /**
@@ -124,6 +146,9 @@ function validate(d: RefractionData): void {
  * O raster só escolhe os pixels: o valor traçado é o do raio do pixel, também na borda. Os alvos têm o tamanho do
  * canvas e são alocados sob demanda, por
  * quem desenha um transmissivo ou por quem os lê. Desligada, os transmissivos usam só a reflexão traçada e a opacidade.
+ * O mesmo traçado serve ao reflexo dos opacos lisos (`reflection`, spec 011, T114): o desenho marca os pixels deles com
+ * `REFRACTION_REQUEST_REFLECT`, a direção refletida e o peso do lobo (`reflectance`); o caminho parte da superfície e a
+ * composição soma a radiância dele à cor do desenho.
  * Um por cena; mudar valores vale no quadro seguinte, sem recompilar.
  */
 export class Refraction extends Entity<RefractionData> implements Resource {
@@ -139,6 +164,7 @@ export class Refraction extends Entity<RefractionData> implements Resource {
             time: FieldType.f32,
             checkerboard: FieldType.u32,
             sample_origin: FieldType.u32,
+            reflection: FieldType.u32,
         },
         { addressSpace: 'uniform' },
     );
@@ -156,6 +182,7 @@ export class Refraction extends Entity<RefractionData> implements Resource {
             time: 0,
             checkerboard: 0,
             sample_origin: 0,
+            reflection: values.reflection === false ? 0 : 1,
         };
         validate(data);
         this.data = data;
@@ -168,6 +195,19 @@ export class Refraction extends Entity<RefractionData> implements Resource {
 
     set enabled(on: boolean) {
         this.data.enabled = on ? 1 : 0;
+    }
+
+    /**
+     * O reflexo traçado dos opacos lisos (spec 011, T114): com a estrutura de raios na cena, o pixel de um opaco com um
+     * lobo especular liso (rugosidade abaixo de 0,2: o metal polido, o verniz, o plástico brilhante) pede um raio na
+     * direção refletida, e o que ele acha soma-se à cor do desenho no lugar da luz indireta da cena naquele lobo.
+     */
+    get reflection(): boolean {
+        return this.data.reflection === 1;
+    }
+
+    set reflection(on: boolean) {
+        this.data.reflection = on ? 1 : 0;
     }
 
     /** Interfaces por caminho, em 1–32. */
@@ -226,6 +266,14 @@ export class Refraction extends Entity<RefractionData> implements Resource {
                 allocation: 'onDemand',
                 textureShape: { format: 'depth24plus', sizeFromCanvas: true },
             },
+            // O peso do reflexo traçado dos opacos lisos (alvo de render do pedido de reflexo; sob demanda, por quem
+            // desenha um opaco liso).
+            {
+                id: 'reflectance',
+                role: 'texture',
+                allocation: 'onDemand',
+                textureShape: { format: REFRACTION_REFLECTANCE_FORMAT, sizeFromCanvas: true },
+            },
             target('radiance', REFRACTION_RADIANCE_FORMAT),
             // Série temporal (spec 037): o ponto de agora e o do quadro anterior (quem mede o quanto a imagem que a água
             // ou o vidro levam andou: o movimento da refração).
@@ -243,6 +291,16 @@ export class Refraction extends Entity<RefractionData> implements Resource {
             target('queue', REFRACTION_QUEUE_FORMAT),
             {
                 id: 'queueCount',
+                role: 'indirect',
+                schema: SetCountSchema,
+                count: 1,
+                upload: 'never',
+                allocation: 'onDemand',
+            },
+            // As rodadas do traçado ao fim das quais ainda havia caminho vivo no quadro (escrita pela GPU; o estágio a lê
+            // de volta para despachar só as rodadas que os caminhos usam).
+            {
+                id: 'roundCount',
                 role: 'indirect',
                 schema: SetCountSchema,
                 count: 1,

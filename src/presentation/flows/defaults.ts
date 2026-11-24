@@ -11,7 +11,8 @@ import { RefractionDenoiseFlow } from './RefractionDenoiseFlow';
 import { RefractionMotionFlow } from './RefractionMotionFlow';
 import { RayScene } from '../../elements/raytrace/RayScene';
 import { MaterialFunction } from '../../elements/extension/MaterialFunction';
-import { TRANSMISSIVE_LOBES } from '../../elements/material/pbr/lobes';
+import { LOBES, TRANSMISSIVE_LOBES } from '../../elements/material/pbr/lobes';
+import { Subsurface } from '../../elements/lighting/subsurface/Subsurface';
 import type { Resource } from '../../scene/contracts/Resource';
 import { ForwardFlow } from './ForwardFlow';
 import { ParticleFlow } from './ParticleFlow';
@@ -186,6 +187,7 @@ export function registerPresentationDefaults(
                   const offs = [
                       swapAmbientForGi(options.world, events, ambient, frameTargets),
                       raySceneForTransmissives(options.world, events, renderer),
+                      subsurfaceForScattering(options.world, events, renderer),
                       warnRaySceneUnsupported(options.world, events, renderer),
                       followRenderer(options.world, events, renderer),
                   ];
@@ -233,6 +235,8 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     entry.world.remove(entry.renderer);
     const caustics = entry.renderer.causticsResource;
     if (entry.world.entityIdOfResource(caustics) !== undefined) entry.world.remove(caustics);
+    const subsurface = entry.renderer.subsurfaceResource;
+    if (entry.world.entityIdOfResource(subsurface) !== undefined) entry.world.remove(subsurface);
     entry.world.remove(entry.fluidField);
     entry.world.remove(entry.froxels);
     entry.world.remove(entry.frameTargets);
@@ -260,6 +264,31 @@ function raySceneForTransmissives(
                 world.insert(new RayScene());
             if (world.queryBySchemaName(Caustics.schema.name).length === 0)
                 world.insert(renderer.causticsResource);
+            return;
+        }
+    };
+    for (const record of world.allRecords()) ensure(record.resources);
+    return events.on('resourcesChanged', (e) => {
+        ensure(e.added);
+    });
+}
+
+/**
+ * O espalhamento sob a superfície por evento (spec 011, T113): a entrada de uma função `material` com o lobo de
+ * subsuperfície (pele, cera, mármore) — ou uma já na cena — insere o `Subsurface` do renderizador, se a cena não tem
+ * (os alvos e os pipelines são do desenho, só com um desses materiais). Sem um deles, nada entra. Devolve o
+ * cancelamento.
+ */
+function subsurfaceForScattering(
+    world: World,
+    events: EventBus,
+    renderer: SceneRenderer,
+): () => void {
+    const ensure = (resources: Iterable<Resource>): void => {
+        for (const r of resources) {
+            if (!(r instanceof MaterialFunction) || (r.lobeMask & LOBES.subsurface) === 0) continue;
+            if (world.queryBySchemaName(Subsurface.schema.name).length === 0)
+                world.insert(renderer.subsurfaceResource);
             return;
         }
     };

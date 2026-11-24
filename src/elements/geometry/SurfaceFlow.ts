@@ -46,9 +46,11 @@ import { Transform } from '../scene/Transform';
 import { geometryViewDescriptor, type GeometryView } from './GeometryView';
 import { SpaceFunction } from '../extension/SpaceFunction';
 import { SurfaceFunction } from '../extension/SurfaceFunction';
+import { DisplacementFunction } from '../extension/DisplacementFunction';
 import { ParametricSurface, SURFACE_PRESET_INDEX, type AdaptiveConfig } from './ParametricSurface';
 import { SurfaceAdaptParamsSchema, SurfaceDiffSchema, SurfaceParamsSchema } from './SurfaceSchemas';
 import {
+    displacementPoint,
     SURFACE_VIEW_LEVELS_SLOT,
     surfaceAdapt,
     surfaceAdaptLight,
@@ -93,6 +95,8 @@ export interface SurfaceSlots extends SlotMap {
     readonly surfaces: EntitiesSlot;
     /** Superfícies com `SurfaceFunction` (registros nos pools das formas, spec 031). */
     readonly functions: EntitiesSlot;
+    /** Superfícies com `DisplacementFunction` (spec 011: os vértices deslocados pela altura dela). */
+    readonly displacements: EntitiesSlot;
     /** Funções `space` da cena (com alguma: avaliação a cada quadro). */
     readonly spaces: EntitiesSlot;
     /** Relógio da cena (opcional; sem ele, tempo 0). */
@@ -217,14 +221,16 @@ interface SurfaceState {
  * SurfaceFlow — superfícies paramétricas avaliadas na GPU (spec 009): para cada `ParametricSurface`, o kernel
  * `surface_eval` escreve posição, normal e uv da grade a partir da função `surface` da entidade (`SurfaceFunction`, com
  * derivadas analíticas quando ela as define) ou da superfície pronta, com o espaço da cena (`SpaceFunction`, composto
- * pela C2). Avalia quando a superfície entra ou muda, quando a função muda (valores ou código) e a cada quadro com
- * `animated` ou com espaço na cena. A função nova vale quando o pipeline compila; rejeitada, segue a anterior.
+ * pela C2). Com `DisplacementFunction` na entidade (spec 011), cada vértice é movido ao longo da normal pela altura
+ * dela (o ponto `displacement`), com o passo da malha como largura do filtro. Avalia quando a superfície entra ou muda,
+ * quando uma função muda (valores ou código) e a cada quadro com `animated` ou com espaço na cena. A função nova vale
+ * quando o pipeline compila; rejeitada, segue a anterior.
  */
 export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
     readonly type = 'SurfaceFlow';
     readonly slots: SurfaceSlots;
     /** Os registros de todas as formas das funções `surface` (spec 031, R8) e os vértices das superfícies. */
-    override readonly listens = [surfacePoint, ParametricSurface.vertexStruct];
+    override readonly listens = [surfacePoint, displacementPoint, ParametricSurface.vertexStruct];
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
@@ -271,6 +277,7 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                 owns: [[ParametricSurface, 'vertices']],
             }),
             functions: slot.entities({ all: [ParametricSurface, SurfaceFunction] }),
+            displacements: slot.entities({ all: [ParametricSurface, DisplacementFunction] }),
             spaces: slot.entities({ all: [SpaceFunction] }),
             time: slot.singleton(Time.schema, { optional: true }),
             diffs: slot.pool(SurfaceDiffSchema.name, { optional: true }),
@@ -493,9 +500,10 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
         surfaceKey: string,
         impls: Map<BindablePoint, WgslModule>,
         extra: Record<string, unknown>,
+        produce: boolean,
     ): void {
         const a = surface.adaptive;
-        const views = a === undefined ? [] : surface.views;
+        const views = a === undefined || !produce ? [] : surface.views;
         st.viewsKey = viewsKeyOf(surface);
         const wanted = new Set(views.map((v) => v.key));
         for (const [k, v] of [...st.views]) {
@@ -665,7 +673,7 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
     private sync(ctx: Ctx): void {
         if (!this.dirty) return;
         this.dirty = false;
-        const { surfaces, functions, spaces, diffs } = ctx.bound.slots;
+        const { surfaces, functions, displacements, spaces, diffs } = ctx.bound.slots;
         const spaced = spaces.entries.length > 0;
         const present = new Set<EntityId>();
         for (const entry of surfaces.entries) {
@@ -705,6 +713,8 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
             st.stale = true;
             const fn = functions.entry(id)?.get(SurfaceFunction);
             const module = fn?.module;
+            // O deslocamento (spec 011): a função da entidade no lugar do pronto (zero).
+            const displaced = displacements.entry(id)?.get(DisplacementFunction);
             const surface = entry.get(ParametricSurface);
             // Jato da geometria diferencial: do mapa com o espaço, analítico, das prontas ou numérico.
             const jet = !surface.differential
@@ -716,7 +726,7 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                     : fn.analytic2
                       ? surfaceJetAnalytic
                       : undefined;
-            const key = `${module?.name ?? 'preset'}|${surface.differential ? (jet?.name ?? 'numeric') : '-'}`;
+            const key = `${module?.name ?? 'preset'}|${surface.differential ? (jet?.name ?? 'numeric') : '-'}|${displaced?.module.name ?? '-'}`;
             const adaptive = surface.adaptive !== undefined;
             const emitId = `surface_eval:${id}:${key}${adaptive ? '#emit' : ''}`;
             const next: PipelineVariant = {
@@ -751,9 +761,13 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                 ]);
                 if (fn?.analytic === true) impls.set(surfaceTangents, surfaceTangentsAnalytic);
                 if (jet !== undefined) impls.set(surfaceJet, jet);
+                if (displaced !== undefined) impls.set(displacementPoint, displaced.module);
                 const shader =
-                    fn === undefined && jet === undefined ? base : bindPoints(base, impls);
-                const extra = fn === undefined ? {} : { verify: true, extensions: [fn] };
+                    fn === undefined && jet === undefined && displaced === undefined
+                        ? base
+                        : bindPoints(base, impls);
+                const extensions = [fn, displaced].filter((e) => e !== undefined);
+                const extra = extensions.length === 0 ? {} : { verify: true, extensions };
                 if (adaptive) {
                     // As quatro passadas compartilham o shader; a de emissão é a principal (marca a compilação).
                     return ADAPT_ENTRIES.map(
@@ -781,6 +795,9 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
             if (fn !== undefined) viewImpls.set(surfacePoint, fn.module);
             if (fn?.analytic === true) viewImpls.set(surfaceTangents, surfaceTangentsAnalytic);
             if (jet !== undefined) viewImpls.set(surfaceJet, jet);
+            // A superfície deslocada (spec 011) não produz as vistas: o critério delas mede a superfície sem o relevo
+            // (um plano deslocado pediria o nível 0), e a malha da vista da luz, mais grossa, ficaria acima dos sulcos
+            // da malha da câmera — sombra em manchas. Quem pediu a vista segue com a malha de sempre.
             this.syncViews(
                 ctx,
                 st,
@@ -788,6 +805,7 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                 key,
                 viewImpls,
                 fn === undefined ? {} : { verify: true, extensions: [fn] },
+                displaced === undefined,
             );
         }
         for (const [id, st] of [...this.states]) {
@@ -868,7 +886,7 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
 
     /** Decide quem avalia neste quadro e escreve os parâmetros deles. */
     private writeParams(ctx: Ctx): void {
-        const { surfaces, functions, spaces, time, diffs, camera, cameras, worlds } =
+        const { surfaces, functions, displacements, spaces, time, diffs, camera, cameras, worlds } =
             ctx.bound.slots;
         const cameraId =
             camera === undefined ? undefined : this.world.entityIdOfResource(camera.resource);
@@ -924,6 +942,11 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
             const fn = functions.entry(st.id)?.get(SurfaceFunction);
             const record =
                 fn === undefined ? undefined : this.resources.poolSlotOf(fn.record.name, st.id);
+            const displaced = displacements.entry(st.id)?.get(DisplacementFunction);
+            const displacement =
+                displaced === undefined
+                    ? undefined
+                    : this.resources.poolSlotOf(displaced.record.name, st.id);
             const [u0, u1, v0, v1] = d.domain;
             this.resources.writeNow(
                 this.work,
@@ -947,6 +970,7 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                         d.params[2] ?? 0,
                         d.params[3] ?? 0,
                     ],
+                    displacement_slot: displacement ?? 0,
                 }),
             );
         }

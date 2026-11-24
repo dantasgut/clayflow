@@ -14,6 +14,7 @@ import { CloudLayer } from '../media/clouds/CloudLayer';
 import type { CloudQuality } from '../media/clouds/schemas';
 import { SHADOW_PENUMBRA_SAMPLES, type ShadowMap } from '../scene/ShadowMap';
 import { Refraction } from '../lighting/refraction/Refraction';
+import { Subsurface } from '../lighting/subsurface/Subsurface';
 import { TemporalFilter } from '../lighting/temporal/TemporalFilter';
 import { TemporalAntialiasing, type AntialiasingMode } from '../scene/TemporalAntialiasing';
 
@@ -42,6 +43,8 @@ interface ProfileValues {
     readonly penumbraSamples: number;
     /** A qualidade das nuvens (spec 041, R15). */
     readonly clouds: CloudQuality;
+    /** Amostras por pixel do perfil de difusão da subsuperfície (spec 011, T113; cada pixel recebe 16 vezes isso). */
+    readonly subsurfaceSamples: number;
 }
 
 const giOf = (q: keyof typeof GI_QUALITY): ProfileValues['globalIllumination'] => {
@@ -85,6 +88,7 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
             scatter: { size: [160, 32, 160], budget: 200, motion: 40, collisions: 48 },
             marchScale: 2,
         },
+        subsurfaceSamples: 16,
     },
     // O xadrez no médio e no baixo: parado, 1,6 % dos pixels diferem da imagem sem ele (nas bordas), acima do limite da
     // SC-010 — aceito pelo usuário em 2026-10-31 pelos 4–5 ms.
@@ -110,6 +114,7 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
             scatter: { size: [128, 24, 128], budget: 96, motion: 24, collisions: 32 },
             marchScale: 2,
         },
+        subsurfaceSamples: 12,
     },
     // Teto 4: com 3, o caminho vidro → água → vidro não fecha e a energia restante vira preto (medido no tanque). As
     // cáusticas ficam em todo perfil (decisão do usuário): o baixo só tem menos fótons.
@@ -137,6 +142,7 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
             // a 1/16 da tela (a marcha a 1/64 por quadro).
             marchScale: 4,
         },
+        subsurfaceSamples: 8,
     },
 };
 
@@ -152,6 +158,13 @@ export interface RendererOptions {
 export interface LightPaths {
     /** A refração traçada ligada (os transmissivos mostram o que está atrás pelo traçado). */
     refraction: boolean;
+    /**
+     * O reflexo traçado dos opacos lisos ligado (spec 011, T114; default `true`): numa cena com a estrutura de raios
+     * (`RayScene`: a da luz global ou a dos transmissivos), o metal polido, o verniz e o plástico brilhante mostram o
+     * reflexo nítido do céu, do chão e dos vizinhos — um raio por pixel onde o lobo é liso. Desligado ou sem a
+     * estrutura, o lobo fica com a luz indireta da cena (as sondas, o hemisfério).
+     */
+    reflection: boolean;
     /** Interfaces de transmissão cruzadas por caminho, em 1–32. */
     transmission: number;
     /** A luz global ligada (a `GlobalIllumination` da cena roda; desligada aqui, não roda mesmo ligada nela). */
@@ -207,6 +220,17 @@ export interface CausticsSettings {
     interval: number;
 }
 
+/** O espalhamento sob a superfície (os materiais com `bsdf.subsurface`: pele, cera, mármore; spec 011, T113). */
+export interface SubsurfaceSettings {
+    /** A difusão entre pixels e a luz que atravessa as partes finas ligadas (desligadas, o lobo responde só no ponto). */
+    enabled: boolean;
+    /**
+     * Amostras do perfil por pixel, em 1–64 (o custo do passe cresce com elas). Os conjuntos se repetem a cada 4 × 4 pixels
+     * e a soma à cor faz a média do bloco: com menos amostras, a luz difundida perde detalhe fino.
+     */
+    samples: number;
+}
+
 /**
  * Renderer — a configuração do desenho de uma cena num lugar só (spec 039, FR-010/FR-011): os caminhos de luz, as
  * cáusticas, a luz global, a névoa, as sombras (spec 034, T079), o antisserrilhado, o filtro temporal e o perfil de
@@ -216,7 +240,7 @@ export interface CausticsSettings {
  *
  * Uma entidade com as partes que os estágios leem pelos slots (`TemporalAntialiasing`, `TemporalFilter`, `Refraction`);
  * as `Caustics` entram na cena com o primeiro transmissivo (os estágios padrão as inserem; sem transmissivo, a luz
- * global não muda). Os estágios padrão inserem um por cena; a C4 acrescenta a saída e os alvos do quadro.
+ * global não muda) e o `Subsurface` com o primeiro material com subsuperfície. Os estágios padrão inserem um por cena; a C4 acrescenta a saída e os alvos do quadro.
  */
 export class Renderer extends Entity {
     /** Antisserrilhado da cena: o modo e a sequência das posições da amostra dentro do pixel. */
@@ -239,6 +263,10 @@ export class Renderer extends Entity {
     readonly refractionResource: Refraction;
     /** @internal O Resource que os estágios de cáusticas leem (inserido com o primeiro transmissivo). */
     readonly causticsResource: Caustics;
+    /** O espalhamento sob a superfície. */
+    readonly subsurface: SubsurfaceSettings;
+    /** @internal O Resource que o desenho lê (inserido com o primeiro material com subsuperfície). */
+    readonly subsurfaceResource: Subsurface;
     #profile: RenderProfile;
     /** Os valores da luz global, da névoa e das sombras (empurrados aos recursos adotados). */
     #gi: Record<GlobalIlluminationProfileField, number> = giOf('high');
@@ -257,9 +285,11 @@ export class Renderer extends Entity {
         this.temporalFilter = new TemporalFilter();
         this.refractionResource = new Refraction();
         this.causticsResource = new Caustics();
+        this.subsurfaceResource = new Subsurface();
         this.add(this.antialiasing).add(this.temporalFilter).add(this.refractionResource);
         const refraction = this.refractionResource;
         const caustics = this.causticsResource;
+        const subsurface = this.subsurfaceResource;
         // eslint-disable-next-line @typescript-eslint/no-this-alias -- os acessores dos grupos leem o estado privado.
         const self = this;
         this.lightPaths = {
@@ -268,6 +298,12 @@ export class Renderer extends Entity {
             },
             set refraction(on: boolean) {
                 refraction.enabled = on;
+            },
+            get reflection() {
+                return refraction.reflection;
+            },
+            set reflection(on: boolean) {
+                refraction.reflection = on;
             },
             get transmission() {
                 return refraction.maxInterfaces;
@@ -377,6 +413,20 @@ export class Renderer extends Entity {
                 caustics.interval = n;
             },
         };
+        this.subsurface = {
+            get enabled() {
+                return subsurface.enabled;
+            },
+            set enabled(on: boolean) {
+                subsurface.enabled = on;
+            },
+            get samples() {
+                return subsurface.samples;
+            },
+            set samples(n: number) {
+                subsurface.samples = n;
+            },
+        };
         this.#profile = options.profile ?? 'high';
         this.apply(RENDER_PROFILES[this.#profile]);
     }
@@ -405,6 +455,7 @@ export class Renderer extends Entity {
         this.caustics.photons = values.photons;
         this.tracing.checkerboard = values.checkerboard;
         this.caustics.interval = values.causticsInterval;
+        this.subsurface.samples = values.subsurfaceSamples;
         this.#gi = { ...values.globalIllumination };
         this.#froxels = values.froxels;
         this.#shadowResolution = values.shadowResolution;

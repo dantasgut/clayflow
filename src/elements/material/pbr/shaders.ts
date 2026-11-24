@@ -2,9 +2,11 @@ import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import closureSource from '../../gpu/wgsl/math/closure.wgsl?raw';
+import closureAreaSource from '../../gpu/wgsl/math/closure_area.wgsl?raw';
 import closureEvalSource from '../../gpu/wgsl/math/closure_eval.wgsl?raw';
+import subsurfaceSource from '../../gpu/wgsl/math/subsurface.wgsl?raw';
 import pbrDfgBuildSource from '../../gpu/wgsl/kernels/pbr_dfg_build.wgsl?raw';
-import { basis, bsdf, finite } from '../../gpu/shaders/math';
+import { basis, bsdf, constants, finite, random } from '../../gpu/shaders/math';
 import { materialPointTypes } from '../point/types/shaders';
 import { ClosureSchema } from './ClosureSchema';
 
@@ -18,6 +20,18 @@ export const closure = wgslModule({
     source: closureSource,
     requires: [materialPointTypes, finite],
     structs: [ClosureSchema],
+});
+
+/**
+ * Perfil de difusão da subsuperfície (spec 011, T113; Christensen e Burley 2015): o fator de forma pelo albedo, o
+ * comprimento por canal em unidades do mundo (o caminho livre médio em mm do fechamento pela escala do mundo), a
+ * densidade radial, a amostragem pela inversa exata e a transmissão pela espessura. Espelho f64 em
+ * `material/reference/subsurface.ts`.
+ */
+export const subsurface = wgslModule({
+    name: 'subsurface',
+    source: subsurfaceSource,
+    requires: [closure],
 });
 
 /** A tabela DFG do `PbrTables` (resolver `PbrTables.dfg`), lida pelo avaliador do fechamento. */
@@ -43,7 +57,18 @@ export const pbrSamplerResource = wgslResource({
 export const closureEval = wgslModule({
     name: 'closure_eval',
     source: closureEvalSource,
-    requires: [closure, bsdf, basis, pbrDfgResource, pbrSamplerResource],
+    requires: [closure, bsdf, basis, constants, random, pbrDfgResource, pbrSamplerResource],
+});
+
+/**
+ * A resposta do fechamento a uma luz de área retangular (spec 011, R19): `closure_area_eval` — cada lobo integrado sobre
+ * o retângulo emissor, por pixel e sem sorteio (os especulares pelas células de uma grade polar do lobo recortadas pelo
+ * retângulo; os largos por Gauss-Legendre). Espelho f64 da quadratura em `material/reference/areaLight.ts`.
+ */
+export const closureArea = wgslModule({
+    name: 'closure_area',
+    source: closureAreaSource,
+    requires: [closureEval, constants],
 });
 
 /** Saída do kernel da tabela DFG (a textura do `PbrTables`), privada do `PbrTablesFlow`. */

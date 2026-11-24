@@ -11,7 +11,8 @@
 // a dispersão começa e a roleta escolhe a transmissão, um caminho por canal dali em diante (T065g: o vidro meio dentro
 // da água; sortear o canal com o triplo do peso somava 2 ao ruído relativo). Cada trecho é absorvido no meio corrente
 // (Beer–Lambert). No acerto opaco: a emissão, a luz direta com raio de sombra (`ray_direct`) e a luz rebatida da cena
-// (`scene_indirect_lighting`: as sondas da GI, ou o hemisfério); no escape, o ambiente (`scene_environment`). Depois de
+// (`scene_indirect_lighting`: as sondas da GI) ou, sem ela, a luz ambiente sem oclusão (`scene_ambient_lighting`: o
+// hemisfério, o céu); no escape, o ambiente (`scene_environment`). Depois de
 // `max_interfaces` interfaces (ou de um meio além do teto da pilha) o caminho termina na estimativa da luz que chega ao
 // ponto de todas as direções (`scene_ambient`: as sondas da luz global, o hemisfério) — a energia não some na reflexão
 // interna total, ela segue presa na lâmina e sai por outro ponto, numa direção que o teto não deixa seguir; preto ali era
@@ -25,7 +26,7 @@
 // (`moving`: quem acumula o sinal encurta o histórico na proporção dela).
 // Os acertos são os de `refraction_scene` (a malha ou a superfície de um volume, a água das partículas: T065e).
 // Requer: NONE, refraction, refraction_interface, refraction_media, refraction_scene, ray_scene, ray_hit, camera_space,
-// ray_direct, closure_eval, scene_environment, scene_indirect_lighting, scene_ambient, ray_media_transmittance,
+// ray_direct, closure_eval, scene_environment, scene_indirect_lighting, scene_ambient_lighting, scene_ambient, ray_media_transmittance,
 // ray_volume_scatter, refraction_frame.
 
 /** Distância máxima dos raios. */
@@ -92,7 +93,10 @@ fn refraction_takes_interface(c: Closure, state: ptr<function, u32>) -> bool {
 fn refraction_shade(c: Closure, hit: RayHit, v: vec3f, seed: u32) -> vec4f {
     let n = select(hit.normal, -hit.normal, dot(hit.normal, v) < 0.0);
     let direct = ray_direct_marked(c, hit.position, n, v, refraction.light_count, seed);
-    return vec4f(closure_emitted(c, n, v) + direct.xyz + scene_indirect_lighting(c, hit.position, n, v), direct.w);
+    // A luz ambiente sem oclusão (`scene_ambient_lighting`: o hemisfério, o céu sem a iluminação global), como no desenho.
+    let ambient = scene_ambient_lighting(c, hit.position, n, v);
+    return vec4f(closure_emitted(c, n, v) + direct.xyz + ambient + scene_indirect_lighting(c, hit.position, n, v),
+        direct.w);
 }
 
 /** Pontos do espalhamento simples por trecho do caminho no meio (orçamento fixo por trecho). */

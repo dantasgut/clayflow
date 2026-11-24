@@ -12,7 +12,7 @@ export interface LightData {
     kind: number;
     /** Projeta sombra (1/0 no layout; booleano nos valores). */
     castShadow: number;
-    /** Intensidade: lux na direcional; candela na pontual e na spot (spec 011). */
+    /** Intensidade: lux na direcional; candela na pontual e na spot; cd/m² na de área (spec 011). */
     intensity: number;
     /** Alcance (pontual e spot): a luz vai a zero suavemente até ele; 0 = sem alcance. */
     range: number;
@@ -27,20 +27,28 @@ export interface LightData {
      * 0,00466 rad); zeros nas outras.
      */
     cones: number[];
+    /**
+     * Na luz de área retangular, o eixo da largura do retângulo (unitário, perpendicular à direção; as meias medidas
+     * em `cones`: `[meia largura, meia altura, 0, 0]`); zeros nas outras.
+     */
+    axis: number[];
 }
 
 /** Valores do construtor das luzes: os campos do dado exceto `kind`, com `castShadow` booleano. */
-export interface LightValues extends Partial<Omit<LightData, 'kind' | 'castShadow' | 'cones'>> {
+export interface LightValues extends Partial<
+    Omit<LightData, 'kind' | 'castShadow' | 'cones' | 'axis'>
+> {
     /** Projeta sombra (1/0 no layout; booleano nos valores). */
     castShadow?: boolean;
 }
 
 /**
- * Base dos tipos de luz (`DirectionalLight`, `PointLight`, `SpotLight`): um struct comum num pool, lido pela
- * contribuição das luzes ao ponto de cena `scene_direct_lighting` (spec 011) — o desenho não conhece nenhuma classe de luz.
- * Cor e intensidade em unidades físicas: lux na direcional, candela na pontual e na spot.
+ * Base dos tipos de luz (`DirectionalLight`, `PointLight`, `SpotLight`, `RectLight`): um struct comum num pool, lido
+ * pela contribuição das luzes ao ponto de cena `scene_direct_lighting` (spec 011) — o desenho não conhece nenhuma classe
+ * de luz. Cor e intensidade em unidades físicas: lux na direcional, candela na pontual e na spot, candela por metro
+ * quadrado (a luminância do emissor) na de área.
  *
- * `kind`: 0 = direcional, 1 = pontual, 2 = spot.
+ * `kind`: 0 = direcional, 1 = pontual, 2 = spot, 3 = área retangular.
  */
 export abstract class Light extends Entity<LightData> implements Resource {
     /** Schema unified — todos os tipos de light usam o mesmo layout. */
@@ -53,6 +61,7 @@ export abstract class Light extends Entity<LightData> implements Resource {
         direction: FieldType.vec4f,
         color: FieldType.vec4f,
         cones: FieldType.vec4f,
+        axis: FieldType.vec4f,
     });
 
     state: ResourceState = ResourceState.Uninitialized;

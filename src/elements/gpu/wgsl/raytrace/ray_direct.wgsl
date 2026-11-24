@@ -22,10 +22,10 @@ const RAY_LIGHT_CANDIDATES: u32 = 8u;
  */
 fn ray_light_response(c: Closure, i: u32, p: vec3f, n: vec3f, v: vec3f, shadow: bool) -> vec4f {
     let inc = light_incoming(lights[i], p);
-    // A luz de trás conta para os lobos que a recebem (o translúcido da parede fina, a subsuperfície além da linha de
-    // sombra); o raio de sombra parte do lado de onde ela chega.
+    // A luz de trás conta para o lobo que a recebe (o translúcido da parede fina); o raio de sombra parte do lado de onde
+    // ela chega.
     let front = dot(n, inc.l) > 0.0;
-    let back_lobes = c.translucent_weight > 0.0 || c.subsurface_weight > 0.0;
+    let back_lobes = c.translucent_weight > 0.0;
     if (all(inc.radiance <= vec3f(0.0)) || (!front && !back_lobes)) { return vec4f(0.0); }
     let response = closure_eval(c, n, v, inc.l, inc.radiance * light_transmission(i, p));
     if (shadow) {

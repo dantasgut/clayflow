@@ -120,8 +120,9 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
      * Produto do `ShadowMatrixFlow`, só na GPU (pool `ShadowMatrix`, mesmo slot do mapa; série temporal de 2 quadros): o
      * referencial do mapa virtual no quadro — `lightView` (mundo → luz: as linhas são os eixos x e y do plano da luz e a
      * direção da luz), a vista-projeção da câmera (zero sem câmera: a reserva grossa sem o teste do frustum), a câmera no
-     * espaço da luz (`camera.xyz`; `camera.w` = níveis ativos), a direção da luz
-     * (`direction.xyz`; `direction.w` = 1 quando o cache não vale neste quadro: luz, nível ou série mudados), o meio
+     * espaço da luz (`camera.xyz`; `camera.w` = níveis ativos), a direção do referencial
+     * (`direction.xyz`: a da luz quando o cache das páginas recomeça e, enquanto ele vale, a com que foi desenhado;
+     * `direction.w` = 1 quando o cache não vale neste quadro: luz, nível ou série mudados), o meio
      * lado do primeiro nível, a meia faixa de profundidade de uma página (m) e a rotação do padrão da penumbra e o
      * deslocamento das amostras dentro do texel (spec 034: pela sequência do antisserrilhado; sem ele, (1, 0) e 0).
      */
@@ -223,7 +224,8 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
                 id: 'requests',
                 role: 'storage-rw',
                 schema: GpuWordSchema,
-                count: SHADOW_MAX_LEVELS * pagesPerLevel * pagesPerLevel,
+                // Duas palavras por página virtual: a faixa de profundidade dos pontos que a pediram.
+                count: SHADOW_MAX_LEVELS * pagesPerLevel * pagesPerLevel * 2,
                 upload: 'never',
                 history: { depth: 2 },
             },

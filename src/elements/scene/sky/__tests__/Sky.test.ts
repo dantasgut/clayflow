@@ -62,6 +62,7 @@ describe('Sky e SkyFlow (spec 033, T017)', () => {
         expect(built()).toEqual([
             'light_transmission',
             'scene_ambient',
+            'scene_ambient_lighting',
             'scene_background',
             'scene_direct_lighting',
             'scene_environment',

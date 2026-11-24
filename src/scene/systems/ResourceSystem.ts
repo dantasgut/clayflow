@@ -971,7 +971,9 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                 this.core.destroy(staging);
                 for (const { item, dstOffset } of placed) {
                     const alive = trackedOf(item.request.resource)?.allocated === true;
-                    if (!alive) item.request.resolve(undefined);
+                    // A leitura mais curta que a faixa pedida (o buffer trocado entre o pedido e a cópia): sem valor.
+                    const whole = dstOffset + item.span * item.stride <= bytes.byteLength;
+                    if (!alive || !whole) item.request.resolve(undefined);
                     else if (item.span > 1 || item.counted)
                         item.request.resolve(item.schema.unpackRange(bytes, item.span, dstOffset));
                     else item.request.resolve(item.schema.unpack(bytes, dstOffset));
@@ -990,14 +992,14 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         descId: string | undefined,
     ): Omit<ReadItem, 'request'> | undefined {
         if (trackedOf(resource)?.allocated !== true) return undefined;
-        const desc = resource
-            .getDescriptors()
-            .find(
-                (d) =>
-                    (descId === undefined || d.id === descId)
-                    && d.schema instanceof StructSchema
-                    && isTypedBufferRole(d),
-            );
+        const desc = resource.getDescriptors().find(
+            (d) =>
+                (descId === undefined || d.id === descId)
+                && d.schema instanceof StructSchema
+                // Pedido pelo id, também o contador `indirect` que a GPU escreve (a contagem de uma fila: o buffer é
+                // copiável); sem o id, o primeiro uniform ou storage, como sempre.
+                && (isTypedBufferRole(d) || (descId !== undefined && d.role === 'indirect')),
+        );
         const schema = desc?.schema;
         if (desc === undefined || !(schema instanceof StructSchema)) return undefined;
         if (desc.storage === 'pool') {

@@ -12,10 +12,12 @@ export const ClosureSchema = new StructSchema('Closure', {
     diffuse_weight: FieldType.f32,
     diffuse_color: FieldType.vec3f,
     diffuse_roughness: FieldType.f32,
-    // Subsuperfície no modelo (difuso com "wrap" por canal).
+    // Subsuperfície: o albedo da superfície, o caminho livre médio do espalhamento por canal (mm) e a escala do mundo
+    // (unidades por metro) — o perfil de difusão de Burley.
     subsurface_weight: FieldType.f32,
     subsurface_color: FieldType.vec3f,
     subsurface_radius: FieldType.vec3f,
+    subsurface_scale: FieldType.f32,
     // Especular de base: parte dielétrica (F0 do IOR, tinta) e parte condutora (F0 e tinta F82), mesma microgeometria.
     dielectric_weight: FieldType.f32,
     dielectric_ior: FieldType.f32,
@@ -27,6 +29,12 @@ export const ClosureSchema = new StructSchema('Closure', {
     specular_anisotropy: FieldType.f32,
     // Tangente do especular anisotrópico (0 = a do referencial padrão).
     tangent: FieldType.vec3f,
+    // Brilhos pontuais do especular de base (spec 011, T118): as células do sorteio (`pattern.glints`: o valor da
+    // célula do pixel em dois níveis e a mistura entre eles), o número de flocos na célula do primeiro nível (0 = sem
+    // brilhos: o lobo médio) e a rugosidade do lobo de cada floco.
+    glint_cells: FieldType.vec3f,
+    glint_count: FieldType.f32,
+    glint_roughness: FieldType.f32,
     // Filme fino sobre o especular de base.
     film_weight: FieldType.f32,
     film_thickness: FieldType.f32,

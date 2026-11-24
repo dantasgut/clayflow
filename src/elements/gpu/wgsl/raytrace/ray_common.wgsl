@@ -49,13 +49,17 @@ fn ray_unorder_f32(u: u32) -> f32 {
     return bitcast<f32>(select(~u, u ^ 0x80000000u, (u & 0x80000000u) != 0u));
 }
 
-/** Entrada do raio na caixa em [0, t_max], ou `RAY_MISS`. */
+/**
+ * Entrada do raio na caixa em [0, t_max], ou `RAY_MISS`. A caixa vazia (mínimo > máximo: o triângulo vazio de uma malha
+ * com a contagem na GPU, a partícula morta, e os nós só com eles) nunca é atingida — pelas lâminas ela daria [−∞, +∞] e
+ * todo raio desceria pela parte vazia da hierarquia (spec 011, T115: a malha adaptativa abaixo do nível máximo).
+ */
 fn ray_box(origin: vec3f, inv_dir: vec3f, lo: vec3f, hi: vec3f, t_max: f32) -> f32 {
     let a = (lo - origin) * inv_dir;
     let b = (hi - origin) * inv_dir;
     let t0 = max(max(min(a.x, b.x), min(a.y, b.y)), max(min(a.z, b.z), 0.0));
     let t1 = min(min(max(a.x, b.x), max(a.y, b.y)), min(max(a.z, b.z), t_max));
-    return select(RAY_MISS, t0, t0 <= t1);
+    return select(RAY_MISS, t0, t0 <= t1 && lo.x <= hi.x);
 }
 
 /** Nó da hierarquia: caixas e filhos (na folha: `RAY_LEAF` | posição, primeira primitiva). */

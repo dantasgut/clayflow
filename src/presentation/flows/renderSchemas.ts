@@ -7,7 +7,7 @@ import { StructSchema } from '../../scene/descriptors/StructSchema';
  * cache (`reset`: a série da tabela ou dos retângulos interrompida, os grupos mudados), se os pedidos do quadro anterior
  * valem (senão, a reserva grossa no frustum da câmera do referencial) e as seções do espaço de trabalho (`sp_scratch`, em
  * palavras): as páginas físicas em uso e livres, as filas por nível, as sujas, as dinâmicas, as caixas e os retângulos;
- * os trechos dos pares por grupo (contagem, início, preenchimento, o que coube); as caixas dos aglomerados das malhas grandes e as necessidades das páginas virtuais; em `sp_groups`, a palavra de grupo de cada instância; nos argumentos, o registro do fundo das
+ * os trechos dos pares por grupo (contagem, início, preenchimento, o que coube); as caixas dos aglomerados das malhas grandes e as necessidades das páginas virtuais; os pedidos do quadro anterior no referencial deste (`requestBase`); em `sp_groups`, a palavra de grupo de cada instância; nos argumentos, o registro do fundo das
  * páginas sujas (e, no seguinte, o do transporte das que seguem).
  */
 export const ShadowPagesParamsSchema = new StructSchema(
@@ -33,6 +33,7 @@ export const ShadowPagesParamsSchema = new StructSchema(
         groupBoxBase: FieldType.u32,
         spriteRecord: FieldType.u32,
         spriteCap: FieldType.u32,
+        requestBase: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );

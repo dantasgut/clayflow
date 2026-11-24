@@ -283,3 +283,242 @@ pela mesma montagem. As de estado ficam bit a bit (verificado).
 Galeria de materiais girando sob luz que se move; um grafo de material sendo editado (mistura madeira/metal por ruído,
 verniz trocado); água (lago da 010 e tanque da 017) com o material novo e as cáusticas por malha de perto; comparação
 lado a lado Clayflow × Three nas cenas `materials` e `water-lake`.
+
+### R15 — Espalhamento sob a superfície (T113)
+
+**Decisão**: o perfil de difusão normalizado de Christensen e Burley 2015 ("Approximate Reflectance Profiles for
+Efficient Subsurface Scattering"), R(r) = A (e^(−r/d) + e^(−r/3d)) / (8π d r) com d = ℓ/s e s = 1,9 − A + 3,5 (A − 0,8)²
+(a luz que entra difusa), parametrizado pelo albedo da superfície `color` e pelo caminho livre médio `radius` em
+**milímetros** por canal, com a escala do mundo `scale` (unidades por metro) no fechamento. No desenho, depois do passe
+principal e só para as entidades com o lobo: a luz direta que entra por pixel é guardada sem amostras, juntada em volta
+de cada ponto com amostragem por importância do perfil (número constante de amostras, o disco no plano tangente
+projetado na tela, o peso por canal pelo perfil na distância de verdade até a superfície de cada amostra) e somada à cor
+da cena menos a luz do próprio ponto. A luz que atravessa as partes finas usa a espessura do mapa de sombra da luz (da
+primeira superfície que a luz vê até o ponto) e a parte do perfil além dela, ¼ e^(−t/d) + ¾ e^(−t/3d). No ponto (e nos
+acertos dos raios) o lobo é o perfil integrado: o difuso de albedo `color`.
+
+**Racional**:
+
+- o perfil tem dois parâmetros com sentido físico (o albedo que se vê e o caminho livre médio que se mede), amostragem
+  por importância com inversa exata e a mesma curva serve à difusão e à transmissão — conferidos contra um passeio
+  aleatório (`material/reference/subsurface.ts`): a fração acumulada a menos de 0,03 para A ≤ 0,8; a transmissão pela
+  placa a menos de 0,075, e **sem** o albedo como fator (o passeio mostra que a placa fina transmite quase tudo; com o
+  albedo o modelo ficava 2 a 3 vezes abaixo);
+- o passe principal fica como é (o lobo no ponto, com MSAA e com o alvo da luz do temporal) e a difusão entra como uma
+  correção somada (o juntado menos o local): enquanto os pipelines dela compilam, ou com ela desligada, o material
+  desenha certo no ponto, com a mesma energia; a soma é feita redesenhando a geometria na profundidade do passe
+  principal, e a cobertura do MSAA vale para ela;
+- só a luz direta é juntada: medir a luz rebatida de novo no passe custava 1,5 ms dos 5,7 ms da subsuperfície no quadro
+  dos translúcidos, e ela já é lisa na escala do perfil;
+- as amostras por pixel se alternam num padrão de 4 × 4 pixels e a soma faz a média do bloco na mesma superfície: 16
+  amostras por pixel valem 256, sem grão e sem estado entre quadros (a acumulação temporal pelo canal da 037 pediria os
+  vetores de movimento, que só existem no modo temporal); a luz do próprio ponto não entra na média — a borda nítida de
+  uma sombra some exata.
+
+**Alternativas consideradas**:
+
+- **Perfil separável de Jimenez** (Jimenez et al. 2015, "Separable Subsurface Scattering"): dois passes de tela com um
+  núcleo fixo por material, sem ruído. O núcleo é um ajuste artístico (soma de gaussianas por material, não o albedo e
+  o caminho livre médio), a separação erra em superfícies curvas e em bordas de profundidade, e pede a irradiância de
+  toda a tela num alvo e os parâmetros por pixel — no forward com MSAA, alvos a mais no passe principal de toda cena.
+- **Passeio aleatório nos raios** (o volumétrico de produção): a verdade, e é a referência f64 daqui. No desenho pediria
+  raios dentro do corpo por pixel (dezenas de eventos por caminho no mármore e no leite) e acumulação temporal. Nos
+  acertos dos raios da luz rebatida seria um laço de eventos por acerto — custo fixo novo por raio —, e o que um acerto
+  desses contribui é a média do perfil: o difuso do mesmo albedo dá a mesma energia. Fica de fora.
+- **O "wrap" local de antes** (o terminador avançado por canal, raio adimensional): sem difusão entre pixels, sem a luz
+  que atravessa e sem escala física — o que o usuário viu como "nada de SSS".
+- **Parametrizar pelo caminho livre médio difuso** (a eq. 8 do artigo): equivalente; o caminho livre médio é o que as
+  tabelas de Jensen et al. 2001 dão direto (1/(σ_s′ + σ_a)).
+
+**Limites conhecidos**: a difusão é na tela (o que está fora dela não entra; peças diferentes no mesmo plano trocam
+luz); só as luzes direcionais com sombra atravessam; a espessura é ao longo da direção da luz; acima de A = 0,9 o
+perfil perde a cauda longa (0,065 na fração acumulada com A = 0,93).
+
+### R16 — Reflexo nítido dos opacos lisos (T114)
+
+**Decisão**: o reflexo do lobo especular liso de um opaco (o metal polido, o verniz, o plástico brilhante) vem de um
+raio por pixel na direção refletida, traçado pela cadeia da refração — o mesmo pedido por pixel, a mesma fila, a mesma
+reconstrução em meia resolução —, e somado à cor do desenho pelo peso do lobo. O desenho só escolhe os pixels (o lobo
+liso, pela rugosidade do fechamento no ponto) e grava a direção e o peso; o passe principal deixa de fora a parte lisa
+da especular indireta.
+
+**Racional**: a luz indireta especular vinha das sondas da luz global (um mapa octaédrico de 8 × 8 por sonda) ou do
+hemisfério de duas cores — sem imagem dos objetos. A cadeia da refração já segue um raio qualquer pela cena com o
+material avaliado por classe, a luz direta com sombra no ponto atingido, a luz rebatida, o céu no escape e os
+transmissivos no caminho: o reflexo de um opaco é o mesmo caminho começando na superfície em vez de na câmera. Custo
+fixo por pixel liso; sem pixel liso, a fila fica vazia.
+
+**Alternativas**:
+
+- **Uma segunda cadeia só para o reflexo** (outro Resource, outro estágio): a mesma coisa duas vezes — os estados dos
+  caminhos e a onda dos acertos em dobro na memória. Descartada (estrutura paralela equivalente).
+- **Reflexo no espaço da tela**: não vê o que está fora do quadro nem atrás dos objetos (o céu acima, o vizinho
+  encoberto); o motor não copia a tela para a refração pelo mesmo motivo.
+- **Sondas de reflexo de resolução maior**: imagem pré-calculada consultada, com paralaxe errada perto dos objetos.
+- **Decidir no material (uma marca de "liso")**: a rugosidade é valor do grafo, pode vir de um padrão (a ferrugem tem
+  metal liso e óxido áspero no mesmo objeto): a decisão é por pixel.
+- **Somar no desenho principal lendo o traçado do quadro anterior**: um quadro de atraso e nenhuma reprojeção. A soma
+  depois do traçado, no mesmo quadro, não tem atraso.
+
+**Limites conhecidos**: um reflexo só (o ponto atingido responde com a luz indireta no lobo liso dele); só entidades
+com função `material`; a cena precisa da estrutura de raios (a da luz global ou a dos transmissivos) — sem ela o lobo
+fica com a luz indireta; com MSAA o reflexo tem uma amostra por pixel e a soma vale para o pixel inteiro (a borda do
+objeto coberta em parte fica com a luz indireta removida nas amostras sem pedido); a rugosidade entre 0,08 e 0,16
+mistura um espelho com a luz indireta em vez de amostrar o lobo.
+
+### R17 — Deslocamento: o relevo do material como geometria (T115)
+
+**Decisão**: o relevo de um material é uma função de altura em milímetros, definida uma vez por nós
+(`surface.uvSpace` → `pattern.*` → `surface.relief`; os dos materiais prontos são os sub-grafos `nodes.relief.*`), com
+dois consumidores. No material, `surface.reliefNormal` inclina a normal por pixel. Na geometria, o ponto novo
+`displacement` (`fn displacement_fn(s: SurfaceSample, data) -> f32`) é chamado pelos kernels do `SurfaceFlow`
+(`surface_displaced_at`: a malha uniforme e a adaptativa) e move cada vértice da `ParametricSurface` ao longo da
+normal; a função é a `DisplacementFunction` da entidade, cujo grafo é o mesmo sub-grafo ligado a
+`surface.displacement`. A unidade é o milímetro, com a escala do mundo em unidades por metro (`scale`), como na
+subsuperfície (R15).
+
+**A passagem deslocamento → relevo → média**: os padrões filtram pela largura que recebem. No ponto `displacement` a
+amostra traz, no lugar das derivadas de tela do uv, o passo da malha no uv: o detalhe menor que dois segmentos não vira
+geometria. No material a largura é a do pixel: o mesmo detalhe continua na normal até ficar menor que o pixel, e daí
+vai à média. A malha adaptativa (spec 010) escolhe o nível de cada retalho pelo tamanho na tela (`screen`): de perto os
+segmentos encolhem no mundo e mais relevo passa da normal para a geometria, sem regra à parte. Na adaptativa, o passo
+de um vértice de borda é o do menor nível dos retalhos que a dividem (e no canto, dos quatro): os dois lados calculam a
+mesma altura e não abre fresta.
+
+**A normal dos vértices** continua a da superfície sem o relevo: a inclinação vem do material, do mesmo relevo, em
+todas as frequências até o pixel. Gravar a normal deslocada no vértice somaria o relevo duas vezes nas frequências que
+a malha resolve, ou obrigaria o material a avaliar o relevo duas vezes (na largura do pixel e na da malha) para
+subtrair.
+
+**Quem vê a geometria deslocada**: os vértices são gravados na GPU no buffer da geometria. O desenho, o mapa de sombra
+virtual e a estrutura de raios (que reconstrói a hierarquia da malha adaptativa quando ela é escrita) leem esse buffer:
+a silhueta, a sombra e os acertos dos raios são os da geometria deslocada. Nos acertos dos raios o material não tem as
+tangentes do uv (`dpdu`, `dpdv` zero): a normal ali é a da superfície sem o relevo. O colisor de superfície
+(`SurfaceColliderFlow`) amostra `surface_at`, sem o deslocamento.
+
+**Achado — a caixa vazia na travessia dos raios**: a malha adaptativa abaixo do nível máximo deixa triângulos vazios na
+hierarquia (a contagem é da GPU; a capacidade é a do nível máximo), com caixa invertida (mínimo > máximo). O teste de
+lâminas (`ray_box`) dava [−∞, +∞] para essa caixa: todo raio que entrava no objeto descia pela parte vazia inteira. No
+quadro do relevo (malhas no nível 4 com capacidade do nível 5: três quartos vazios) a luz rebatida custava ~40 ms
+(65,5 ms o quadro; 24,3 ms depois). A caixa vazia passou a ser um erro de acerto (`lo.x <= hi.x` no teste), na GPU e
+na referência.
+
+**Custo medido** (quadro `relevo` da galeria, 1440 × 960, M4): 9,9 ms sem deslocamento; 26,7 ms com seis superfícies
+deslocadas (~1,2 milhão de triângulos de ~1 px: o desenho ~11 ms, as páginas da sombra ~5 ms, os raios da luz rebatida
+1,4 ms). O custo é o dos triângulos pequenos no desenho e na sombra; `screen` troca geometria por normal.
+
+**Alternativas**:
+
+- **Mapa de altura em imagem** (bitmap amostrado no vértice ou no pixel): proibido (nada de bitmap de altura; o padrão
+  é material, calculado).
+- **Relevo por paralaxe no pixel** (marchar a altura no fragmento): não muda a silhueta, a sombra projetada nem o que
+  os raios acertam; um laço por pixel em toda a tela para um efeito que a geometria dá onde ela existe.
+- **`set.displace` do grafo de conjunto** (spec 031): desloca uma malha de grade fixa, sem a malha adaptativa; serve à
+  geometria por grafo, não ao relevo de um material numa superfície qualquer. Mantido como está.
+- **Tesselação no desenho** (estágio de tesselação): não existe no WebGPU; e a geometria ficaria só no desenho — a
+  sombra e os raios não a veriam.
+- **A altura dentro da `SurfaceFunction`**: obrigaria cada superfície a conhecer o material; o ponto separado deixa a
+  mesma superfície com ou sem relevo e o mesmo relevo em qualquer superfície.
+- **Função de altura duplicada** (uma no material, outra na geometria): descartada — o sub-grafo do relevo é um nó
+  usado nos dois grafos.
+
+**Limites conhecidos**: só `ParametricSurface` (as malhas de vértices fixos — `SphereGeometry`, `BoxGeometry` — ficam
+com o relevo na normal); o deslocamento é ao longo da normal (sem saliências que voltem sobre si); onde o uv converge
+(os polos da esfera) o padrão aperta e o relevo com ele; na costura de um uv periódico as duas bordas calculam a altura
+em uv 0 e 1 — iguais pelo período do padrão, a menos do arredondamento; a geometria diferencial (`SurfaceDiff`) é a da
+superfície sem o relevo; a inclinação de `surface.reliefNormal` é presa em 76°; a ferrugem (`metalOxidized`) e os
+tecidos de trama continuam com o relevo só na normal (`surface.bump`, em unidades do padrão).
+
+### R18 — Variedade da biblioteca: lobo anisotrópico no reflexo, pintura metálica, tábuas e nós (T117)
+
+**O lobo anisotrópico no reflexo traçado.** O reflexo dos opacos (R16) tem um raio por pixel e nenhum acúmulo próprio: o
+filtro temporal da refração só existe com o antisserrilhado temporal e só para os pedidos dos transmissivos. O lobo do
+metal escovado é estreito num eixo e largo no outro: a fração de espelho passa a ser a do eixo estreito (a rugosidade
+vezes √(1 − |anisotropia|)) e a direção do raio é a refletida por uma micronormal sorteada no eixo largo — a marginal da
+distribuição GGX das inclinações, s = α_l · q / √(1 − q²). O sorteio é o mesmo ao longo de uma linha da escova na tela
+(a razão áurea no índice da linha através das ranhuras): o reflexo sai em fios, como as ranhuras o devolvem; deslocado
+pelo desvio de subpixel da câmera, muda a cada quadro com o antisserrilhado temporal, e a resolução temporal (o canal
+da spec 037) acumula o lobo. Alternativas descartadas: levar os pedidos de reflexo ao filtro temporal da refração (os
+guias do filtro são os do ponto atingido, que muda a cada sorteio; e não cobre o MSAA); ranhuras explícitas na normal do
+material (abaixo do pixel viram espelho). Limite: sem o antisserrilhado temporal o lobo é um fio por linha, com serrilha;
+os lobos rugosos isotrópicos continuam com a luz das sondas.
+
+**Pintura de carro.** A receita anterior (pigmento difuso + flocos esparsos + verniz) dá pérola ou laca. As outras
+engines fazem a base metálica: o Principled BSDF do Blender com `metallic` 1 e `coat` 1 de normal própria, o verniz de
+duas normais da Unreal, as três camadas do V-Ray/Arnold. Aqui: condutor da cor da tinta em 92 % da base, lobo médio
+(0,36), a normal de cada floco inclinada até ~8°, a tinta da borda escura (o flop) e o verniz em camada com a normal
+dele (o `closure.layer` já guarda a normal do verniz separada da da base). Os flocos precisam de ~2,5 px para aparecer:
+abaixo disso o filtro dos padrões os leva à média — falta um modelo estatístico de brilhos pontuais abaixo do pixel.
+
+**Tábuas.** `pattern.planks` devolve a coordenada de cada peça (com deslocamento próprio), e os padrões do veio leem
+essa coordenada: cada tábua tem os seus anéis, na sua direção, sem um nó de madeira por arranjo. A emenda do veio cai
+nas juntas. O relevo do veio não entra na normal dos assoalhos (as tangentes do uv não acompanham a peça girada): só a
+junta e o poro, na normal do verniz.
+
+**Nós da madeira.** Um monte gaussiano somado ao raio dos anéis (`pattern.rings`): onde a inclinação do monte passa da
+do raio, os anéis fecham em voltas; em volta, desviam. O gradiente continua analítico.
+
+**Fissuras da casca.** Um Voronoi com frequência por eixo (`pattern.fissures`) dá as placas alongadas e a rede que se
+ramifica e se junta; a distância à borda é levada à métrica de `p`, para a fissura ter a mesma largura em qualquer
+direção.
+
+### R19 — Luz de área retangular e o lobo anisotrópico largo (T120)
+
+**Decisão**: a luz de área é um tipo de luz do pool (`RectLight`, tipo 3: centro, normal, eixo da largura, meias
+medidas, luminância em cd/m²) com uma contribuição própria a `scene_direct_lighting`: a resposta do fechamento com cada
+lobo **integrado sobre o retângulo, por pixel, sem sorteio** (`closure_area_eval`). Os lobos especulares (a base, com a
+anisotropia, e o verniz) partem o retângulo pelas células de uma grade polar no plano das inclinações da micronormal —
+5 anéis de massa conhecida da GGX (até 97 %) por 8 raios, 48 cantos refletidos até o plano da luz, 40 células; cada
+célula, recortada pelo retângulo (Sutherland-Hodgman), entra com o integrando exato na direção do centroide do pedaço
+vezes o ângulo sólido dele, e a célula inteira dentro entra com a massa exata dela. Os lobos largos (difuso,
+subsuperfície, parede fina, sheen) usam os 4 × 4 pontos de Gauss-Legendre do retângulo. Onde as luzes são lidas por
+raio ou por volume (a luz rebatida, os acertos dos raios, a névoa), o painel vale pelo centro (`light_incoming`: a
+luminância pela área e pelo cosseno, pelo inverso do quadrado). Erro medido contra a integral densa (referência f64
+`material/reference/areaLight.ts`): até 3 % da energia do lobo, do espelho (α 0,0025) ao lobo largo (α 0,25),
+isotrópico e anisotrópico, com o painel inteiro, pela metade e fora; o difuso, abaixo de 0,1 % (smoke `lighting`, caso
+`rect-light`).
+
+**Racional**: nas fotos de referência os realces são manchas largas (janela, painel de estúdio), que o sol — um ponto —
+não dá; e o metal escovado mostra as fontes como manchas macias, esticadas através da escova, com os riscos por dentro.
+A integral pelo lobo resolve os dois com a mesma peça: é exata no limite do espelho (as células ficam pequenas no
+plano da luz e desenham a borda do painel com a largura delas, sem serrilha) e no do lobo largo (as células são maiores
+que o painel e ele entra inteiro), e vale para o lobo anisotrópico sem nada a mais — a grade é a do lobo, com os dois α.
+Sem sorteio, não há ruído no MSAA nem estado entre quadros (nenhuma série do canal 037 é necessária).
+
+**O reflexo do ambiente no lobo anisotrópico largo (o metal escovado)**: as manchas das fontes vêm desta integral; o
+resto do ambiente continua vindo da radiância das sondas (`closure_base_mirror`: o eixo largo é áspero, sem raio).
+Avaliadas e descartadas: (a) várias amostras do lobo por pixel, traçadas e acumuladas pelo canal temporal — ruído no
+MSAA (que não acumula) e fantasma no temporal para o que é só a imagem borrada de fontes que a integral analítica dá sem
+custo de raio; (b) a sonda lida em várias direções ao longo do eixo largo — o mapa de cada sonda tem 8 × 8 direções
+(~25° por texel), mais largo que o eixo largo do lobo (α 0,2: ~23° de largura a meia altura): espalhar as leituras não
+muda o que se vê; o que limita é a resolução angular da sonda, não o número de leituras.
+
+**Alternativas**:
+
+- **LTC (Heitz et al. 2016)**: a integral exata de um lobo de cosseno transformado; precisa da tabela de ajuste (a
+  matriz por rugosidade e ângulo, um ajuste não linear por texel), só cobre o GGX isotrópico (o anisotrópico pede uma
+  tabela 4D: Kt et al. 2022) e cada lobo novo pede o seu ajuste. A grade do lobo não tem tabela e vale para qualquer
+  lobo de que se saiba a distribuição das micronormais. Custo: a LTC é mais barata (um polígono integrado por lobo);
+  fica como a otimização possível para os lobos isotrópicos.
+- **Painel emissivo na cena visto pelo reflexo traçado**: só vale para os lobos lisos (um raio), dobra a luz com a das
+  sondas no difuso e deixa o lobo médio e o anisotrópico com a sonda borrada.
+- **Ponto mais representativo (Karis 2013)**: uma luz pontual deslocada com a energia corrigida — a forma da mancha não
+  é a do painel; descartado (aproximação visual).
+- **Amostras fixas no retângulo para o especular**: com o lobo mais estreito que o espaço entre as amostras, a mancha
+  vira pontos.
+
+**Limites conhecidos**: sem sombra da luz de área (a penumbra de um emissor extenso pede a visibilidade integrada — por
+raios ou por um mapa de sombra com a largura do emissor); o painel não aparece no quadro nem nos reflexos traçados (é
+luz, não geometria: uma esfera cromada mostra o painel pelo realce integrado, não pelo raio); a luz que atravessa os
+materiais com subsuperfície (`scene_transmitted_lighting`) não inclui as luzes de área (falta a espessura, que vem do
+mapa de sombra); a cauda do lobo além de 97 % da massa fica de fora (a mancha cai um pouco mais depressa longe do
+painel: até 25 % a menos onde ela vale menos de 5 % do pico); custo fixo de 40 células por lobo especular e por luz de
+área, em todo pixel alcançado (na galeria a 1440 × 960, três painéis: ver a T120).
+
+**Metal escovado.** O acabamento da referência é o acetinado de lixa passada à mão: riscos finos quase paralelos, com a
+direção variando alguns graus e cruzando-se, e riscos fundos isolados. `pattern.brush` dá a altura, a direção local
+dos riscos (a tangente do lobo) e o risco fundo; o lobo é largo (rugosidade 0,33 a 0,47) e só moderadamente alongado
+(anisotropia 0,15): as passadas cruzadas alargam o lobo também ao longo da escova. O condutor é aço inoxidável (F0
+0,56, 0,57, 0,58): o tom chumbo vem de refletir a metade do ambiente escuro, sem escurecer nada. A mancha de uma fonte
+se alonga **através** da escova (é o que as ranhuras fazem com a luz); na referência as manchas são largas ao longo dela
+porque os painéis são largos — a galeria usa painéis mais largos que altos.

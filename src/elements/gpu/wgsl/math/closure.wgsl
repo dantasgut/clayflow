@@ -21,6 +21,7 @@ const CLOSURE_THIN_FILM: u32 = 128u;
 const CLOSURE_ANISOTROPY: u32 = 256u;
 const CLOSURE_OPACITY: u32 = 512u;
 const CLOSURE_TRANSLUCENT: u32 = 1024u;
+const CLOSURE_GLINT: u32 = 2048u;
 
 // O struct `Closure` vem do `ClosureSchema` (gerado na montagem).
 
@@ -36,6 +37,7 @@ fn closure_zero() -> Closure {
     c.transmission_color = vec3f(1.0);
     c.transmission_ior = 1.5;
     c.opacity = 1.0;
+    c.subsurface_scale = 1.0;
     return c;
 }
 
@@ -157,13 +159,16 @@ fn closure_sheen(color: vec3f, roughness: f32) -> Closure {
     return c;
 }
 
-// Subsuperfície no modelo (pele, cera, mármore): cor e raio de espalhamento por canal (em [0, 1], o avanço do
-// terminador). O passe de espalhamento na tela é da 014.
-fn closure_subsurface(color: vec3f, radius: vec3f) -> Closure {
+// Subsuperfície (pele, cera, mármore): o albedo da superfície `color` (a refletância difusa total), o caminho livre
+// médio do espalhamento por canal `radius`, em milímetros, e a escala do mundo `scale` (unidades do mundo por metro; ≤ 0
+// vale 1). No ponto, o lobo responde como o perfil de difusão integrado (o difuso de albedo `color`); a difusão entre
+// pixels e a luz que atravessa as partes finas são do passe de subsuperfície do desenho (módulo `subsurface`).
+fn closure_subsurface(color: vec3f, radius: vec3f, scale: f32) -> Closure {
     var c = closure_zero();
     c.subsurface_weight = 1.0;
     c.subsurface_color = clamp(color, vec3f(0.0), vec3f(1.0));
-    c.subsurface_radius = clamp(radius, vec3f(0.0), vec3f(1.0));
+    c.subsurface_radius = max(radius, vec3f(0.0));
+    c.subsurface_scale = select(1.0, scale, scale > 0.0);
     return c;
 }
 
@@ -224,6 +229,7 @@ fn closure_add(a: Closure, b: Closure) -> Closure {
     o.subsurface_weight = a.subsurface_weight + b.subsurface_weight;
     o.subsurface_color = closure_merge3(a.subsurface_color, a.subsurface_weight, b.subsurface_color, b.subsurface_weight);
     o.subsurface_radius = closure_merge3(a.subsurface_radius, a.subsurface_weight, b.subsurface_radius, b.subsurface_weight);
+    o.subsurface_scale = closure_merge1(a.subsurface_scale, a.subsurface_weight, b.subsurface_scale, b.subsurface_weight);
     o.dielectric_weight = a.dielectric_weight + b.dielectric_weight;
     o.dielectric_ior = closure_merge1(a.dielectric_ior, a.dielectric_weight, b.dielectric_ior, b.dielectric_weight);
     o.dielectric_tint = closure_merge3(a.dielectric_tint, a.dielectric_weight, b.dielectric_tint, b.dielectric_weight);
@@ -235,6 +241,14 @@ fn closure_add(a: Closure, b: Closure) -> Closure {
     o.specular_roughness = closure_merge_roughness(a.specular_roughness, wsa, b.specular_roughness, wsb);
     o.specular_anisotropy = closure_merge1(a.specular_anisotropy, wsa, b.specular_anisotropy, wsb);
     o.tangent = closure_merge_dir(a.tangent, wsa, b.tangent, wsb);
+    // Os brilhos pontuais são do especular de base e não se fundem (as células são um sorteio): valem os do lado que
+    // os tem; se os dois, os do lado de maior peso especular. Escolha, sem média: nenhuma divisão por peso nulo.
+    let glint_a = a.glint_count > 0.0 && wsa > 0.0;
+    let glint_b = b.glint_count > 0.0 && wsb > 0.0;
+    let from_b = glint_b && (!glint_a || wsb > wsa);
+    o.glint_cells = select(a.glint_cells, b.glint_cells, from_b);
+    o.glint_count = select(select(0.0, a.glint_count, glint_a), b.glint_count, from_b);
+    o.glint_roughness = select(a.glint_roughness, b.glint_roughness, from_b);
     o.film_weight = a.film_weight + b.film_weight;
     o.film_thickness = closure_merge1(a.film_thickness, a.film_weight, b.film_thickness, b.film_weight);
     o.film_ior = closure_merge1(a.film_ior, a.film_weight, b.film_ior, b.film_weight);
@@ -302,6 +316,18 @@ fn closure_thin_film(c: Closure, thickness_nm: f32, film_ior: f32) -> Closure {
     return o;
 }
 
+// Brilhos pontuais do especular de base (spec 011, T118): `cells` e `count` de `pattern.glints` (as células do sorteio
+// e o número de flocos na célula; `count` ≤ 0 = sem brilhos) e a rugosidade do lobo de cada floco (o espelho pequeno:
+// quanto mais lisa, menos flocos alinhados e mais forte cada brilho). A rugosidade do especular de base passa a ser a
+// distribuição das orientações dos flocos; a média dos brilhos é o lobo dela (`closure_glint`, módulo `closure_eval`).
+fn closure_glints(c: Closure, cells: vec3f, count: f32, roughness: f32) -> Closure {
+    var o = c;
+    o.glint_cells = clamp(cells, vec3f(0.0), vec3f(1.0));
+    o.glint_count = max(count, 0.0);
+    o.glint_roughness = clamp(roughness, 0.02, 1.0);
+    return o;
+}
+
 // Opacidade (recorte parcial): multiplica a cobertura por `alpha` em [0, 1].
 fn closure_opacity(c: Closure, alpha: f32) -> Closure {
     var o = c;
@@ -347,8 +373,10 @@ fn closure_sanitize(c: Closure) -> Closure {
     o.diffuse_weight = select(0.0, max(c.diffuse_weight, 0.0), ok_d);
     o.diffuse_color = select(vec3f(0.0), max(c.diffuse_color, vec3f(0.0)), ok_d);
     o.diffuse_roughness = select(0.0, clamp(c.diffuse_roughness, 0.0, 1.0), ok_d);
-    let ok_s = finite3(vec3f(c.subsurface_weight, 0.0, 0.0)) && finite3(c.subsurface_color) && finite3(c.subsurface_radius);
+    let ok_s = finite3(vec3f(c.subsurface_weight, c.subsurface_scale, 0.0)) && finite3(c.subsurface_color) && finite3(c.subsurface_radius);
     o.subsurface_weight = select(0.0, max(c.subsurface_weight, 0.0), ok_s);
+    o.subsurface_radius = select(vec3f(0.0), max(c.subsurface_radius, vec3f(0.0)), ok_s);
+    o.subsurface_scale = select(1.0, c.subsurface_scale, ok_s && c.subsurface_scale > 0.0);
     let ok_sp = finite3(vec3f(c.dielectric_weight, c.dielectric_ior, c.conductor_weight))
         && finite3(vec3f(c.specular_roughness, c.specular_anisotropy, 0.0))
         && finite3(c.dielectric_tint) && finite3(c.conductor_f0) && finite3(c.conductor_tint) && finite3(c.tangent);
@@ -358,6 +386,10 @@ fn closure_sanitize(c: Closure) -> Closure {
     o.specular_roughness = select(0.5, clamp(c.specular_roughness, 0.0, 1.0), ok_sp);
     o.specular_anisotropy = select(0.0, clamp(c.specular_anisotropy, -1.0, 1.0), ok_sp);
     o.tangent = select(vec3f(0.0), c.tangent, ok_sp);
+    let ok_g = finite3(c.glint_cells) && finite3(vec3f(c.glint_count, c.glint_roughness, 0.0));
+    o.glint_count = select(0.0, max(c.glint_count, 0.0), ok_g);
+    o.glint_cells = select(vec3f(0.0), clamp(c.glint_cells, vec3f(0.0), vec3f(1.0)), ok_g);
+    o.glint_roughness = select(0.1, clamp(c.glint_roughness, 0.02, 1.0), ok_g);
     let ok_f = finite3(vec3f(c.film_weight, c.film_thickness, c.film_ior));
     o.film_weight = select(0.0, max(c.film_weight, 0.0), ok_f);
     let ok_c = finite3(vec3f(c.coat_weight, c.coat_ior, c.coat_roughness)) && finite3(c.coat_color) && finite3(c.coat_normal);

@@ -67,7 +67,7 @@ compilar para o ponto (na criação da função, ou no `setGraph`).
 ### Onde ele roda: as funções da 009
 
 Todo ponto de extensão aceita um grafo no lugar do código: `new TransformFunction({ graph })`, `CameraFunction`,
-`SurfaceFunction`, `SpaceFunction`, `FieldFunction`, `MaterialFunction`, `EmitFunction`. O grafo gera a função do
+`SurfaceFunction`, `DisplacementFunction`, `SpaceFunction`, `FieldFunction`, `MaterialFunction`, `EmitFunction`. O grafo gera a função do
 ponto (com o nome e a assinatura dele), os parâmetros (`nó_parâmetro`, no registro tipado da forma) e os módulos;
 validação, pools, troca só quando compila e `extensionRejected` são os da 009 ([Shaders — pontos de
 extensão](./shaders.md)). As entradas do ponto são **argumentos** do grafo, pelos nomes da assinatura:
@@ -77,6 +77,7 @@ extensão](./shaders.md)). As entradas do ponto são **argumentos** do grafo, pe
 | `transform` | `slot`, `t` (`Transform`), `time` | `mat4x4f` |
 | `camera` | `c` (`Camera`), `world`, `aspect`, `time` | `CameraOut` |
 | `surface` | `u`, `v`, `time` | `vec3f` |
+| `displacement` | `s` (`SurfaceSample`, a do `material`, preenchida para o vértice: uv, posição e normal locais, tangentes do uv e o passo da malha como derivadas do uv) | `f32` (a altura ao longo da normal; saída `surface.displacement`) |
 | `space` | `x`, `time` | `vec3f` |
 | `field` | `x`, `v`, `time`, `body` (`FieldBody`) | `vec3f` |
 | `material` | `s` (`SurfaceSample`), `m` (`StandardMaterial`) | `SurfaceParams` ou `Closure` (saída `output.closure`; ver [Materiais](#materiais-nodesbsdf-nodesclosure-nodesmaterial)) |
@@ -288,7 +289,7 @@ export const scaleMesh = defineSetNode({
 ```ts
 import { Subgraph } from 'clayflow';
 
-// Um grafo de ponto como nó: entradas = argumentos do grafo; saída = a dele; parâmetros = os expostos.
+// Um grafo de ponto como nó: entradas = argumentos do grafo e os expostos; saída = a dele; parâmetros = os expostos.
 const wave = Subgraph.point(waveGraph, { name: 'my.wave', inputs: { t: 'f32' }, expose: ['w.amp'] });
 const g = new NodeGraph({ nodes: { a: wave.with({ w_amp: 0.5 }), b: wave.with({ w_amp: 2 }), /* … */ }, /* … */ });
 
@@ -298,7 +299,11 @@ const filter = Subgraph.set(stageGraph, { name: 'my.filter', inputs: { in: 'm.in
 
 - **De ponto**: a função do nó é o grafo compilado (`sub_<hash>`), emitida uma vez por shader — usos repetidos
   compartilham o código e o pipeline; os parâmetros não expostos ficam embutidos; os estágios do nó são os comuns aos
-  nós de dentro.
+  nós de dentro. Cada parâmetro exposto é também uma **entrada** de mesmo nome (spec 011): sem ligação vale o valor do
+  uso (`wave.with({ w_amp: 0.5 })`, que muda sem recompilar); ligada, a saída do outro nó
+  (`['ruido.value', 'a.w_amp']`). Uma entrada pode ter um **padrão** (`defaults: { s: 's' }`, uma expressão WGSL como
+  em `defineNode`): sem ligação vale ela — os materiais prontos com padrão recebem assim a amostra de superfície do
+  ponto `material`, sem ligação obrigatória.
 - **De conjunto**: os nós de dentro entram no grafo de fora com o prefixo do uso; os valores expostos vêm do uso
   (`filter.with({ nó_parâmetro: v })`); conjuntos e contagens circulam sem cópia.
 
@@ -326,8 +331,9 @@ com nós próprios (como o `myWaves` acima, que depende da `wgslLib.noise`), reg
 A biblioteca fica na C3, em `src/elements/nodes`, um subdiretório por categoria (`input/`, `math/`, `map/`, `color/`,
 `noise/`, `pattern/`, `condition/`, `space/`, `field/`, `surface/`, `geometry/`, `bsdf/`, `closure/`, `output/`,
 `material/`, `set/`). É publicada por `nodes` (os nós por categoria) e `defaultNodeRegistry` (todos os nós de ponto e de
-conjunto e o sub-grafo `material.openpbr`, para a serialização; `defaultNodeRegistry.names()` lista os disponíveis). São
-**91 nós de ponto** (`pointNodes`), 12 de conjunto, o sub-grafo `material.openpbr` e as entradas de contexto.
+conjunto e os sub-grafos de `nodes.material`, para a serialização; `defaultNodeRegistry.names()` lista os disponíveis).
+São **98 nós de ponto** (`pointNodes`), 12 de conjunto, os 26 sub-grafos de `nodes.material` (o OpenPBR e os 25
+materiais prontos) e as entradas de contexto.
 
 Os nós de ponto valem em todos os estágios, salvo `output.surfaceParams`, `output.closure` e `geometry.tangentUv` (só
 `fragment`). Cada um tem a referência da
@@ -342,7 +348,7 @@ inteiro) e uma por campo. Uma entrada que o ponto não tem não compila (`target
 
 | Entrada | Argumento | Ponto | Portas |
 |---|---|---|---|
-| `surfaceSample()` | `s` | `material` | `world_position`, `normal`, `uv`, `time`, `metric`, `curvature`, `principal` (geometria diferencial da 010) |
+| `surfaceSample()` | `s` | `material` | `world_position`, `normal`, `uv`, `time`, `metric`, `curvature`, `principal` (geometria diferencial da 010), `footprint`, `duvdx`, `duvdy` (a largura do pixel ou do cone e as derivadas do uv, spec 034), `dpdu`, `dpdv` (as tangentes do uv em mundo: ∂posição/∂u e ∂posição/∂v; zero nos acertos dos raios — spec 011) |
 | `worldPosition()` | `s` | `material` | `world_position` |
 | `material()` | `m` | `material` | `albedo` (`vec4f`), `roughness`, `metallic` |
 | `time()` | `time` | `surface`, `space`, `field`, `transform`, `camera`, `emit` | `value` (`f32`). No `material` o tempo é `surfaceSample().time` |
@@ -399,6 +405,62 @@ Padrões (`nodes.pattern`, spec 038): `pattern.checker2` (`p`: `vec2f`) e `patte
 avaliado por pixel na GPU sobre `p · scale + offset`, filtrado pela largura `width` (ex.: `s.footprint`; 0 = exato),
 saída em [0, 1] para uma rampa de cor; tolerância 1e-4.
 
+Padrões com relevo (`nodes.pattern`, spec 011) — a estrutura dos materiais prontos, calculada por pixel. Todos recebem a
+coordenada `p` (`vec2f`), a largura do pixel nela (`width`) e o período dela (`wrap`, `vec2f`; 0 = sem) — as saídas `p`,
+`width` e `wrap` de `surface.uvSpace` — e devolvem, além dos valores, o **gradiente** da altura (`gradient`, `vec2f`:
+∂/∂p, analítico), a entrada de `surface.bump` e de `surface.relief`. O detalhe menor que o pixel vai à média (some a
+partir de meia célula por pixel) e o gradiente a zero; com `wrap`, a frequência é ajustada a um número inteiro de
+células por período e o padrão fecha sem emenda onde o uv dá a volta. Tolerância 2e-3 (`pattern.threshold`: 1e-4).
+
+| Nó | Parâmetros (padrão) | Saídas |
+|---|---|---|
+| `pattern.weave` | `scale` (fios por unidade), `over` 1, `under` 1, `shift` 1 (o ligamento: a urdidura passa `over` fios por cima e `under` por baixo, deslocada `shift` a cada fio — tela 1/1/1, sarja do jeans 3/1/1, cetim 4/1/2), `gap` 0,1 (fração do passo sem fio), `seed`, `twist` 0 (rad: o ângulo da hélice das fibras em torno do eixo do fio) | `height` em [0, 1], `gradient`, `warp` (1 onde o fio à vista é de urdidura, ao longo de `p.y`; 0 de trama), `thread` (valor em [0, 1] do fio à vista), `gap` (1 no vão entre os fios), `fiber` (`vec2f`: a direção em `p` da fibra do fio à vista — o eixo do fio girado pela torção, inteira no meio do fio e nula nas bordas; por `surface.direction`, a tangente do brilho anisotrópico) |
+| `pattern.knit` | `scale` (colunas de pontos por unidade de `p.x`), `aspect` 1,4 (carreiras por coluna: `scale` · `aspect` carreiras por unidade de `p.y`), `thickness` 1 (a meia largura do fio é 0,2 · `thickness` da coluna), `seed`, `twist` 0 | o tricô em ponto meia (pontos em V: duas pernas de fio por ponto, que sobem do meio da coluna para as bordas e passam por baixo da carreira de cima): `height` em [0, 1], `gradient`, `fiber` (a direção da fibra à vista, como na trama), `stitch` (valor em [0, 1] do ponto), `gap` (1 no fundo entre os fios) |
+| `pattern.cells` | `scale` (células por unidade), `jitter` 1, `crease` 0,1 (largura do sulco, em células), `seed` | `height` = smoothstep(0, `crease`, distância à borda) — 0 no sulco, 1 no platô —, `gradient`, `cell` (valor em [0, 1] da célula), `random` (`vec2f` em [-1, 1] da célula: a inclinação de um floco) |
+| `pattern.rings` | `scale` 8 (anéis por unidade de raio), `depth` 0,3 (da medula ao plano do corte), `distortion` 0,15 e `distortion_scale` (1,5; 0,75) (o ruído que varia a profundidade do corte), `seed`, `irregularity` 0 (0 a 1: a largura varia de ano para ano), `waviness` 0 e `waviness_scale` (3; 12) (a ondulação do raio pelo ruído, em unidades de `p`) | `value` em [0, 1] (do lenho inicial ao tardio; a fibra corre ao longo de `p.x`, a medula em `p.y` = 0), `gradient`, `ring` (valor em [0, 1] do anel); `knot` (o miolo do nó da madeira em [0, 1]). Os nós: `knots` 0 (células por unidade de `p`; um nó em três de cada dez células; 0 = sem), `knot_size` 0,04 (a meia largura do nó em `p`) e `knot_rings` 6 (quantos anéis o nó soma ao raio): os anéis desviam em volta do nó e fecham em voltas dentro dele |
+| `pattern.grain` | `scale` (`vec2f`, frequência por eixo: (2, 200) dá riscos ao longo de `p.x`), `octaves` 3 (1 a 8), `lacunarity` 2, `gain` 0,5, `seed` | `value` em [-1, 1], `gradient` |
+| `pattern.brush` | `scale` (2; 200) (`vec2f`: riscos por unidade de `p` ao longo e através, na primeira das quatro passadas), `spread` 0,06 (rad: quanto a direção dos riscos varia de lugar para lugar), `bend_scale` (1,5; 3) (ondas por unidade do ruído que desvia os riscos), `deep` 0,1 (a fração das células com um risco fundo isolado), `seed` | a escova de um metal: `value` (os riscos finos em [-1, 1] menos os fundos, até −1,8), `gradient`, `direction` (`vec2f`, a direção dos riscos em `p` no ponto — a tangente do lobo anisotrópico, por `surface.direction`), `deep` (o risco fundo em [0, 1]) |
+| `pattern.bricks` | `scale` (1; 2) (peças por unidade de `p.x`, fiadas por unidade de `p.y`), `shift` 0,5 (o deslocamento de cada fiada, em peças: 0,5 a amarração do tijolo, 0 a grade do azulejo), `gap` 0,1 e `bevel` 0,08 (a junta e a aresta arredondada, em frações da altura da fiada), `seed` | `height` (0 na junta, 1 na face), `gradient`, `brick` (valor em [0, 1] da peça), `mortar` (1 na junta) |
+| `pattern.planks` | `scale` 4 (larguras de tábua por unidade), `length` 6 (comprimento da peça, em larguras, inteiro), `arrangement` 0 (0: réguas em fileiras deslocadas ao acaso; 1: espinha de peixe), `gap` 0,02, `bevel` 0,04 (em larguras), `seed` | `p` (`vec2f`: a coordenada dentro da peça, o comprimento ao longo de x, com um deslocamento próprio de cada peça — liga na entrada `p` de `pattern.rings` e `pattern.grain`: cada tábua com os seus anéis, na sua direção), `height`, `gradient`, `plank` (valor em [0, 1] da peça), `joint` (1 na junta) |
+| `pattern.fissures` | `scale` (4; 1) (`vec2f`: placas por unidade de `p.x` e de `p.y` — placas alongadas no eixo de menor frequência), `jitter` 1, `crease` 0,2 (a largura da fissura, em células do eixo de maior frequência: a mesma em `p` em qualquer direção), `seed` | a casca de árvore: `height` (0 no fundo da fissura, 1 na face da placa), `gradient`, `plate` (valor em [0, 1] da placa); as fissuras formam uma rede que se ramifica e se junta |
+| `pattern.dents` | `scale` (mossas por unidade), `jitter` 1, `seed` | o metal martelado: `height` = 2 · d² presa em 1 (d a distância ao ponto da célula: o fundo da calota no ponto, a aresta viva onde duas mossas se encontram), `gradient`, `cell` |
+| `pattern.shingles` | `scale` (2; 4) (`vec2f`, também entrada: telhas por unidade de `p.x` e fiadas por unidade de `p.y`; negativo em y: o pé das telhas para o lado de `p.y` maior), `shift` 0,5 (o deslocamento de cada fiada, em telhas: 0,5 as juntas desencontradas, 0 as colunas da telha de capa e canal), `gap` 0,04 e `bevel` 0,08 (o vão lateral e a borda arredondada, em alturas de fiada), `profile` 0 (0 a 1: a fração da altura que vem do perfil de capa e canal), `irregularity` 0 (o recuo do pé de cada telha, ao acaso), `seed` | as fiadas sobrepostas do telhado: `height` em [0, 1] — a telha é um plano inclinado, grossa no pé e enfiada sob a fiada de cima; no degrau do pé desce à telha de baixo (o dente de serra que faz a sombra) —, `gradient`, `tile` (valor em [0, 1] da telha à vista), `gap` (1 onde a que se vê é a de baixo), `along` (a posição na fiada: 0 no pé, 1 no topo) |
+| `pattern.veins` | `scale` (0,5; 1) (`vec2f`: lâminas por unidade de `p.x`, o comprimento, e de `p.y`, a largura), `veins` 7 (secundárias de cada lado por lâmina), `slope` 1 (a tangente do ângulo com a central), `curve` 1 (a curva para a ponta), `thickness` 0,03 (meia largura da central na base, em larguras da lâmina), `fine` 30 (aréolas por unidade; 0: sem vênulas), `seed`, `irregular` 0 (0 a 0,35: o espaçamento e o ângulo das secundárias variam), `taper` 0 (0 a 1: quanto a central afina até a ponta), `ladder` 0 (terciárias por largura de lâmina, em escada entre duas secundárias) | as nervuras da folha: `height` em [0, 1] (1 na central, 0,7 nas secundárias, 0,4 nas terciárias, 0,35 nas vênulas — as bordas arredondadas das aréolas —, 0 no limbo), `gradient`, `main` (a central, as secundárias e, a 0,5, as terciárias), `across` (a distância à central: 0 nela, 1 na margem), `cell` (valor em [0, 1] da aréola, indo a 0,5 na borda) |
+| `pattern.areoles` | `scale` 1 (células por unidade), `jitter` 0,8 (até 0,8), `wall` 0,25 (a largura da borda, em fração da meia célula), `seed` | células arredondadas (as almofadas do limbo de uma folha, bolhas, seixos): a posição na célula é 2 · d₁ / (d₁ + d₂), das distâncias aos dois pontos mais próximos — curvas de nível circulares, sem as arestas retas do Voronoi. `height` (a almofada abaulada: 1 no meio, 0 na borda), `gradient`, `cell` (valor em [0, 1], indo a 0,5 na borda), `wall` (a borda em [0, 1]) |
+| `pattern.glints` | `scale` (flocos por unidade, por lado), `seed` | as células do sorteio dos brilhos pontuais — a entrada de `closure.glints`: `cells` (`vec3f`: o valor em [0, 1] da célula do pixel em dois níveis de detalhe e a mistura entre eles) e `count` (o número de flocos na célula do primeiro nível; 0 com os flocos resolvidos ou sem a largura do pixel) |
+| `pattern.threshold` | entradas `value` e `gradient` (de outro padrão); `low` 0, `high` 1 | `value` = smoothstep(`low`; `high`; valor) e o `gradient` pela regra da cadeia: recorta uma faixa de um padrão sem perder a derivada (a fresta onde um grão passa de um nível, a crista do anel); `low` > `high` inverte |
+
+```ts
+// Uma sarja com relevo: o espaço do padrão no uv, a trama, a cor pelos dois fios e a normal pelo gradiente.
+const twill = new MaterialFunction({
+    graph: new NodeGraph({
+        nodes: {
+            uv: nodes.surface.uvSpace.with({ scale: [2, 1] }), // numa esfera: o padrão quadrado no equador
+            weave: nodes.pattern.weave.with({ scale: 120, over: 3, under: 1 }),
+            yarn: nodes.color.ramp.with({ color_a: [0.3, 0.3, 0.35], color_b: [0.03, 0.05, 0.13] }),
+            fibers: nodes.bsdf.diffuse.with({ roughness: 1 }),
+            relief: nodes.surface.bump.with({ strength: 0.003 }),
+            shaped: nodes.closure.normal,
+            out: nodes.output.closure,
+        },
+        links: [
+            ['uv.p', 'weave.p'],
+            ['uv.width', 'weave.width'],
+            ['uv.wrap', 'weave.wrap'],
+            ['weave.warp', 'yarn.t'],
+            ['yarn.color', 'fibers.color'],
+            ['uv.du', 'relief.du'],
+            ['uv.dv', 'relief.dv'],
+            ['weave.gradient', 'relief.gradient'],
+            ['fibers.value', 'shaped.c'],
+            ['relief.value', 'shaped.normal'],
+            ['shaped.value', 'out.closure'],
+        ],
+        output: 'out.value',
+    }),
+});
+```
+
 ### Ruídos (`nodes.noise`)
 
 Sobre a `wgslLib.noise`, na posição `p · scale + offset`. Parâmetros comuns: `scale` (1), `offset` (`vec2f`/`vec3f`, 0)
@@ -453,6 +515,53 @@ geometria diferencial).
 | `surface.metric` | `metric` → `e`, `f`, `g`, `area` = √(EG − F²) | 1e-5 |
 | `surface.curvature` | `curvature` (K, H, k₁, k₂) → `gaussian`, `mean`, `k1`, `k2`, `curvedness` = √((k₁² + k₂²)/2), `shape_index` = (2/π)·atan2(k₁ + k₂, k₁ − k₂) | 1e-5 (`shape_index`: 5e-4) |
 | `surface.principal` | `principal`, `normal` → `d1` (direção de k₁ no plano tangente, normalizada), `d2` = n × d₁; zeros em ponto umbílico | 1e-5 |
+| `surface.uvSpace` | `uv`, `duvdx`, `duvdy`, `dpdu`, `dpdv` (sem ligação: os da amostra), `scale` (`vec2f`, repetições por unidade de uv; (1, 1)); parâmetro `offset` → `p` = uv · `scale` + `offset`, `width` (a largura do pixel em `p`), `du`, `dv` (as tangentes de `p` em mundo), `wrap` (o período de `p` numa volta do uv) — o espaço dos padrões com relevo (spec 011) | 1e-5 |
+| `surface.bump` | `normal` (sem ligação: a da amostra), `du`, `dv`, `gradient` (`vec2f`, de um padrão), `strength` (1; a altura em unidades de `p`: o relevo acompanha o tamanho do padrão, não o do objeto) → `value`: a normal perturbada pelo gradiente de superfície (Mikkelsen 2020); liga no `closure.normal`, ou na `normal` de outro `surface.bump` para somar dois relevos. Sem tangentes (os acertos dos raios), a normal sem mudança | 1e-4 |
+| `surface.relief` | `value`, `gradient` (a altura de um padrão e a derivada ∂/∂p), `wrap` (a de `surface.uvSpace`: a escala do padrão no uv), `height` (1; milímetros de uma unidade do padrão — entrada com valor); parâmetro `level` (0: o nível do padrão que fica na superfície) → `value` (`vec3f`): o relevo — a altura em **milímetros** e as derivadas dela no uv. Relevos somam-se com `math.add3` | 1e-5 |
+| `surface.reliefNormal` | `normal`, `dpdu`, `dpdv` (sem ligação: os da amostra), `relief` (de `surface.relief`), `scale` (1; unidades do mundo por metro) → `value`: a normal da superfície deslocada pelo relevo (a inclinação presa em 76°); liga no `closure.normal`. Sem tangentes, a normal sem mudança | 1e-4 |
+| `surface.displacement` | `relief`, `scale` (1; unidades do mundo por metro) → `value` (`f32`): a altura nas unidades do mundo — a saída do ponto `displacement` (a `DisplacementFunction` de uma `ParametricSurface`) | 1e-6 |
+| `surface.direction` | `du`, `dv` (de `surface.uvSpace`), `direction` (`vec2f`, uma direção em `p`: a saída `fiber` de `pattern.weave`/`pattern.knit`) → `value`: a direção em mundo, normalizada — a `tangent` de um especular anisotrópico. Sem tangentes, zero | 1e-4 |
+
+O relevo em milímetros é uma função de altura para dois consumidores: no material, `surface.reliefNormal` inclina a
+normal por pixel; na geometria, a `DisplacementFunction` da entidade (o mesmo sub-grafo ligado a
+`surface.displacement`) move os vértices da `ParametricSurface`. Os relevos dos materiais prontos são os sub-grafos
+`nodes.relief.*` (`woodRough`, `leather`, `wool`): entrada `s` (a amostra), saída o relevo — ver
+[Materiais — relevo e deslocamento](./materials.md).
+
+```ts
+// Um relevo próprio: sulcos de células de 0,4 mm, na normal e na geometria.
+const grooves = Subgraph.point(
+    new NodeGraph({
+        nodes: {
+            s: nodes.input.surfaceSample(),
+            uv: nodes.surface.uvSpace.with({ scale: [2, 1] }),
+            cells: nodes.pattern.cells.with({ scale: 40, crease: 0.4 }),
+            out: nodes.surface.relief.with({ height: 0.4, level: 1 }), // os sulcos descem dos platôs
+        },
+        links: [
+            ['uv.p', 'cells.p'],
+            ['uv.width', 'cells.width'],
+            ['uv.wrap', 'cells.wrap'],
+            ['cells.height', 'out.value'],
+            ['cells.gradient', 'out.gradient'],
+            ['uv.wrap', 'out.wrap'],
+        ],
+        output: 'out.value',
+    }),
+    { name: 'relief.grooves', inputs: { s: 'SurfaceSample' }, defaults: { s: 's' } },
+);
+// Na geometria: a função de deslocamento da entidade de uma ParametricSurface (cena em metros: scale 1).
+entity.add(
+    new DisplacementFunction({
+        graph: new NodeGraph({
+            nodes: { relief: grooves, out: nodes.surface.displacement },
+            links: [['relief.value', 'out.relief']],
+            output: 'out.value',
+        }),
+    }),
+);
+// No material: o mesmo `grooves` → `surface.reliefNormal` → `closure.normal`.
+```
 
 ### Saída (`nodes.output`)
 
@@ -480,18 +589,20 @@ com esses lobos — mudar valores não recompila, mudar ligações recompila. Re
 | `bsdf.transmission` | refração do que está atrás: `ior`, `color` a `depth` (Beer-Lambert), `abbe` (dispersão), `roughness` |
 | `bsdf.translucent` | parede fina translúcida, sem refratar o fundo |
 | `bsdf.sheen` | brilho de fibra (veludo) |
-| `bsdf.subsurface` | subsuperfície no modelo: `color`, `radius` por canal |
+| `bsdf.subsurface` | subsuperfície (perfil de Burley): `color` (albedo), `radius` por canal em mm, `scale` (unidades por metro) |
 | `bsdf.emission` | `color` × `luminance` em nits |
 | `closure.mix` | mistura `a` e `b` por `t` |
 | `closure.add` | soma os lobos (um dielétrico fica sobre o difuso) |
 | `closure.layer` | verniz: o dielétrico de `top` sobre `base`, com `top_color` e `top_weight` |
 | `closure.thinFilm` | filme fino (iridescência): `thickness` em nm, `ior` |
+| `closure.glints` | brilhos pontuais do especular de base: `cells` e `count` (de `pattern.glints`) e `roughness` 0,1 (a do espelho de cada floco) — a contagem discreta dos flocos alinhados com cada luz no lugar da densidade média do lobo |
 | `closure.opacity` | recorte parcial `alpha`: o material vai ao passe dos transmissivos |
 | `closure.normal` | normal própria dos lobos de base |
 | `closure.mediumPriority` | prioridade do meio na sobreposição de volumes transmissivos |
 | `closure.thinWalled` | a transmissão como parede fina (vidraça, bolha) |
 | `geometry.tangentUv` | tangente pelo uv (derivadas de tela), para o anisotrópico em malhas sem tangente; só `fragment` |
 | `material.openpbr` | o OpenPBR Surface 1.1 como sub-grafo de ponto (`Subgraph.point`) montado com os nós acima; parâmetros com os nomes da norma |
+| `material.<nome>` | os 26 materiais prontos (`woodRaw`, `woodRough`, `woodVarnishedGloss`, `velvet`, `metalBrushed`, `carPaint`, `glass`, `skin`…): sub-grafos de ponto com valores físicos e parâmetros expostos — [Materiais](./materials.md#biblioteca-de-materiais-prontos-materials-nodesmaterial) |
 
 ```ts
 import { MaterialFunction, NodeGraph, nodes } from 'clayflow';

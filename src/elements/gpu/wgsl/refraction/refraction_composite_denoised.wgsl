@@ -6,6 +6,6 @@
 fn refraction_composite_denoised_fs(@builtin(position) frag: vec4f) -> RefractionCompositeOut {
     let px = vec2u(frag.xy);
     let request = textureLoad(refraction_request, px, 0);
-    if ((request.y & REFRACTION_REQUEST_VALID) == 0u) { discard; }
+    if (refraction.enabled == 0u || (request.y & (REFRACTION_REQUEST_VALID | REFRACTION_REQUEST_REFLECT)) != REFRACTION_REQUEST_VALID) { discard; }
     return refraction_composed(px, request.xy, textureLoad(temporal_filter_output, px, 0).rgb);
 }

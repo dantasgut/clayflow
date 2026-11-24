@@ -1256,16 +1256,24 @@ async function checkRequest(
     const { data, bytesPerRow } = await readBack(engine.app, {
         kind: 'texture',
         spec: request,
-        rowBytes: request.width * 8,
+        rowBytes: request.width * 16,
     });
+    // Quatro palavras por pixel (rgba32uint): a distância, as marcas e, nos pedidos de reflexo dos opacos lisos (marca
+    // 4, spec 011 T114), a direção e a normal. `marked`: os pedidos dos transmissivos; `requested`: todos (a fila).
     const words = new Uint32Array(data);
     const marked = new Uint8Array(W * H);
+    const requested = new Uint8Array(W * H);
     let total = 0;
+    let mirrors = 0;
     for (let y = 0; y < H; y++)
         for (let x = 0; x < W; x++) {
-            const v = words[(y * bytesPerRow) / 4 + x * 2 + 1]! & 1;
-            marked[y * W + x] = v;
-            total += v;
+            const marks = words[(y * bytesPerRow) / 4 + x * 4 + 1]!;
+            const v = marks & 1;
+            const reflect = (marks & 4) !== 0 ? 1 : 0;
+            requested[y * W + x] = v;
+            marked[y * W + x] = v & (1 - reflect);
+            total += v & (1 - reflect);
+            mirrors += v & reflect;
         }
     const queued = new Uint32Array(
         (await readBack(engine.app, { kind: 'buffer', spec: count, bytes: 4 })).data,
@@ -1275,10 +1283,10 @@ async function checkRequest(
     for (let y = 0; y < H; y += 2)
         for (let x = 0; x < W; x += 2)
             if (
-                marked[y * W + x] === 1
-                || (x + 1 < W && marked[y * W + x + 1] === 1)
-                || (y + 1 < H && marked[(y + 1) * W + x] === 1)
-                || (x + 1 < W && y + 1 < H && marked[(y + 1) * W + x + 1] === 1)
+                requested[y * W + x] === 1
+                || (x + 1 < W && requested[y * W + x + 1] === 1)
+                || (y + 1 < H && requested[(y + 1) * W + x] === 1)
+                || (x + 1 < W && y + 1 < H && requested[(y + 1) * W + x + 1] === 1)
             )
                 blocks++;
     const glass = new Set(scene.solids.filter((o) => o.glass !== undefined).map((o) => o.id));
@@ -1311,7 +1319,7 @@ async function checkRequest(
             }
     }
     log(
-        `${scene.name}: pedido em ${total} pixels (${blocks} blocos 2×2), fila ${queued}; interior das regiões ${interior} px, ${wrong} discordam da referência; ${lit} pixels com pedido guardam a luz de trás`,
+        `${scene.name}: pedido em ${total} pixels e ${mirrors} de reflexo de opaco liso (${blocks} blocos 2×2), fila ${queued}; interior das regiões ${interior} px, ${wrong} discordam da referência; ${lit} pixels com pedido guardam a luz de trás`,
     );
     check(light !== undefined, `${scene.name}: alvo da luz que chega não alocado`);
     check(lit === 0, `${scene.name}: ${lit} pixels com pedido guardam a luz do opaco de trás`);

@@ -3,6 +3,7 @@ export { CameraFunction } from './CameraFunction';
 export { FieldFunction } from './FieldFunction';
 export { EmitFunction } from './EmitFunction';
 export { SurfaceFunction } from './SurfaceFunction';
+export { DisplacementFunction } from './DisplacementFunction';
 export { SpaceFunction } from './SpaceFunction';
 export { MaterialFunction } from './MaterialFunction';
 export { DensityFunction } from './DensityFunction';

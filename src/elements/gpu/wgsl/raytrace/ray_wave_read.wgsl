@@ -5,7 +5,7 @@
 /** A amostra de superfície do registro `h` (a geometria diferencial fica zerada nos acertos dos raios). */
 fn ray_wave_sample(h: RayWaveHit) -> SurfaceSample {
     return SurfaceSample(h.position, h.normal, h.uv, h.time, vec3f(0.0), vec4f(0.0), vec3f(0.0), h.width,
-        vec2f(h.duv, 0.0), vec2f(0.0, h.duv));
+        vec2f(h.duv, 0.0), vec2f(0.0, h.duv), vec3f(0.0), vec3f(0.0), h.position, vec3f(0.0), vec3f(0.0));
 }
 
 /** As constantes do `StandardMaterial` do registro `h`. */

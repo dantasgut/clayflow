@@ -10,11 +10,13 @@
 // thread: o viés), `surface_adapt_scan_main` (um grupo: bases de vértices, índices e arestas por retalho; totais no
 // registro indireto) e `surface_adapt_emit_main` (um por vértice possível: vértice, geometria diferencial, índices e
 // arestas das células).
+// Com `DisplacementFunction` (spec 011), os vértices são os deslocados (`surface_displaced_at`), com o passo da malha
+// de cada um como largura do filtro; a geometria diferencial é a da superfície sem o deslocamento.
 // As vistas além da câmera ativa (spec 041, R20; `adapt.view` = 1) usam o orçamento, os prefixos e a emissão daqui com
 // o nível pelo critério da vista (`surface_adapt_view.wgsl`): a emissão só refaz os retalhos marcados (`.w` = 1 depois
 // da marcação da vista), sem geometria diferencial nem arame. A palavra `.x` do retalho guarda o nível efetivo (bits
 // 0–7) e o pedido antes do viés (bits 8–15).
-// Requer: structs SurfaceParams, SurfaceDiff, SurfaceAdaptParams, CameraMatrices, WorldTransform; surface_at;
+// Requer: structs SurfaceParams, SurfaceDiff, SurfaceAdaptParams, CameraMatrices, WorldTransform; surface_displaced_at;
 // surface_jet; surface_forms (os registros das funções `surface` e `space` chegam com os módulos delas).
 
 const ADAPT_NONE: u32 = NONE;
@@ -69,16 +71,18 @@ fn adapt_camera_segments(idx: u32, camera_slot: u32) -> f32 {
     let t = surface_params.time;
     var kappa = 0.0;
     var corners: array<vec3f, 4>;
+    // O passo do retalho inteiro: o relevo mais fino que ele não entra na medida do tamanho.
+    let patch_spacing = vec2f(1.0 / f32(adapt.patches_u), 1.0 / f32(adapt.patches_v));
     let fus = array<f32, 4>(0.0, 1.0, 0.0, 1.0);
     let fvs = array<f32, 4>(0.0, 0.0, 1.0, 1.0);
     for (var c = 0u; c < 4u; c++) {
         let uv = adapt_uv(pi, qi, fus[c], fvs[c]);
-        corners[c] = surface_at(uv.u, uv.v, uv.sv, t, data, up).position;
+        corners[c] = surface_displaced_at(uv.u, uv.v, uv.su, uv.sv, patch_spacing, t, data, up).position;
         let f = adapt_forms(uv, data).curvature;
         kappa = max(kappa, max(abs(f.z), abs(f.w)));
     }
     let mid = adapt_uv(pi, qi, 0.5, 0.5);
-    let center = surface_at(mid.u, mid.v, mid.sv, t, data, up).position;
+    let center = surface_displaced_at(mid.u, mid.v, mid.su, mid.sv, patch_spacing, t, data, up).position;
     let fc = adapt_forms(mid, data).curvature;
     kappa = max(kappa, max(abs(fc.z), abs(fc.w)));
     let size = max(
@@ -220,6 +224,13 @@ fn adapt_neighbor(pi: i32, qi: i32, own: u32) -> u32 {
     return adapt_patches[u32(q) * adapt.patches_u + u32(p)].x & 0xFFu;
 }
 
+// O retalho (pi, qi) existe (dentro do domínio, ou com a volta dos periódicos)?
+fn adapt_inside(pi: i32, qi: i32) -> bool {
+    let in_u = (pi >= 0 && pi < i32(adapt.patches_u)) || adapt.periodic_u != 0u;
+    let in_v = (qi >= 0 && qi < i32(adapt.patches_v)) || adapt.periodic_v != 0u;
+    return in_u && in_v;
+}
+
 // Índice colapsado sobre o múltiplo de 2^(l − e) anterior (aresta de nível e < l).
 fn adapt_snap(i: u32, l: u32, e: u32) -> u32 {
     let s = 1u << (l - min(l, e));
@@ -257,7 +268,21 @@ fn surface_adapt_emit_main(
     let vi = pd.y + k * (n + 1u) + j;
     let o = vi;
     let prev = vec3f(adapt_vertices[o].nx, adapt_vertices[o].ny, adapt_vertices[o].nz);
-    let at = surface_at(uv.u, uv.v, uv.sv, surface_params.time, data, select(prev, vec3f(0.0, 1.0, 0.0), dot(prev, prev) == 0.0));
+    // O passo da malha no uv que filtra o deslocamento (spec 011): o do nível do retalho; na borda, o do menor nível dos
+    // retalhos que a dividem (e no canto, dos quatro) — os dois lados calculam a mesma altura, sem fresta.
+    var lw = l;
+    if (k == 0u) { lw = min(lw, adapt_neighbor(i32(pi), i32(qi) - 1, l)); }
+    if (k == n) { lw = min(lw, adapt_neighbor(i32(pi), i32(qi) + 1, l)); }
+    if (j == 0u) { lw = min(lw, adapt_neighbor(i32(pi) - 1, i32(qi), l)); }
+    if (j == n) { lw = min(lw, adapt_neighbor(i32(pi) + 1, i32(qi), l)); }
+    if ((j == 0u || j == n) && (k == 0u || k == n)) {
+        let cp = i32(pi) + select(1, -1, j == 0u);
+        let cq = i32(qi) + select(1, -1, k == 0u);
+        // O retalho da diagonal só conta quando existe (os dois vizinhos de aresta existem ou dão a volta).
+        if (adapt_inside(cp, cq)) { lw = min(lw, adapt_neighbor(cp, cq, l)); }
+    }
+    let spacing = vec2f(1.0 / f32(adapt.patches_u), 1.0 / f32(adapt.patches_v)) / f32(1u << lw);
+    let at = surface_displaced_at(uv.u, uv.v, uv.su, uv.sv, spacing, surface_params.time, data, select(prev, vec3f(0.0, 1.0, 0.0), dot(prev, prev) == 0.0));
     if (at.finite) {
         adapt_vertices[o].px = at.position.x;
         adapt_vertices[o].py = at.position.y;

@@ -32,6 +32,8 @@ struct VsOut {
     // Vetores de movimento (spec 034): o ponto em clip no quadro anterior e neste, sem o deslocamento da amostra.
     @location(9) motion_previous: vec4<f32>,
     @location(10) motion_current: vec4<f32>,
+    // A posição no objeto (spec 011): a coordenada dos padrões maciços.
+    @location(11) object_position: vec3<f32>,
 }
 
 @vertex
@@ -46,6 +48,7 @@ fn vs_main(
     let world = w.world * vec4<f32>(in.position, 1.0);
     out.clip_position = camera_clip(forward_frame.cameraSlot, world);
     out.world_position = world.xyz;
+    out.object_position = in.position;
     out.world_normal = w.normal * in.normal;
     out.material_slot = r.materialSlot;
     out.uv = in.uv;
@@ -89,8 +92,14 @@ struct ForwardOut {
     @location(1) light: vec4<f32>,
 }
 
-@fragment
-fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> ForwardOut {
+// A superfície do fragmento: a normal geométrica voltada para quem vê e o fechamento do ponto `material`, com a água
+// do ponto e o controle de serrilhado especular. Lê derivadas de tela: chamada em fluxo uniforme, no começo do fragmento.
+struct ForwardSurface {
+    n: vec3f,
+    c: Closure,
+}
+
+fn forward_surface(in: VsOut, front: bool) -> ForwardSurface {
     let material = materials[in.material_slot];
     // A face de trás (só a do material de dois lados chega aqui; spec 034, T061a): a normal voltada para quem vê.
     let n = normalize(in.world_normal) * select(-1.0, 1.0, front);
@@ -100,6 +109,46 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> ForwardOut {
     let footprint = max(length(dpdx(in.world_position)), length(dpdy(in.world_position)));
     let duvdx = dpdx(in.uv);
     let duvdy = dpdy(in.uv);
+    // Tangentes do uv em mundo (spec 011): a posição é linear no uv dentro do triângulo — dp/dx = P_u u_x + P_v v_x e
+    // dp/dy = P_u u_y + P_v v_y resolvidos para P_u e P_v; uv degenerado (sem variação na tela): zero.
+    let dpdx_world = dpdx(in.world_position);
+    let dpdy_world = dpdy(in.world_position);
+    let uv_det = duvdx.x * duvdy.y - duvdx.y * duvdy.x;
+    let uv_inv = select(0.0, 1.0 / uv_det, abs(uv_det) > 1e-24);
+    let dpdu = (dpdx_world * duvdy.y - dpdy_world * duvdx.y) * uv_inv;
+    let dpdv = (dpdy_world * duvdx.x - dpdx_world * duvdy.x) * uv_inv;
+    // As mesmas tangentes na posição do objeto (os padrões maciços).
+    let dodx = dpdx(in.object_position);
+    let dody = dpdy(in.object_position);
+    let dodu = (dodx * duvdy.y - dody * duvdx.y) * uv_inv;
+    let dodv = (dody * duvdx.x - dodx * duvdy.x) * uv_inv;
+    // As derivadas do uv para os padrões são as da superfície lisa (a da normal interpolada), não as da faceta: numa
+    // malha deslocada (spec 011) a faceta inclina com o relevo e, onde a malha mal resolve o detalhe, facetas vizinhas
+    // teriam larguras de filtro diferentes — o padrão do material piscaria de triângulo em triângulo. O passo do pixel
+    // sobre a faceta é levado ao plano tangente ao longo do raio de visão (s = Δp − v (Δp · n) / (v · n), com v · n
+    // preso em 0,05) e resolvido nas tangentes do uv sem a componente normal. Sem relevo, a faceta já está no plano
+    // tangente e nada muda.
+    let to_eye = forward_view_dir(cameras[forward_frame.cameraSlot], in.world_position);
+    let facing = dot(to_eye, n);
+    let facing_inv = select(-1.0, 1.0, facing >= 0.0) / max(abs(facing), 0.05);
+    let step_x = dpdx_world - to_eye * (dot(dpdx_world, n) * facing_inv);
+    let step_y = dpdy_world - to_eye * (dot(dpdy_world, n) * facing_inv);
+    let tan_u = dpdu - n * dot(dpdu, n);
+    let tan_v = dpdv - n * dot(dpdv, n);
+    let m_e = dot(tan_u, tan_u);
+    let m_f = dot(tan_u, tan_v);
+    let m_g = dot(tan_v, tan_v);
+    let m_det = m_e * m_g - m_f * m_f;
+    let smooth_ok = m_det > 1e-24 * max(m_e * m_g, 1e-30);
+    let m_inv = select(0.0, 1.0 / m_det, smooth_ok);
+    let pattern_duvdx = select(duvdx, vec2f(
+        m_g * dot(step_x, tan_u) - m_f * dot(step_x, tan_v),
+        m_e * dot(step_x, tan_v) - m_f * dot(step_x, tan_u),
+    ) * m_inv, smooth_ok);
+    let pattern_duvdy = select(duvdy, vec2f(
+        m_g * dot(step_y, tan_u) - m_f * dot(step_y, tan_v),
+        m_e * dot(step_y, tan_v) - m_f * dot(step_y, tan_u),
+    ) * m_inv, smooth_ok);
     // Fechamento pelo ponto `material` (spec 009/011; pronto: o das constantes do material).
     let sample = SurfaceSample(
         in.world_position,
@@ -110,14 +159,27 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> ForwardOut {
         in.curvature,
         in.principal,
         footprint,
-        duvdx,
-        duvdy,
+        pattern_duvdx,
+        pattern_duvdy,
+        dpdu,
+        dpdv,
+        in.object_position,
+        dodu,
+        dodv,
     );
     // A água no ponto, a película e a dos poros (ponto de cena `scene_wetness`, spec 034; seca, nada muda).
     let c = closure_specular_aa(
         closure_wet(material_eval(sample, material, in.fn_slot), scene_wetness(in.world_position, n, footprint)),
         variance,
     );
+    return ForwardSurface(n, c);
+}
+
+@fragment
+fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> ForwardOut {
+    let surface = forward_surface(in, front);
+    let n = surface.n;
+    let c = surface.c;
     let v = forward_view_dir(cameras[forward_frame.cameraSlot], in.world_position);
     let direct = scene_direct_lighting(c, in.world_position, n, v);
     let lit = direct + scene_indirect_lighting(c, in.world_position, n, v);

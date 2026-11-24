@@ -51,6 +51,30 @@ const thinFilm = defineNode({
     tags: ['lobe:thinFilm'],
 });
 
+/**
+ * Brilhos pontuais do especular de base (spec 011, T118): os flocos da pintura metálica, os cristais da neve, os grãos
+ * de quartzo da areia — espelhos pequenos, menores que o pixel, que acendem um a um. `cells` e `count` vêm de
+ * `pattern.glints` (as células do sorteio e o número de flocos por célula); `roughness` é a do lobo de cada floco (o
+ * espelho pequeno: quanto mais lisa, menos flocos alinhados e mais forte cada brilho). A rugosidade do especular de
+ * `c` passa a ser a distribuição das orientações dos flocos: o lobo dela é a média dos brilhos (a energia é a mesma),
+ * e a contagem discreta dos flocos alinhados com cada luz — sorteada de forma estável na célula do objeto — dá os
+ * pontos que mudam com o ângulo (Jakob et al. 2014; Zirr e Kaplanyan 2016). Vale no lobo isotrópico, nas luzes
+ * diretas; `count` 0 (ou sem ligação): o lobo médio.
+ */
+const glints = defineNode({
+    name: 'closure.glints',
+    inputs: { c: 'Closure', cells: 'vec3f', count: 'f32', roughness: 'f32' },
+    outputs: { value: 'Closure' },
+    params: {
+        cells: { type: 'vec3f', default: [0, 0, 0] },
+        count: { type: 'f32', default: 0 },
+        roughness: { type: 'f32', default: 0.1 },
+    },
+    code: nodeClosure,
+    fn: 'node_closure_glints',
+    tags: ['lobe:glint'],
+});
+
 /** Opacidade (recorte parcial) em [0, 1]: o material vai ao passe de transmissivos. */
 const opacity = defineNode({
     name: 'closure.opacity',
@@ -122,6 +146,7 @@ export const closure = {
     add,
     layer,
     thinFilm,
+    glints,
     opacity,
     normal,
     mediumPriority,

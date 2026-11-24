@@ -8,8 +8,8 @@ import { uniform, vec, vector, type NodeCase } from './cases';
 type V = readonly number[];
 
 const dot = (a: V, b: V): number => a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
-const scale = (a: V, s: number): number[] => a.map((c) => c * s);
-const norm = (a: V): number[] => scale(a, 1 / Math.sqrt(dot(a, a)));
+const scale3 = (a: V, s: number): number[] => a.map((c) => c * s);
+const norm = (a: V): number[] => scale3(a, 1 / Math.sqrt(dot(a, a)));
 const cross = (a: V, b: V): number[] => [
     a[1]! * b[2]! - a[2]! * b[1]!,
     a[2]! * b[0]! - a[0]! * b[2]!,
@@ -90,6 +90,126 @@ export function surfaceRipple(
     return norm(n.map((c, k) => c - (g[k]! - c * gn)));
 }
 
+/** `surface.uvSpace`: a coordenada do padrão, a largura do pixel nela, as tangentes e o período. */
+export function surfaceUvSpace(
+    uv: V,
+    duvdx: V,
+    duvdy: V,
+    dpdu: V,
+    dpdv: V,
+    scale: V,
+    offset: V,
+): { p: number[]; width: number; du: number[]; dv: number[]; wrap: number[] } {
+    const s = scale.map((c) => (Math.abs(c) > 1e-9 ? c : 1));
+    return {
+        p: [uv[0]! * s[0]! + offset[0]!, uv[1]! * s[1]! + offset[1]!],
+        width: Math.max(
+            Math.hypot(duvdx[0]! * s[0]!, duvdx[1]! * s[1]!),
+            Math.hypot(duvdy[0]! * s[0]!, duvdy[1]! * s[1]!),
+        ),
+        du: scale3(dpdu, 1 / s[0]!),
+        dv: scale3(dpdv, 1 / s[1]!),
+        wrap: s.map(Math.abs),
+    };
+}
+
+/** `surface.bump`: a normal perturbada pelo gradiente de superfície da altura (Mikkelsen 2020). */
+export function surfaceBump(normal: V, du: V, dv: V, gradient: V, strength: number): number[] {
+    const n = dot(normal, normal) > 0 ? norm(normal) : [0, 0, 1];
+    const det = dot(n, cross(du, dv));
+    if (Math.abs(det) < 1e-24) return n;
+    const a = cross(dv, n);
+    const b = cross(n, du);
+    const k = Math.sqrt(Math.abs(det)) / det;
+    return norm(n.map((c, i) => c - strength * (gradient[0]! * a[i]! + gradient[1]! * b[i]!) * k));
+}
+
+/** `surface.relief`: (altura, ∂/∂u, ∂/∂v) em milímetros a partir do padrão e da escala dele no uv. */
+export function surfaceRelief(
+    value: number,
+    gradient: V,
+    wrap: V,
+    height: number,
+    level: number,
+): number[] {
+    const w = wrap.map((c) => (c > 1e-9 ? c : 1));
+    return [(value - level) * height, height * gradient[0]! * w[0]!, height * gradient[1]! * w[1]!];
+}
+
+/** `surface.solidSpace`: a posição no objeto no referencial do bloco (p, largura do pixel, ∂p/∂u, ∂p/∂v). */
+export function surfaceSolidSpace(
+    position: V,
+    dodu: V,
+    dodv: V,
+    duvdx: V,
+    duvdy: V,
+    footprint: number,
+    scale: number,
+    offset: V,
+    axis: V,
+): { p: number[]; width: number; du: number[]; dv: number[] } {
+    const y = dot(axis, axis) > 1e-12 ? norm(axis) : [0, 1, 0];
+    const pick = Math.abs(y[0]!) > 0.9 ? [0, 0, 1] : [1, 0, 0];
+    const z = norm(cross(pick, y));
+    const x = cross(y, z);
+    const k = Math.abs(scale) > 1e-9 ? scale : 1;
+    const turn = (a: V): number[] => [dot(a, x) * k, dot(a, y) * k, dot(a, z) * k];
+    const du = turn(dodu);
+    const dv = turn(dodv);
+    const step = (d: V): number => Math.hypot(...du.map((c, n) => c * d[0]! + dv[n]! * d[1]!));
+    const w = Math.max(step(duvdx), step(duvdy));
+    return {
+        p: turn(position).map((c, n) => c + offset[n]!),
+        width: w > 0 ? w : footprint * Math.abs(k),
+        du,
+        dv,
+    };
+}
+
+/** `surface.solidRelief`: o relevo (mm) de um padrão maciço e as derivadas dele no uv. */
+export function surfaceSolidRelief(
+    value: number,
+    gradient: V,
+    du: V,
+    dv: V,
+    height: number,
+    level: number,
+): number[] {
+    return [(value - level) * height, height * dot(gradient, du), height * dot(gradient, dv)];
+}
+
+/** `surface.reliefNormal`: a normal da superfície deslocada pelo relevo (mm), `scale` unidades por metro. */
+export function surfaceReliefNormal(
+    normal: V,
+    dpdu: V,
+    dpdv: V,
+    relief: V,
+    scale: number,
+): number[] {
+    const n = dot(normal, normal) > 0 ? norm(normal) : [0, 0, 1];
+    const det = dot(n, cross(dpdu, dpdv));
+    if (Math.abs(det) < 1e-24) return n;
+    const a = cross(dpdv, n);
+    const b = cross(n, dpdu);
+    const k = (0.001 * scale) / det;
+    const g = n.map((_, i) => k * (relief[1]! * a[i]! + relief[2]! * b[i]!));
+    const slope = Math.hypot(g[0]!, g[1]!, g[2]!);
+    const limit = slope > 4 ? 4 / slope : 1;
+    return norm(n.map((c, i) => c - g[i]! * limit));
+}
+
+/** `surface.displacement`: a altura do relevo (mm) nas unidades do mundo. */
+export function surfaceDisplacement(relief: V, scale: number): number {
+    return relief[0]! * 0.001 * scale;
+}
+
+/** `surface.direction`: a direção do padrão sobre as tangentes, normalizada (zero sem tangentes). */
+export function surfaceDirection(du: V, dv: V, direction: V): number[] {
+    const t = du.map((c, i) => c * direction[0]! + dv[i]! * direction[1]!);
+    const l = Math.hypot(t[0]!, t[1]!, t[2]!);
+    return l < 1e-12 ? [0, 0, 0] : t.map((c) => c / l);
+}
+
 /** Casos dos nós `surface.*`. */
 export const surfaceCases: readonly NodeCase[] = [
     {
@@ -153,6 +273,184 @@ export const surfaceCases: readonly NodeCase[] = [
                 x.speed as number,
                 vec(x.up),
             ),
+        }),
+    },
+    {
+        node: 'surface.uvSpace',
+        tolerance: 1e-5,
+        sample: (r, k) => ({
+            uv: vector(r, 2, 0, 1),
+            duvdx: vector(r, 2, -0.01, 0.01),
+            duvdy: vector(r, 2, -0.01, 0.01),
+            dpdu: vector(r, 3, -2, 2),
+            dpdv: vector(r, 3, -2, 2),
+            scale: k % 7 === 6 ? [0, 3] : vector(r, 2, 0.5, 40),
+            offset: vector(r, 2, -1, 1),
+        }),
+        reference: (x) =>
+            surfaceUvSpace(
+                vec(x.uv),
+                vec(x.duvdx),
+                vec(x.duvdy),
+                vec(x.dpdu),
+                vec(x.dpdv),
+                vec(x.scale),
+                vec(x.offset),
+            ),
+    },
+    {
+        node: 'surface.solidSpace',
+        tolerance: 1e-5,
+        sample: (r, k) => ({
+            position: vector(r, 3, -2, 2),
+            dodu: k % 5 === 4 ? [0, 0, 0] : vector(r, 3, -2, 2),
+            dodv: k % 5 === 4 ? [0, 0, 0] : vector(r, 3, -2, 2),
+            duvdx: vector(r, 2, -0.01, 0.01),
+            duvdy: vector(r, 2, -0.01, 0.01),
+            footprint: uniform(r, 0.001, 0.02),
+            scale: k % 7 === 6 ? 0 : uniform(r, 0.5, 8),
+            offset: vector(r, 3, -1, 1),
+            axis: [
+                [0, 1, 0],
+                [1, 0, 0],
+                [0.3, 0.2, -0.9],
+            ][k % 3]!,
+        }),
+        reference: (x) =>
+            surfaceSolidSpace(
+                vec(x.position),
+                vec(x.dodu),
+                vec(x.dodv),
+                vec(x.duvdx),
+                vec(x.duvdy),
+                x.footprint as number,
+                x.scale as number,
+                vec(x.offset),
+                vec(x.axis),
+            ),
+    },
+    {
+        node: 'surface.solidRelief',
+        tolerance: 1e-5,
+        sample: (r) => ({
+            value: uniform(r, 0, 1),
+            gradient: vector(r, 3, -4, 4),
+            du: vector(r, 3, -2, 2),
+            dv: vector(r, 3, -2, 2),
+            height: uniform(r, 0.1, 3),
+            level: uniform(r, 0, 1),
+        }),
+        reference: (x) => ({
+            value: surfaceSolidRelief(
+                x.value as number,
+                vec(x.gradient),
+                vec(x.du),
+                vec(x.dv),
+                x.height as number,
+                x.level as number,
+            ),
+        }),
+    },
+    {
+        node: 'surface.bump',
+        tolerance: 1e-4,
+        sample: (r, k) => {
+            // Tangentes quase ortogonais à normal (um referencial perturbado); um oitavo sem tangentes (os acertos).
+            const n = vector(r, 3, -1, 1);
+            const normal = dot(n, n) < 0.01 ? [0, 1, 0] : n;
+            const a = cross(normal, Math.abs(normal[0]!) < 0.6 ? [1, 0, 0] : [0, 1, 0]);
+            const b = cross(normal, a);
+            const size = uniform(r, 0.05, 2);
+            const jitter = vector(r, 3, -0.1, 0.1);
+            return {
+                normal,
+                du: k % 8 === 7 ? [0, 0, 0] : a.map((c, i) => (c + jitter[i]!) * size),
+                dv: k % 8 === 7 ? [0, 0, 0] : b.map((c) => c * size * uniform(r, 0.5, 1.5)),
+                gradient: vector(r, 2, -3, 3),
+                strength: uniform(r, 0, 0.5),
+            };
+        },
+        reference: (x) => ({
+            value: surfaceBump(
+                vec(x.normal),
+                vec(x.du),
+                vec(x.dv),
+                vec(x.gradient),
+                x.strength as number,
+            ),
+        }),
+    },
+    {
+        node: 'surface.relief',
+        tolerance: 1e-5,
+        sample: (r, k) => ({
+            value: uniform(r, -1, 1),
+            gradient: vector(r, 2, -30, 30),
+            wrap: k % 7 === 6 ? [0, 3] : vector(r, 2, 0.5, 40),
+            height: uniform(r, 0, 3),
+            level: uniform(r, 0, 1),
+        }),
+        reference: (x) => ({
+            value: surfaceRelief(
+                x.value as number,
+                vec(x.gradient),
+                vec(x.wrap),
+                x.height as number,
+                x.level as number,
+            ),
+        }),
+    },
+    {
+        node: 'surface.reliefNormal',
+        tolerance: 1e-4,
+        sample: (r, k) => {
+            // Tangentes quase ortogonais à normal; um oitavo sem tangentes (os acertos dos raios).
+            const n = vector(r, 3, -1, 1);
+            const normal = dot(n, n) < 0.01 ? [0, 1, 0] : n;
+            const a = cross(normal, Math.abs(normal[0]!) < 0.6 ? [1, 0, 0] : [0, 1, 0]);
+            const b = cross(normal, a);
+            const size = uniform(r, 0.2, 3);
+            const jitter = vector(r, 3, -0.1, 0.1);
+            return {
+                normal,
+                dpdu: k % 8 === 7 ? [0, 0, 0] : a.map((c, i) => (c + jitter[i]!) * size),
+                dpdv: k % 8 === 7 ? [0, 0, 0] : b.map((c) => c * size * uniform(r, 0.5, 1.5)),
+                relief: [uniform(r, -2, 2), ...vector(r, 2, -400, 400)],
+                scale: uniform(r, 0.5, 6),
+            };
+        },
+        reference: (x) => ({
+            value: surfaceReliefNormal(
+                vec(x.normal),
+                vec(x.dpdu),
+                vec(x.dpdv),
+                vec(x.relief),
+                x.scale as number,
+            ),
+        }),
+    },
+    {
+        node: 'surface.displacement',
+        tolerance: 1e-6,
+        sample: (r) => ({
+            relief: [uniform(r, -5, 5), ...vector(r, 2, -100, 100)],
+            scale: uniform(r, 0.5, 100),
+        }),
+        reference: (x) => ({ value: surfaceDisplacement(vec(x.relief), x.scale as number) }),
+    },
+    {
+        node: 'surface.direction',
+        tolerance: 1e-4,
+        sample: (r, k) => {
+            const du = k % 8 === 7 ? [0, 0, 0] : vector(r, 3, -2, 2);
+            return {
+                du,
+                dv: k % 8 === 7 ? [0, 0, 0] : cross(du, vector(r, 3, -1, 1)),
+                direction: [uniform(r, 0.2, 1), uniform(r, 0.2, 1)],
+            };
+        },
+        reference: (x) => ({
+            value: surfaceDirection(vec(x.du), vec(x.dv), vec(x.direction)),
         }),
     },
 ];

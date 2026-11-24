@@ -6,18 +6,23 @@ import { DirectionalLight } from '../../DirectionalLight';
 import { HemisphereLight } from '../../HemisphereLight';
 import { Light } from '../../Light';
 import { PointLight } from '../../PointLight';
+import { RectLight } from '../../RectLight';
 import { ShadowMap } from '../../ShadowMap';
 import { SpotLight } from '../../SpotLight';
 import {
+    lightThicknessPoint,
     lightTransmissionPoint,
     lightTransmissionReady,
     lightVisibilityPoint,
     lightVisibilityReady,
+    sceneAmbientLightingPoint,
+    sceneAmbientLightingReady,
     sceneDirectLightingPoint,
     sceneIndirectLightingPoint,
     sceneDirectLightingReady,
     sceneIndirectLightingReady,
     sceneLightingReady,
+    sceneTransmittedLightingPoint,
 } from '../lighting';
 import {
     hemisphereAmbientContribution,
@@ -25,8 +30,12 @@ import {
     hemisphereBackground,
     hemisphereBackgroundContribution,
     hemisphereContribution,
+    hemisphereRayLightingContribution,
     LIGHT_LIMIT,
+    lightIncoming,
     poolLightContribution,
+    rectLightContribution,
+    poolTransmittedContribution,
 } from '../lightContributions';
 
 describe('pontos de cena do sombreamento (spec 011, T039)', () => {
@@ -97,7 +106,7 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
 
     it('toda luz do pool contribui o mesmo laço; a que projeta sombra, também a sombra só para ela', () => {
         const casting = new DirectionalLight({ castShadow: true });
-        const [pool, visibility] = casting.getSceneContributions();
+        const [pool, visibility, thickness, transmitted] = casting.getSceneContributions();
         expect(pool).toBe(poolLightContribution);
         expect(pool!.point).toBe(sceneDirectLightingPoint);
         expect(visibility!.point).toBe(lightVisibilityPoint);
@@ -108,19 +117,65 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
         expect(shadow.source).toContain('if (light != 3u) { return 1.0; }');
         expect(shadow.source).toContain('let sm = shadow_maps[1u];');
         expect(() => composeWgsl(shadow)).not.toThrow();
+        // A espessura atravessada pela luz, do mesmo mapa, só para ela; e a luz que atravessa a subsuperfície (T113).
+        expect(thickness!.point).toBe(lightThicknessPoint);
+        const through = thickness!.build(slots(3, 1))!;
+        expect(through.source).toContain('if (light != 3u) { return vec2f(-1.0, 0.0); }');
+        expect(through.source).toContain('shadow_virtual_thickness(shadow_matrices[1u], p, n, l)');
+        expect(() => composeWgsl(through)).not.toThrow();
+        expect(thickness!.build(slots(undefined, 1))).toBeUndefined();
+        expect(transmitted).toBe(poolTransmittedContribution);
+        expect(transmitted!.point).toBe(sceneTransmittedLightingPoint);
+        expect(transmitted!.build(() => 0)!.source).toContain(
+            'subsurface_transmission(through.x, d)',
+        );
         // Slot ainda ausente ou deixou de projetar: não contribui.
         expect(visibility!.build(slots(undefined, 1))).toBeUndefined();
         casting.data.castShadow = 0;
         expect(visibility!.build(slots(3, 1))).toBeUndefined();
+        expect(thickness!.build(slots(3, 1))).toBeUndefined();
         // Sem projetar, a pontual e a spot: só o laço do pool (o mesmo módulo para todas).
         for (const light of [new DirectionalLight(), new PointLight(), new SpotLight()])
             expect(light.getSceneContributions()).toEqual([poolLightContribution]);
         const loop = pool!.build(() => 0)!;
         expect(loop).toBe(pool!.build(() => 5));
-        expect(loop.source).toContain('if (!pool_live(light_live[i >> 5u], i)) { continue; }');
+        expect(loop.source).toContain(
+            'if (!pool_live(light_live[i >> 5u], i) || lights[i].kind == 3u) { continue; }',
+        );
         expect(loop.source).toContain('min(arrayLength(&lights), LIGHT_LIMIT)');
         expect(loop.source).toContain('light_visibility(i, p, n) * light_transmission(i, p)');
         expect(() => composeWgsl(loop)).not.toThrow();
+    });
+
+    it('a luz de área tem o laço dela (os lobos integrados sobre o retângulo), depois do das outras', () => {
+        const rect = new RectLight({
+            position: [1, 2, 3, 1],
+            direction: [0, -2, 0, 0],
+            right: [3, 1, 0],
+            size: [2, 0.5],
+            intensity: 4,
+        });
+        // O dado: tipo 3, a normal unitária, as meias medidas e o eixo da largura perpendicular à normal.
+        expect(rect.data.kind).toBe(3);
+        expect(rect.data.castShadow).toBe(0);
+        expect(rect.data.direction).toEqual([0, -1, 0, 0]);
+        expect(rect.data.cones).toEqual([1, 0.25, 0, 0]);
+        expect(rect.data.axis).toEqual([1, 0, 0, 0]);
+        expect(Light.schema.offsetOf('axis')).toBeGreaterThan(Light.schema.offsetOf('cones'));
+        // Sem `right`, o eixo do mundo mais afastado da normal.
+        expect(new RectLight({ direction: [1, 0, 0, 0] }).data.axis).toEqual([0, 1, 0, 0]);
+        for (const light of [new DirectionalLight(), new PointLight(), new SpotLight()])
+            expect(light.data.axis).toEqual([0, 0, 0, 0]);
+        expect(rect.getSceneContributions()).toEqual([rectLightContribution]);
+        expect(rectLightContribution.point).toBe(sceneDirectLightingPoint);
+        expect(rectLightContribution.order).toBeGreaterThan(poolLightContribution.order);
+        const loop = rectLightContribution.build(() => 0)!;
+        expect(loop.source).toContain('lights[i].kind != 3u');
+        expect(loop.source).toContain('closure_area_eval(c, n, v, p, rect,');
+        expect(loop.source).toContain('light_visibility(i, p, n) * light_transmission(i, p)');
+        expect(() => composeWgsl(loop)).not.toThrow();
+        // Lida por raio ou por volume, vale pelo centro: a luminância pela área e pelo cosseno.
+        expect(lightIncoming.source).toContain('4.0 * light.cones.x * light.cones.y');
     });
 
     it('o hemisfério contribui depois das luzes, pela transmissão da luz ambiente (NONE)', () => {
@@ -133,7 +188,22 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
             hemisphereAmbientContribution.point,
             hemisphereEnvironmentContribution.point,
             hemisphereBackgroundContribution(() => true).point,
+            hemisphereRayLightingContribution.point,
         ]);
+        // Nos acertos dos raios (a refração), a mesma luz ambiente do desenho, num ponto próprio: os raios calculam a
+        // luz das fontes com a sombra por raio, sem `scene_direct_lighting`.
+        expect(contributions[4]!.point).toBe(sceneAmbientLightingPoint);
+        const drawn = hemisphereContribution.build(() => undefined)!;
+        const traced = contributions[4]!.build(() => undefined)!;
+        expect(traced).toBe(hemisphereRayLightingContribution.build(() => undefined));
+        expect(traced.source).toContain(
+            'fn scene_ambient_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f',
+        );
+        expect(traced.source).toContain('return hemisphere_lighting(c, p, n, v);');
+        expect(drawn.source).toContain('return hemisphere_lighting(c, p, n, v);');
+        expect(traced.requires).toEqual(drawn.requires);
+        expect(() => composeWgsl(traced)).not.toThrow();
+        expect(sceneAmbientLightingReady.source).toContain('return vec3f(0.0);');
         expect(contributions[0]!.order).toBe(hemisphereContribution.order);
         expect(contributions[0]!.build(() => undefined)).toBe(
             hemisphereContribution.build(() => undefined),
@@ -149,6 +219,7 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
         const off = env.getSceneContributions();
         expect(off[0]!.build(() => undefined)).toBeUndefined();
         expect(off[1]!.build(() => undefined)).toBeUndefined();
+        expect(off[4]!.build(() => undefined)).toBeUndefined();
         expect(off[2]).toBe(hemisphereEnvironmentContribution);
         expect(contributions[3]!.point).toBe(hemisphereBackgroundContribution(() => true).point);
         // O fundo só com `background` (padrão desligado: a cor da limpeza); trocável depois de criado.
@@ -175,8 +246,11 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
         );
         expect(hemisphereContribution.order).toBeGreaterThan(poolLightContribution.order);
         const m = hemisphereContribution.build(() => undefined)!;
-        expect(m.source).toContain('closure_ambient(');
-        expect(m.source).toContain('light_transmission(NONE, p)');
+        // O corpo é o do módulo comum ao desenho e aos acertos dos raios (`hemisphere_lighting`).
+        expect(m.source).toContain('return hemisphere_lighting(c, p, n, v);');
+        const shared = m.requires.find((r) => r.name === 'hemisphere_lighting')!;
+        expect(shared.source).toContain('closure_ambient(');
+        expect(shared.source).toContain('light_transmission(NONE, p)');
         expect(() => composeWgsl(m)).not.toThrow();
     });
 

@@ -6,6 +6,7 @@
 //     (erro ≤ 2 %);
 //   - furnace: esferas brancas num hemisfério branco uniforme, rugosidade 0→1, dielétricas e metálicas (≤ 3 % de 1);
 //   - point-falloff: luz pontual sobre um plano difuso — inverso do quadrado com a janela até o alcance (≤ 2 %);
+//   - rect-light: luz de área retangular — o difuso e o lobo especular de um plano sob o painel contra a integral densa;
 //   - spot-cones: luz spot — plena dentro do cone interno, zero fora do externo, transição suave;
 //   - light-sum: duas direcionais, vermelha e verde, somam na proporção das intensidades;
 //   - normal-scale: esfera com escala (1, 3, 1) — normais desenhadas contra as analíticas (≤ 1°);
@@ -14,7 +15,11 @@
 //   - penumbra: a borda reta de uma placa a 0,5 m do chão sob uma direcional a 45° da vertical com disco de raio angular
 //     θ (PCSS, spec 034 T061): na média de 64 quadros do antisserrilhado acumulado, a largura de 10 % a 90 % da borda no
 //     chão contra a do disco coberto por uma reta (h tan θ / cos² 45° × (s₉₀ − s₁₀)) e o meio dela na projeção da borda;
-//     com θ = 0, a borda dura.
+//     com θ = 0, a borda dura;
+//   - sun-travel: esferas sobre o chão sob uma direcional com sombra que gira em volta de y (o sol ao longo do dia) por
+//     180 quadros, a 0,36° e a 0,02° por quadro, em volta da origem e longe dela — o último quadro (a luz ainda
+//     girando) contra o da mesma cena com a luz parada na direção final: a sombra da luz que gira tem de ser a mesma da
+//     luz parada.
 // Para rodar: `npm run smoke -- lighting [--query case=furnace]`. Resultado: `LIGHTING SMOKE PASSED` ou `FAIL: …`.
 import {
     Application,
@@ -27,16 +32,18 @@ import {
     PlaneGeometry,
     PointLight,
     PointSpriteMaterial,
+    RectLight,
     SphereGeometry,
     SpotLight,
     StandardMaterial,
     SurfaceFunction,
     Transform,
 } from 'clayflow/web';
-import { capture, settle } from './support/extensionScenes';
+import { capture, nextGpuFrame, settle } from './support/extensionScenes';
 import { hdrAt, readHdrTexture, temporalVariance, type HdrImage } from './support/imageMeasures';
 import { ambientParamsUniform, evalParams } from '../elements/material/reference/closure';
-import { normalize3, type Vec3 } from '../elements/material/reference/bsdf';
+import { cookTorrance, normalize3, type Vec3 } from '../elements/material/reference/bsdf';
+import { areaExact, type AreaRect } from '../elements/material/reference/areaLight';
 
 function log(msg: string): void {
     console.log(`[lighting] ${msg}`);
@@ -275,6 +282,100 @@ async function casePointFalloff(): Promise<void> {
         log(`point-falloff: x = ${x} → ${got.toFixed(4)} (esperado ${exp.toFixed(4)})`);
     }
     check(worst <= 0.02, `point-falloff: erro de ${(100 * worst).toFixed(2)} %`);
+}
+
+/** Condutor branco (F0 1) de rugosidade 0,3: o lobo especular sozinho. */
+const MIRROR_ROUGH = /* wgsl */ `
+fn material_fn(s: SurfaceSample, m: StandardMaterial, data: MaterialFnParams) -> Closure {
+    return closure_conductor(vec3f(1.0), vec3f(1.0), 0.3, 0.0, vec3f(0.0));
+}`;
+
+async function caseRectLight(): Promise<void> {
+    const W = 600;
+    const H = 200;
+    const height = 2;
+    const L = 5;
+    const rect: AreaRect = {
+        center: [0.4, 1.2, 0],
+        ax: [1, 0, 0],
+        ay: [0, 0, 1],
+        normal: [0, -1, 0],
+        half: [0.6, 0.35],
+    };
+    const shot = async (code: string, lobes: ('diffuse' | 'specular')[]): Promise<HdrImage> => {
+        const { app, canvas } = await createApp(W, H);
+        noAmbient(app);
+        topCamera(app, height);
+        app.world.insert(
+            new PlaneGeometry({ size: [12, 12] })
+                .add(new StandardMaterial())
+                .add(new Transform())
+                .add(new MaterialFunction({ code, lobes })),
+        );
+        app.world.insert(
+            new RectLight({
+                position: [...rect.center, 1],
+                direction: [0, -1, 0, 0],
+                right: [1, 0, 0],
+                size: [2 * rect.half[0], 2 * rect.half[1]],
+                intensity: L,
+            }),
+        );
+        const hdr = await renderHdr(app);
+        dispose(app, canvas);
+        return hdr;
+    };
+    const n: Vec3 = [0, 1, 0];
+    // O difuso: ρ/π × a irradiância do painel.
+    const diffuse = await shot(DIFFUSE_ONLY, ['diffuse']);
+    let worst = 0;
+    for (const x of [-2, -1, -0.3, 0.4, 1, 1.8, 2.6]) {
+        const [px, py] = topPixel(x, 0, height, W, H);
+        const got = hdrAt(diffuse, px, py)[0];
+        const at: Vec3 = [topWorldX(px, height, W, H), 0, 0];
+        const exp = (L * areaExact(rect, at, (l) => Math.max(l[1], 0), 200)) / Math.PI;
+        worst = Math.max(worst, relErr(got, exp, 0.01));
+        log(`rect-light: difuso em x = ${x} → ${got.toFixed(4)} (integral ${exp.toFixed(4)})`);
+    }
+    check(worst <= 0.03, `rect-light: difuso a ${(100 * worst).toFixed(2)} % da integral`);
+    // O lobo especular (a câmera de cima: v = +y): a mancha do painel alargada pelo lobo. A integral densa não tem a
+    // compensação do multiespalhamento (um fator só, o mesmo em todo o plano): compara-se a forma, pela razão.
+    const glossy = await shot(MIRROR_ROUGH, ['specular']);
+    const lobe = { f0: [1, 1, 1] as Vec3, f90: [1, 1, 1] as Vec3, roughness: 0.3 };
+    const ratios: number[] = [];
+    let peak = 0;
+    let jump = 0;
+    let last = -1;
+    for (let px = 0; px < W; px++) {
+        const got = hdrAt(glossy, px, H >> 1)[0];
+        if (last >= 0) jump = Math.max(jump, Math.abs(got - last));
+        last = got;
+        peak = Math.max(peak, got);
+    }
+    for (const x of [-0.6, -0.2, 0.1, 0.4, 0.7, 1, 1.4]) {
+        const [px, py] = topPixel(x, 0, height, W, H);
+        const got = hdrAt(glossy, px, py)[0];
+        const at: Vec3 = [topWorldX(px, height, W, H), 0, 0];
+        const exp = L * areaExact(rect, at, (l) => cookTorrance(lobe, n, n, l)[0], 300);
+        ratios.push(got / exp);
+        log(`rect-light: especular em x = ${x} → ${got.toFixed(4)} (integral ${exp.toFixed(4)})`);
+    }
+    // A forma, onde a mancha passa de um décimo do pico; a cauda (a grade do lobo vai até 97 % da massa) à parte.
+    const body = ratios.filter((_, k) => k > 0 && k < ratios.length - 1);
+    const lo = Math.min(...body);
+    const hi = Math.max(...body);
+    const tail = Math.min(ratios[0]!, ratios[ratios.length - 1]!);
+    log(
+        `rect-light: especular / integral de ${lo.toFixed(3)} a ${hi.toFixed(3)} na mancha, ${tail.toFixed(3)} na cauda; pico ${peak.toFixed(3)}; maior degrau entre pixels ${(100 * (jump / peak)).toFixed(2)} % do pico`,
+    );
+    check(lo > 0.95 && hi < 1.1, `rect-light: especular fora da integral (${lo} a ${hi})`);
+    check(hi / lo <= 1.04, `rect-light: a forma da mancha difere da integral (${hi / lo})`);
+    check(tail > 0.75, `rect-light: a cauda da mancha a ${tail} da integral`);
+    // A borda da mancha cai do pico a zero em uns 50 pixels (2 % do pico por pixel): um degrau seria bem maior.
+    check(
+        jump / peak <= 0.05,
+        `rect-light: degrau de ${jump / peak} do pico entre pixels vizinhos`,
+    );
 }
 
 async function caseSpotCones(): Promise<void> {
@@ -521,12 +622,14 @@ const CASES: Record<string, () => Promise<void>> = {
     'brdf-reference': caseBrdfReference,
     furnace: caseFurnace,
     'point-falloff': casePointFalloff,
+    'rect-light': caseRectLight,
     'spot-cones': caseSpotCones,
     'light-sum': caseLightSum,
     'normal-scale': caseNormalScale,
     'specular-aa': caseSpecularAa,
     'sprites-lit': caseSpritesLit,
     penumbra: casePenumbra,
+    'sun-travel': caseSunTravel,
 };
 
 /** Fração do disco de raio 1 com x < s (o disco coberto por uma borda reta em s). */
@@ -645,6 +748,129 @@ async function casePenumbra(): Promise<void> {
         width <= 0.004,
         `penumbra: θ = 0 — borda de ${(1000 * width).toFixed(2)} mm (dura: ≤ 4 mm)`,
     );
+}
+
+/** Direção da luz do caso `sun-travel` no azimute `a` (rad), a 45° da vertical. */
+const sunTravelDirection = (a: number): [number, number, number, number] => [
+    Math.SQRT1_2 * Math.sin(a),
+    -Math.SQRT1_2,
+    Math.SQRT1_2 * Math.cos(a),
+    0,
+];
+
+/**
+ * O alvo HDR do caso `sun-travel` depois de `frames` quadros com a luz girando `step` rad por quadro até o azimute
+ * `end` (com `step` 0, parada nele).
+ */
+async function sunTravelImage(
+    end: number,
+    step: number,
+    frames: number,
+    center: readonly [number, number],
+): Promise<HdrImage> {
+    const [cx, cz] = center;
+    const { app, canvas } = await createApp(640, 400);
+    noAmbient(app);
+    app.world.insert(
+        new Camera({ fov: Math.PI / 3, near: 0.1, far: 40 }).add(
+            new Transform({
+                position: [cx, 3.5, cz + 7, 1],
+                rotation: Transform.lookRotation([cx, 3.5, cz + 7], [cx, 0, cz], [0, 1, 0]),
+            }),
+        ),
+    );
+    app.world.insert(
+        new PlaneGeometry({ size: [40, 40] })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [cx, 0, cz, 1] }))
+            .add(new MaterialFunction({ code: DIFFUSE_ONLY, lobes: ['diffuse'] })),
+    );
+    const light = new DirectionalLight({
+        direction: sunTravelDirection(end - step * frames),
+        intensity: 3,
+        castShadow: true,
+        angularRadius: 0.00466,
+    });
+    app.world.insert(light);
+    for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * 2 * Math.PI;
+        const r = 1.2 + 0.9 * (i % 3);
+        app.world.insert(
+            new SphereGeometry({ radius: 0.35 })
+                .add(new StandardMaterial({ albedo: [0.6, 0.6, 0.6, 1] }))
+                .add(
+                    new Transform({
+                        position: [cx + r * Math.cos(a), 0.35, cz + r * Math.sin(a), 1],
+                    }),
+                ),
+        );
+    }
+    await settle(app, 600);
+    for (let i = 1; i <= frames; i++) {
+        light.data.direction = sunTravelDirection(end - step * (frames - i));
+        if (i > 1) await nextGpuFrame(app);
+        app.step(1 / 60);
+    }
+    const texture = app.resources.textureOf(app.defaults.targets, 'color');
+    if (texture === undefined) throw new Error('alvo HDR não alocado');
+    const hdr = await readHdrTexture(app, texture);
+    dispose(app, canvas);
+    return hdr;
+}
+
+async function caseSunTravel(): Promise<void> {
+    const end = 0.6;
+    // Em volta da origem e longe dela (a âncora das páginas é a origem do mundo: longe, a página de um ponto muda mais
+    // de um quadro para o outro); 0,36° por quadro e, a luz lenta, 0,02° e 0,002° (o cache das páginas não recomeça em
+    // todo quadro). Duas contagens de quadros: o último cai nas duas fatias da série do referencial e em fases
+    // diferentes do cache.
+    for (const [name, center, runs] of [
+        [
+            'origem',
+            [0, 0],
+            [
+                [0.36, 180],
+                [0.36, 179],
+                [0.02, 180],
+                [0.02, 177],
+                [0.002, 180],
+                [0.002, 177],
+            ],
+        ],
+        [
+            'longe',
+            [300, -200],
+            [
+                [0.36, 180],
+                [0.002, 177],
+            ],
+        ],
+    ] as const) {
+        const still = await sunTravelImage(end, 0, 60, center);
+        for (const [d, frames] of runs) {
+            const step = (d * Math.PI) / 180;
+            const moving = await sunTravelImage(end, step, frames, center);
+            // O chão aceso (o difuso branco sob a luz a 45°): a escala das diferenças.
+            const lit = (3 * Math.SQRT1_2) / Math.PI;
+            let sum = 0;
+            let wrong = 0;
+            const n = still.width * still.height;
+            for (let i = 0; i < n; i++) {
+                const e = Math.abs(moving.data[i * 4]! - still.data[i * 4]!) / lit;
+                sum += e;
+                if (e > 0.25) wrong++;
+            }
+            const mean = sum / n;
+            const far = wrong / n;
+            log(
+                `sun-travel: ${name}, ${d}° por quadro, ${frames} quadros — diferença média ${(100 * mean).toFixed(4)} % do chão aceso; ${(100 * far).toFixed(4)} % dos pixels a mais de 25 %`,
+            );
+            check(
+                mean <= 0.0005 && far <= 0.0005,
+                `sun-travel: ${name}, ${d}° por quadro, ${frames} quadros — a sombra da luz que gira difere da parada: média ${(100 * mean).toFixed(4)} %, ${(100 * far).toFixed(4)} % dos pixels a mais de 25 %`,
+            );
+        }
+    }
 }
 
 async function main(): Promise<void> {
