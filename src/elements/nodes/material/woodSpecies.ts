@@ -15,6 +15,7 @@ import {
     patternSpace,
     SAMPLE_INPUT,
     SPACE_LINKS,
+    veinLinks,
     type Link,
 } from './pattern';
 import {
@@ -34,7 +35,8 @@ import {
 } from './relief';
 
 // Espécies de madeira, assoalhos, casca e cortiça (spec 011, T117). Cada espécie tem a sua cor, o seu veio e a sua
-// figura, calculados por pixel (`pattern.rings`: o corte tangencial do tronco com a fibra ao longo de u;
+// figura, calculados por pixel (`pattern.rings`: o corte tangencial do tronco com a fibra ao longo de u — o que corre
+// ao longo da fibra lê a coordenada do veio, `rings.along`, e acompanha as curvas dos anéis: `veinLinks`;
 // `pattern_scale` repetições por unidade de uv; numa esfera, (2, 1)), em várias escalas: as faixas largas de cor da
 // tábua, os anéis de largura irregular (com os arcos onde o corte passa perto da medula), o tom de cada ano, as faixas
 // da grã ao longo da fibra, a fibra fina, os tracinhos claros (os raios medulares do carvalho, as bolsas de resina do
@@ -98,16 +100,17 @@ interface SpeciesValues {
 export function species(name: string, v: SpeciesValues): NodeDefinition {
     const floor = v.planks !== undefined;
     const coated = v.coat !== undefined;
-    const grains = ['rings', 'fiber', 'thread', 'pore', 'fleck', 'figure', 'broad'];
-    // A coordenada dos padrões do veio: a do uv ou a de cada tábua (sem período: a emenda cai nas juntas).
-    const veins: Link[] = grains.flatMap((id): Link[] =>
-        floor
-            ? [
-                  ['planks.p', `${id}.p`],
-                  ['uv.width', `${id}.width`],
-              ]
-            : patternLinks(id),
-    );
+    // A coordenada dos anéis: a do uv ou a de cada tábua (sem período: a emenda cai nas juntas); a dos grãos ao longo
+    // da fibra: a do veio (acompanham as curvas dos anéis e o desvio dos nós).
+    const veins: Link[] = [
+        ...(floor
+            ? ([
+                  ['planks.p', 'rings.p'],
+                  ['uv.width', 'rings.width'],
+              ] as Link[])
+            : patternLinks('rings')),
+        ...veinLinks(['fiber', 'thread', 'pore', 'fleck', 'figure', 'broad'], !floor),
+    ];
     return Subgraph.point(
         new NodeGraph({
             nodes: {
@@ -682,7 +685,8 @@ function ash(
             },
             links: [
                 ...SPACE_LINKS,
-                ...patternLinks('rings', 'fiber', 'thread', 'pore', 'figure', 'broad'),
+                ...patternLinks('rings'),
+                ...veinLinks(['fiber', 'thread', 'pore', 'figure', 'broad']),
                 ['tile.value', 'uv.scale'],
                 ['count.value', 'rings.scale'],
                 ['pith.value', 'rings.depth'],
@@ -715,7 +719,7 @@ function ash(
                 ...(warm === undefined
                     ? ([['lit.value', 'pored.a']] as Link[])
                     : ([
-                          ...patternLinks('warm'),
+                          ...veinLinks(['warm']),
                           ['warm.value', 'warm_mask.x'],
                           ['lit.value', 'tinted.a'],
                           ['warm_tint.value', 'tinted.b'],
@@ -805,25 +809,26 @@ export const woodAshBrushed = ash('material.woodAshBrushed', relief.woodAshBrush
 /**
  * `material.woodPineFine` — pinho claro de veio fino, cru (fosco, sem verniz), escovado: amarelo-mel (`color`), com
  * muitas linhas de veio finas (o lenho tardio estreito, castanho-alaranjado: `late_color`) que ondulam, abrem e
- * fecham, de largura e tom irregulares (`ring_count`, 92 anéis por unidade do padrão), faixas largas de tom e faixas
+ * fecham, de largura e tom irregulares (`ring_count`, 115 anéis por unidade do padrão), faixas largas de tom e faixas
  * mais alaranjadas ao longo da fibra, a fileira de "catedrais" fechadas e de ilhas onde o corte é tangente aos anéis
  * (`pith_depth`, 0,015: a medula quase no plano do corte), os nós — o olho oval de anéis apertados e miolo escuro
  * (`knot_color`), com o veio desviando em gota (`knot_density`, 4,5 células por unidade do padrão) —, as bolsas de
  * resina em riscos claros, finos e curtos ao longo da fibra (`pore_color`) e a fibra fina. O corpo é subsuperfície
  * (`radius`, (1,2; 0,75; 0,35) mm, mais longo no vermelho: estimado, da ordem de 1 mm como o do freixo — sem medida
  * publicada do pinho): o aspecto macio e quente, e o fundo dos sulcos mais claro. O relevo é o de
- * `relief.woodPineFine`, em milímetros — o lenho tardio em crista (`ring_height`, 0,8), os sulcos da escova
- * (`furrow_depth`, 0,2), a fibra (`fiber_height`, 0,06) —, na normal; com `Displacements.woodPineFine()` na entidade
- * de uma `ParametricSurface`, na geometria (a silhueta serrilhada de leve, a sombra fina nos sulcos sob a luz
- * rasante atravessada ao veio). Os anéis, a medula e os nós são um valor só para a cor e o relevo: passe os mesmos
+ * `relief.woodPineFine`, em milímetros — o lenho tardio em crista suave (`ring_height`, 0,5) e a fibra
+ * (`fiber_height`, 0,04), sem sulcos independentes —, na normal; com `Displacements.woodPineFine()` na entidade
+ * de uma `ParametricSurface`, na geometria (a silhueta serrilhada de leve, a sombra fina sob a luz rasante
+ * atravessada ao veio). A fibra, os riscos de resina e as faixas de tom leem a coordenada do veio: correm paralelos
+ * às linhas dos anéis e desviam com elas em volta dos nós. Os anéis, a medula e os nós são um valor só para a cor e o relevo: passe os mesmos
  * ao material e ao deslocamento. Parâmetros: os de `woodAsh`.
  */
 export const woodPineFine = ash('material.woodPineFine', relief.woodPineFine, {
     offset: PINE_FINE_OFFSET,
     rings: PINE_FINE_RINGS,
-    color: [0.6, 0.4, 0.17],
+    color: [0.57, 0.37, 0.155],
     late: [0.4, 0.21, 0.07],
-    low: 0.76,
+    low: 0.8,
     pore_color: [0.82, 0.66, 0.38],
     pore: 0.9,
     early: { in_min: 0, in_max: 1, out_min: 0.7, out_max: 0.7 },
@@ -832,7 +837,7 @@ export const woodPineFine = ash('material.woodPineFine', relief.woodPineFine, {
     radius: [1.2, 0.75, 0.35],
     roughness: 0.58,
     anisotropy: 0.5,
-    pore_grain: { scale: [4.5, 170], octaves: 1, seed: 47 },
+    pore_grain: { scale: [4.5, 210], octaves: 1, seed: 47 },
     pit: { low: 0.54, high: 0.4 },
     year: 0.13,
     figure: 0.1,

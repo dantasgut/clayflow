@@ -37,14 +37,17 @@ const RELIEF_VALUES = {
 /**
  * Grão: `octaves` (1 a 8) oitavas do ruído de gradiente 2D com frequências por eixo `scale` — anisotrópico: `scale`
  * (2, 200) dá riscos ao longo de `p.x` (a escova do metal, a fibra da madeira) —, × `lacunarity` e amplitude × `gain` a
- * cada oitava. Saídas: `value` em [-1, 1] e `gradient` (∂/∂p).
+ * cada oitava. Saídas: `value` em [-1, 1] e `gradient` (∂/∂p). `bend` (entrada com valor, (0, 1)): quando `p` é uma
+ * coordenada curva (x, f(x, y)) — a do veio da madeira, `along` de `pattern.rings` —, `bend` = ∇f (o `bend` de
+ * `pattern.rings`): o gradiente sai na coordenada de fora e o grão acompanha as curvas do veio.
  */
 const grain = defineNode({
     name: 'pattern.grain',
-    inputs: RELIEF_INPUTS,
+    inputs: { ...RELIEF_INPUTS, bend: 'vec2f' },
     outputs: { value: 'f32', gradient: 'vec2f' },
     params: {
         ...RELIEF_VALUES,
+        bend: { type: 'vec2f', default: [0, 1] },
         scale: { type: 'vec2f', default: [1, 1] },
         seed: { type: 'u32', default: 0 },
         octaves: { type: 'u32', default: 3 },
@@ -85,12 +88,22 @@ const cells = defineNode({
  * `knots` células por unidade de `p` (0 = sem nós), um nó em três de cada dez — os anéis desviam em volta dele e fecham
  * em `knot_rings` voltas dentro da meia largura `knot_size` (em `p`); `knot` o miolo do nó em [0, 1]. `scale`, `depth`
  * e `knots` são entradas com valor: ligadas a um mesmo nó, a cor e o relevo de uma madeira contam os mesmos anéis e os
- * mesmos nós, do mesmo corte.
+ * mesmos nós, do mesmo corte. `fall`: a fração do anel em que o perfil cai do lenho tardio ao inicial do ano seguinte
+ * (0,12: abrupta; maior, a crista mais larga e suave). `along` = (p.x, raio) é a coordenada do veio — com a ondulação e
+ * o desvio dos nós — e `bend` o gradiente do raio: ligados a `p` e a `bend` de `pattern.grain`, a fibra, os sulcos e
+ * os riscos correm paralelos às linhas dos anéis.
  */
 const rings = defineNode({
     name: 'pattern.rings',
     inputs: { ...RELIEF_INPUTS, scale: 'f32', depth: 'f32', knots: 'f32' },
-    outputs: { value: 'f32', gradient: 'vec2f', ring: 'f32', knot: 'f32' },
+    outputs: {
+        value: 'f32',
+        gradient: 'vec2f',
+        ring: 'f32',
+        knot: 'f32',
+        along: 'vec2f',
+        bend: 'vec2f',
+    },
     params: {
         ...RELIEF_VALUES,
         scale: { type: 'f32', default: 8 },
@@ -104,6 +117,7 @@ const rings = defineNode({
         knots: { type: 'f32', default: 0 },
         knot_size: { type: 'f32', default: 0.04 },
         knot_rings: { type: 'f32', default: 6 },
+        fall: { type: 'f32', default: 0.12 },
     },
     code: nodePattern,
     fn: 'node_pattern_rings',

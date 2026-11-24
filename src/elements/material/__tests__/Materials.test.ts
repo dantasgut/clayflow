@@ -668,8 +668,24 @@ describe('Materials (spec 011, US5)', () => {
         const reach = pine.radius!.default as number[];
         expect(reach[0]).toBeGreaterThan(reach[2]!);
         expect(reach[0]).toBeLessThanOrEqual(1.5);
-        expect(pine.ring_height!.default).toBeGreaterThanOrEqual(0.6);
-        expect(pine.ring_height!.default).toBeLessThanOrEqual(1.5);
+        expect(pine.ring_height!.default).toBeGreaterThanOrEqual(0.4);
+        expect(pine.ring_height!.default).toBeLessThanOrEqual(1);
+        // O relevo é o do campo dos anéis: sem um padrão de sulcos independente na geometria; e o que corre ao longo
+        // da fibra lê a coordenada do veio (acompanha as curvas).
+        expect(pine.furrow_depth!.default).toBe(0);
+        expect(subgraphOrigin(nodes.material.woodPineFine)!.graph.links).toEqual(
+            expect.arrayContaining([
+                ['rings.along', 'fiber.p'],
+                ['rings.bend', 'fiber.bend'],
+                ['rings.along', 'pore.p'],
+            ]),
+        );
+        expect(subgraphOrigin(nodes.relief.woodPineFine)!.graph.links).toEqual(
+            expect.arrayContaining([
+                ['rings.along', 'fiber.p'],
+                ['rings.bend', 'fiber.bend'],
+            ]),
+        );
         // Os anéis, a medula e os nós são um valor só, ligado à cor e ao relevo.
         expect(pine.ring_count!.default).toBe(nodes.relief.woodPineFine.params.ring_count!.default);
         expect(pine.knot_density!.default).toBeGreaterThan(0);

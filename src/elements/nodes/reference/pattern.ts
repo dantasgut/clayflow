@@ -119,7 +119,9 @@ export function patternGrain(
     octaves: number,
     lacunarity: number,
     gain: number,
+    bend: readonly number[] = [0, 1],
 ): { value: number; gradient: number[] } {
+    const tight = Math.max(1, Math.abs(bend[1]!));
     let freq: V2 = [scale[0]!, scale[1]!];
     let amp = 1;
     let norm = 0;
@@ -133,7 +135,7 @@ export function patternGrain(
             [fx[1], fy[1]],
             (seed + k) >>> 0,
         );
-        const b = width > 0 ? band(width * Math.max(Math.abs(fx[0]), Math.abs(fy[0]))) : 1;
+        const b = width > 0 ? band(width * Math.max(Math.abs(fx[0]), Math.abs(fy[0]) * tight)) : 1;
         sum[0]! += amp * b * v[0];
         sum[1]! += amp * b * v[1] * fx[0];
         sum[2]! += amp * b * v[2] * fy[0];
@@ -141,7 +143,9 @@ export function patternGrain(
         amp = f32(amp * gain);
         freq = [f32(freq[0] * lacunarity), f32(freq[1] * lacunarity)];
     }
-    return { value: sum[0]! / norm, gradient: [sum[1]! / norm, sum[2]! / norm] };
+    const gx = sum[1]! / norm;
+    const gy = sum[2]! / norm;
+    return { value: sum[0]! / norm, gradient: [gx + gy * bend[0]!, gy * bend[1]!] };
 }
 
 /** `node_pattern_brush_gouge`: um risco fundo isolado — (fundura, ∂/∂q.x, ∂/∂q.y). */
@@ -332,7 +336,15 @@ export function patternRings(
     knots = 0,
     knotSize = 0.04,
     knotRings = 6,
-): { value: number; gradient: number[]; ring: number; knot: number } {
+    fall = 0.12,
+): {
+    value: number;
+    gradient: number[];
+    ring: number;
+    knot: number;
+    along: number[];
+    bend: number[];
+} {
     const fx = fit(distortionScale[0]!, wrap[0]!, 1);
     const fr: V2 = [fx[0], distortionScale[1]!];
     const nz = patternNoise([f32(p[0]! * fr[0]), f32(p[1]! * fr[1])], [fx[1], 0], seed);
@@ -381,18 +393,22 @@ export function patternRings(
     const ds = scale * (1 + irr * 0.1875 * ni[1]);
     const ring = Math.floor(s);
     const t = s - ring;
-    const ta = clamp01(t / 0.7);
-    const tb = clamp01((t - 0.88) / 0.12);
+    const fl = Math.min(0.6, Math.max(0.02, fall));
+    const rise = (0.7 * (1 - fl)) / 0.88;
+    const ta = clamp01(t / rise);
+    const tb = clamp01((t - (1 - fl)) / fl);
     const a = smooth(ta);
     const b = 1 - smooth(tb);
-    const dv = ((6 * ta * (1 - ta)) / 0.7) * b - a * ((6 * tb * (1 - tb)) / 0.12);
+    const dv = ((6 * ta * (1 - ta)) / rise) * b - a * ((6 * tb * (1 - tb)) / fl);
     const k = width > 0 ? band(width * Math.abs(ds) * Math.hypot(dr[0], dr[1])) : 1;
     const h = pcgHash(((ring | 0) ^ Math.imul(seed, 0x9e3779b1)) >>> 0);
     return {
-        value: mix(0.59, a * b, k),
+        value: mix(1 - 0.5 * (rise + fl), a * b, k),
         gradient: [k * dv * ds * dr[0], k * dv * ds * dr[1]],
         ring: mix(0.5, unit24(h), k),
         knot,
+        along: [p[0]!, r],
+        bend: [dr[0], dr[1]],
     };
 }
 
@@ -1150,6 +1166,7 @@ export const patternCases: readonly NodeCase[] = [
             octaves: 1 + (k % 4),
             lacunarity: 2,
             gain: uniform(r, 0.3, 0.7),
+            bend: k % 2 === 0 ? [0, 1] : vector(r, 2, -2, 2),
         }),
         reference: (x) =>
             patternGrain(
@@ -1161,6 +1178,7 @@ export const patternCases: readonly NodeCase[] = [
                 num(x.octaves),
                 num(x.lacunarity),
                 num(x.gain),
+                vec(x.bend),
             ),
     },
     {
@@ -1207,6 +1225,7 @@ export const patternCases: readonly NodeCase[] = [
             knots: k % 2 === 0 ? 0 : [1, 2][k % 4 === 1 ? 0 : 1]!,
             knot_size: uniform(r, 0.05, 0.15),
             knot_rings: uniform(r, 1, 4),
+            fall: k % 3 === 0 ? 0.12 : uniform(r, 0.1, 0.4),
         }),
         reference: (x) =>
             patternRings(
@@ -1224,6 +1243,7 @@ export const patternCases: readonly NodeCase[] = [
                 num(x.knots),
                 num(x.knot_size),
                 num(x.knot_rings),
+                num(x.fall),
             ),
     },
     {

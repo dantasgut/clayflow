@@ -46,6 +46,21 @@ export function patternLinks(...ids: readonly string[]): Link[] {
 }
 
 /**
+ * As ligações do veio da madeira (o nó `rings`, um `pattern.rings`) ao grão `id` (`pattern.grain`) que corre ao longo
+ * da fibra: a coordenada é a do veio (`rings.along`: x ao longo da fibra, o raio dos anéis através dela) e o gradiente
+ * volta à do padrão por `rings.bend` — a fibra, os sulcos e os riscos acompanham as curvas dos anéis e o desvio em
+ * volta dos nós, em vez de cortá-los em linha reta. `wrap` falso: sem período (a coordenada de cada tábua).
+ */
+export function veinLinks(ids: readonly string[], wrap = true): Link[] {
+    return ids.flatMap((id): Link[] => [
+        ['rings.along', `${id}.p`],
+        ['rings.bend', `${id}.bend`],
+        ['uv.width', `${id}.width`],
+        ...(wrap ? ([['uv.wrap', `${id}.wrap`]] as Link[]) : []),
+    ]);
+}
+
+/**
  * As ligações do relevo `id` (`surface.bump`): a normal de partida (`from`: a da amostra, ou a de outro relevo — os
  * dois se somam), as tangentes do espaço do padrão e o gradiente `gradient` (a saída de um padrão).
  */

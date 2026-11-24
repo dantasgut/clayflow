@@ -220,7 +220,7 @@ describe('padrões com relevo (spec 011)', () => {
         expect(cells.gradient.map(Math.abs)).toEqual([0, 0]);
         expect(cells.random.map(Math.abs)).toEqual([0, 0]);
         const rings = patternRings(p, 4, [0, 0], 8, 0.3, 0.1, [1, 1], 0);
-        expect(rings.value).toBe(0.59);
+        expect(rings.value).toBeCloseTo(0.59, 12);
         expect(rings.ring).toBe(0.5);
         const grain = patternGrain(p, 4, [0, 0], [8, 8], 0, 3, 2, 0.5);
         expect(Math.abs(grain.value)).toBe(0);

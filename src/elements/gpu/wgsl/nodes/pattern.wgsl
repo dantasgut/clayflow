@@ -52,6 +52,8 @@ struct NodePatternRings {
     gradient: vec2f,
     ring: f32,
     knot: f32,
+    along: vec2f,
+    bend: vec2f,
 }
 
 struct NodePatternBricks {
@@ -201,9 +203,13 @@ fn node_pattern_noise(q: vec2f, per: vec2f, seed: u32) -> vec3f {
  * Grão (spec 011): `octaves` (1 a 8) oitavas do ruído de gradiente 2D com frequências por eixo `scale` (anisotrópico:
  * `scale` (2, 200) dá riscos ao longo de x — a escova do metal, a fibra da madeira), × `lacunarity` e amplitude × `gain`
  * a cada oitava, semente + k; normalizado pela soma das amplitudes. Saídas: o valor em [-1, 1] e o gradiente ∂/∂p.
+ * `bend`: quando `p` é uma coordenada curva (x, f(x, y)) — a do veio, `along` de `pattern.rings` —, `bend` = ∇f na
+ * coordenada de fora: o gradiente sai nela pela regra da cadeia e a largura do pixel acompanha o aperto de f. (0, 1):
+ * `p` é a própria coordenada de fora.
  */
-fn node_pattern_grain(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, seed: u32, octaves: u32, lacunarity: f32,
-    gain: f32) -> NodePatternGrain {
+fn node_pattern_grain(p: vec2f, width: f32, wrap: vec2f, bend: vec2f, scale: vec2f, seed: u32, octaves: u32,
+    lacunarity: f32, gain: f32) -> NodePatternGrain {
+    let tight = max(1.0, abs(bend.y));
     var freq = scale;
     var amp = 1.0;
     var norm = 0.0;
@@ -214,13 +220,14 @@ fn node_pattern_grain(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, seed: u32
         let fy = node_pattern_fit(freq.y, wrap.y, 1.0);
         let fr = vec2f(fx.x, fy.x);
         let v = node_pattern_noise(p * fr, vec2f(fx.y, fy.y), seed + k);
-        let band = select(1.0, node_pattern_band(width * max(abs(fr.x), abs(fr.y))), width > 0.0);
+        let band = select(1.0, node_pattern_band(width * max(abs(fr.x), abs(fr.y) * tight)), width > 0.0);
         sum += amp * band * vec3f(v.x, v.yz * fr);
         norm += amp;
         amp *= gain;
         freq *= lacunarity;
     }
-    return NodePatternGrain(sum.x / norm, sum.yz / norm);
+    let g = sum.yz / norm;
+    return NodePatternGrain(sum.x / norm, vec2f(g.x + g.y * bend.x, g.y * bend.y));
 }
 
 // O ponto da célula `i + o` relativo à posição `f` dentro da célula `i`: o centro deslocado por `jitter`; e o hash dela.
@@ -307,12 +314,16 @@ fn node_pattern_cells(p: vec2f, width: f32, wrap: vec2f, scale: f32, jitter: f32
  * um um galho que atravessa a tábua — soma ao raio um monte gaussiano de meia largura `knot_size` (em `p`, alongado 1,6
  * vez ao longo da fibra) e altura de `knot_rings` anéis: os anéis do tronco desviam em volta dele e, dentro, fecham em
  * voltas concêntricas; `knot` é o miolo do nó em [0, 1] (a madeira escura e dura do galho). `knots` 0: sem nós.
- * Abaixo do pixel: o perfil à média (0,59), `ring` a 0,5, gradiente a zero. `scale`, `depth` e `knots` vêm primeiro: são
- * entradas com valor do nó (ligáveis).
+ * Abaixo do pixel: o perfil à média, `ring` a 0,5, gradiente a zero. `scale`, `depth` e `knots` vêm primeiro: são
+ * entradas com valor do nó (ligáveis). `fall`: a fração do anel em que o perfil cai do lenho tardio ao inicial do ano
+ * seguinte (0,12: a queda abrupta; maior, a crista mais larga e suave — a subida encolhe na mesma proporção: 0,7 · (1 −
+ * `fall`) / 0,88). `along` = (p.x, r): a coordenada do veio — x ao longo da fibra, o raio através dela, com a
+ * ondulação e o desvio dos nós —, e `bend` = ∂r/∂p: o que corre ao longo da fibra (`pattern.grain` com `p` = `along`
+ * e `bend`) acompanha as curvas dos anéis.
  */
 fn node_pattern_rings(p: vec2f, width: f32, wrap: vec2f, scale: f32, depth: f32, knots: f32, distortion: f32,
     distortion_scale: vec2f, seed: u32, irregularity: f32, waviness: f32, waviness_scale: vec2f, knot_size: f32,
-    knot_rings: f32) -> NodePatternRings {
+    knot_rings: f32, fall: f32) -> NodePatternRings {
     let fx = node_pattern_fit(distortion_scale.x, wrap.x, 1.0);
     let fr = vec2f(fx.x, distortion_scale.y);
     let nz = node_pattern_noise(p * fr, vec2f(fx.y, 0.0), seed);
@@ -354,14 +365,17 @@ fn node_pattern_rings(p: vec2f, width: f32, wrap: vec2f, scale: f32, depth: f32,
     let ds = scale * (1.0 + irr * 0.1875 * ni.y);
     let ring = floor(s);
     let t = s - ring;
-    let ta = clamp(t / 0.7, 0.0, 1.0);
-    let tb = clamp((t - 0.88) / 0.12, 0.0, 1.0);
+    let fl = clamp(fall, 0.02, 0.6);
+    let rise = 0.7 * (1.0 - fl) / 0.88;
+    let ta = clamp(t / rise, 0.0, 1.0);
+    let tb = clamp((t - (1.0 - fl)) / fl, 0.0, 1.0);
     let a = ta * ta * (3.0 - 2.0 * ta);
     let b = 1.0 - tb * tb * (3.0 - 2.0 * tb);
-    let dv = (6.0 * ta * (1.0 - ta) / 0.7) * b - a * (6.0 * tb * (1.0 - tb) / 0.12);
+    let dv = (6.0 * ta * (1.0 - ta) / rise) * b - a * (6.0 * tb * (1.0 - tb) / fl);
     let k = select(1.0, node_pattern_band(width * abs(ds) * length(dr)), width > 0.0);
     let h = pcg_hash(bitcast<u32>(i32(ring)) ^ (seed * 0x9e3779b1u));
-    return NodePatternRings(mix(0.59, a * b, k), k * dv * ds * dr, mix(0.5, f32(h >> 8u) / 16777215.0, k), knot);
+    return NodePatternRings(mix(1.0 - 0.5 * (rise + fl), a * b, k), k * dv * ds * dr,
+        mix(0.5, f32(h >> 8u) / 16777215.0, k), knot, vec2f(p.x, r), dr);
 }
 
 // A urdidura passa por cima no cruzamento (i, j)? Ligamento de `over` por cima e `under` por baixo, deslocado `shift`

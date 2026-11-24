@@ -7,6 +7,7 @@ import { surface } from '../surface';
 import {
     PATTERN_SCALE,
     patternLinks,
+    veinLinks,
     patternSpace,
     SAMPLE_INPUT,
     SPACE_LINKS,
@@ -907,6 +908,9 @@ export const ASH_FURROW = { scale: [2.2, 44], octaves: 3, gain: 0.6, seed: 49 };
 export const ASH_GROOVE = { low: 0.3, high: -0.3 };
 
 /**
+ * O que corre ao longo da fibra (a fibra, os vasos, os sulcos) lê a coordenada do veio (`veinLinks`): acompanha as
+ * curvas dos anéis e o desvio dos nós.
+ *
  * O relevo de um freixo: o lenho tardio saliente (`ring`, mm entre o lenho inicial e a crista do anel), os vasos do
  * lenho inicial abertos em sulcos curtos ao longo do veio (`pore`, mm no lenho inicial, quase nada no tardio), a fibra
  * levantada (`fiber`, mm) e os sulcos da escova (`furrow`, mm: a fibra macia do lenho inicial arrancada em canais ao
@@ -945,7 +949,8 @@ function ashRelief(
             },
             links: [
                 ...SPACE_LINKS,
-                ...patternLinks('rings', 'fiber', 'pore', 'furrow'),
+                ...patternLinks('rings'),
+                ...veinLinks(['fiber', 'pore', 'furrow']),
                 ['pore.value', 'pit.value'],
                 ['pore.gradient', 'pit.gradient'],
                 ['furrow.value', 'groove.value'],
@@ -1019,14 +1024,15 @@ const woodAshBrushed = ashRelief('relief.woodAshBrushed', {
 export const PINE_FINE_OFFSET = [0.63, -0.73] as const;
 
 /**
- * Os anéis do pinho de veio fino (`pattern.rings`): 92 por unidade do padrão — linhas finas, de largura irregular, que
- * ondulam, abrem e fecham (a ondulação do raio de 0,05, larga) —, o corte tangente aos anéis ao longo da medula (a
+ * Os anéis do pinho de veio fino (`pattern.rings`): 115 por unidade do padrão — linhas finas, de largura irregular, que
+ * ondulam, abrem e fecham (a ondulação do raio de 0,05, larga), o perfil com a queda larga (`fall` 0,32: a crista do
+ * relevo sem degrau) —, o corte tangente aos anéis ao longo da medula (a
  * 0,015 do plano, a fundura variando 0,05: a fileira de "catedrais" fechadas e de ilhas alongadas; com o deslocamento
  * `PINE_FINE_OFFSET`, a 0,73 unidade do padrão acima da origem do uv) e os nós (4,5 células por unidade do padrão, um
  * em três de cada dez: o olho de anéis apertados, com o veio desviando em gota).
  */
 export const PINE_FINE_RINGS = {
-    scale: 92,
+    scale: 115,
     depth: 0.015,
     distortion: 0.05,
     distortion_scale: [2.2, 3],
@@ -1036,19 +1042,20 @@ export const PINE_FINE_RINGS = {
     seed: 19,
     knots: 4.5,
     knot_size: 0.03,
-    knot_rings: 6,
+    knot_rings: 7,
+    fall: 0.32,
 };
 
 /**
- * `relief.woodPineFine` — o relevo do pinho de veio fino escovado: o lenho tardio (as linhas escuras, duras) em
- * crista e o inicial afundado (`ring_height`, 0,8 mm entre os dois — os anéis apertados do nó saem em relevo com
- * ele), os sulcos onde a escova tirou a fibra macia (`furrow_depth`, 0,2 mm) e a fibra levantada (`fiber_height`,
- * 0,06 mm) — cerca de 1 mm do fundo às cristas, o de uma tábua de pinho escovada com escova de aço; sem poros
- * (`pore_depth`, 0: é conífera). Medidas estimadas. Parâmetros: os de `relief.woodAsh`.
+ * `relief.woodPineFine` — o relevo do pinho de veio fino escovado de leve: o lenho tardio (as linhas escuras, duras)
+ * em crista suave e o inicial afundado (`ring_height`, 0,5 mm entre os dois — os anéis apertados do nó saem em relevo
+ * com ele) e a fibra levantada (`fiber_height`, 0,04 mm), que corre paralela às linhas dos anéis. O relevo é o do
+ * campo dos anéis: sem sulcos de escova independentes (`furrow_depth`, 0) e sem poros (`pore_depth`, 0: é conífera).
+ * Medidas estimadas. Parâmetros: os de `relief.woodAsh`.
  */
 const woodPineFine = ashRelief(
     'relief.woodPineFine',
-    { ring: 0.8, pore: 0, fiber: 0.06, furrow: 0.2 },
+    { ring: 0.5, pore: 0, fiber: 0.04, furrow: 0 },
     { offset: PINE_FINE_OFFSET, rings: PINE_FINE_RINGS },
 );
 
