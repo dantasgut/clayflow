@@ -340,8 +340,7 @@ world.insert(
   `SurfaceFunction`; a malha uniforme ou a adaptativa). Nas malhas de vértices fixos (`SphereGeometry`, `BoxGeometry`)
   o material sozinho dá o relevo na normal.
 - **Quando é geometria e quando é normal**: os padrões filtram pelo que quem os lê resolve. Na geometria, a largura é o
-  dobro do passo da malha: o detalhe com menos de quatro segmentos por período não entra nos vértices (com menos que
-  isso a crista sairia em contas). No material, a largura é a do pixel: esse
+  passo da malha: o detalhe menor que dois segmentos não entra nos vértices. No material, a largura é a do pixel: esse
   detalhe continua na normal, e some na média quando fica menor que o pixel. Com a malha adaptativa, `screen` é a
   fração da altura da imagem que um segmento pode ocupar (0,0022 a 960 linhas: ~2 pixels): de perto os segmentos
   encolhem e mais relevo vira geometria; de longe o mesmo objeto fica com o relevo na normal e, mais longe, liso.
