@@ -83,6 +83,32 @@ imagens de uma luz, e 0,61 % na média / 0,68 % dos pixels a mais de 25 %.
   esferas deslocadas, passa com uma e com três luzes, com e sem a correção: 0,1330 % / 0,0239 % contra a soma). Ficam
   por conferir na cena do claflow-web com esta correção.
 
+**Segunda correção depois da fase 7 (2026-11-24) — a leitura da sombra uma vez só no shader**
+
+Defeito visto no retrato com três direcionais com sombra: os globos oculares pretos (com duas, certos). Reproduzido no
+caso `shadow-face` com a iluminação global na cena: a luz do globo com uma, duas e três luzes com sombra 0,0447, 0,0446
+e **0,0138** (as três sem sombra: 0,0448) — só o reflexo da córnea sobra. O mesmo com outros materiais grandes no lugar
+do olho: o mármore 3,95 contra 0,32 e o couro 0,89 contra 0,05.
+
+- **O que não era**: teto de vistas da superfície adaptativa (some igual numa `SphereGeometry` com `Materials.eye`), o
+  reservatório (as mesmas páginas alocadas e desenhadas com e sem o defeito), o passe de profundidade, a refração, o
+  reflexo traçado, a subsuperfície, a ordem de entrada, a compilação pendente (20 s de espera), erro de pipeline
+  (nenhum).
+- **Causa** (`src/elements/scene/points/shadowContribution.ts`): cada luz com sombra contribuía um módulo de
+  `light_visibility` (e um de `light_thickness`) com a sua chamada da leitura do mapa. Com três, o shader do desenho
+  de um material de grafo grande com a iluminação global sai errado da GPU — a terceira chamada basta, mesmo com o
+  resultado dela descartado (medido: `1 + 0 × leitura` na terceira luz dá o olho escuro; sem a chamada, certo). O
+  motivo dentro do compilador da GPU não foi apurado; o que se mediu é o limiar.
+- **Correção**: a leitura é uma só para todas as luzes. Cada luz que projeta contribui o seu mapa num ponto novo,
+  pequeno (`light_shadow_view`: o slot do mapa da luz pedida), e `light_visibility` e `light_thickness` têm um módulo
+  único que o consulta e chama a leitura uma vez (`shadow_light_visibility`, `shadow_light_thickness`; a face do cubo
+  da pontual em `sv_point_view`). O shader deixa de crescer com o número de luzes com sombra.
+- **Depois**: 0,0447, 0,0447, 0,0447 (sem sombra 0,0448); o mármore 0,317 e o couro 0,046, iguais ao de duas luzes. Os
+  demais casos com os mesmos números.
+- **Não verificado**: `spot-shadow`, `point-shadow`, `spot-travel`, `point-travel` e `subsurface-two-lights` depois
+  desta mudança (a leitura da luz de foco e da pontual passa pelo mesmo módulo novo; só o validador de WGSL e os testes
+  de unidade).
+
 **Pendências da fase 7** (reais):
 
 - **A penumbra pelo raio da fonte não foi medida**: as luzes de foco e pontual ganharam a opção `radius` e a leitura em

@@ -59,7 +59,8 @@
 //     girando sem saltos (nenhuma acima de 1,5 vez a mediana);
 //   - shadow-face (spec 013): de perto, uma esfera grande de pele (subsuperfície) com uma superfície adaptativa pequena
 //     (o globo ocular, `Materials.eye`) à frente, sob três direcionais com sombra no perfil alto — a imagem contra a soma
-//     das três imagens de uma luz com sombra, e a superfície adaptativa com a mesma luz da soma (não preta);
+//     das três imagens de uma luz com sombra, e a superfície adaptativa com a mesma luz da soma (não preta); e, com a
+//     iluminação global, a luz do globo ocular igual com uma, duas e três luzes com sombra;
 //   - displaced-shadow (spec 013): a `ParametricSurface` adaptativa com a `DisplacementFunction` projeta sombra no chão
 //     com uma luz com sombra e com três;
 // Para rodar: `npm run smoke -- materials [--query case=closure-mix]`. Resultado: `MATERIALS SMOKE PASSED` ou `FAIL: …`.
@@ -1211,9 +1212,20 @@ async function faceScene(
     setup: readonly ('off' | 'plain' | 'shadow')[],
     width: number,
     height: number,
+    gi = false,
 ): Promise<HdrImage> {
     const { app, canvas } = await materialApp(width, height, engineErrors);
     noAmbient(app);
+    // A iluminação global (como no retrato): com ela o shader do desenho é o maior que a cena monta.
+    if (gi)
+        app.world.insert(
+            new GlobalIllumination({
+                quality: 'medium',
+                probeSpacing: 0.5,
+                center: [0, 0.6, 0],
+                screenGather: false,
+            }),
+        );
     app.world.insert(
         new Camera({ projection: 'perspective', fov: GALLERY_FOV, near: 0.1, far: 60 }).add(
             new Transform({
@@ -1274,7 +1286,7 @@ async function faceScene(
     if (new URLSearchParams(location.search).get('shot') !== null) {
         app.step(0);
         await writeFixture(
-            `zzFace-${setup.map((m) => m[0]).join('')}.png`,
+            `zzFace-${setup.map((m) => m[0]).join('')}${gi ? '-gi' : ''}.png`,
             await toPng(capture(canvas)),
         );
     }
@@ -1353,6 +1365,35 @@ async function caseShadowFace(): Promise<void> {
     check(
         want / count > 0.02 && Math.abs(got / want - 1) <= 0.05,
         `${name}: a superfície adaptativa com ${(got / want).toFixed(3)} × a luz da soma (${(got / count).toFixed(4)} contra ${(want / count).toFixed(4)})`,
+    );
+    // Com a iluminação global (o retrato): a luz do globo ocular com uma, duas e três das luzes com sombra — as três
+    // acesas em todos — contra a das três sem sombra. Nada tapa a principal nem o preenchimento no globo (a contraluz
+    // não o alcança de frente): a luz dele é a mesma, com qualquer número de luzes com sombra, e nunca zero.
+    const eyeLight = (img: HdrImage): number => {
+        let sum = 0;
+        let pixels = 0;
+        for (let y = Math.floor(cy - r); y <= cy + r; y++)
+            for (let x = Math.floor(cx - r); x <= cx + r; x++) {
+                if (Math.hypot(x - cx, y - cy) > r) continue;
+                sum += lum(hdrAt(img, x, y));
+                pixels++;
+            }
+        return sum / pixels;
+    };
+    const open = eyeLight(await faceScene(['plain', 'plain', 'plain'], W, H, true));
+    const lights: number[] = [];
+    for (const setup of [
+        ['shadow', 'plain', 'plain'],
+        ['shadow', 'shadow', 'plain'],
+        ['shadow', 'shadow', 'shadow'],
+    ] as const)
+        lights.push(eyeLight(await faceScene(setup, W, H, true)));
+    log(
+        `${name}: com a iluminação global, a luz do globo ocular com uma, duas e três luzes com sombra — ${lights.map((v) => v.toFixed(4)).join(', ')}; com as três sem sombra ${open.toFixed(4)}`,
+    );
+    check(
+        open > 0.02 && lights.every((v) => Number.isFinite(v) && Math.abs(v / open - 1) <= 0.1),
+        `${name}: com a iluminação global, o globo ocular com ${lights.map((v) => (v / open).toFixed(3)).join(', ')} × a luz sem sombra (uma, duas e três luzes com sombra)`,
     );
 }
 

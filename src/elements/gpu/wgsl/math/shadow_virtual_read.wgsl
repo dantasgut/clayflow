@@ -313,12 +313,27 @@ fn shadow_virtual_visibility(
 }
 
 /**
- * Visibilidade da luz pontual no ponto `world_pos` pelo referencial de seis vistas `base` (as faces do cubo em volta da
- * luz; spec 013): a face é a da direção da luz ao ponto — a do ponto já afastado da superfície pela normal (o mesmo
- * afastamento da consulta), para a consulta não cair fora da face na aresta entre duas. O resto, `shadow_virtual_visibility`
- * na vista da face; as amostras do filtro que passam da aresta ficam de fora da média.
+ * A vista de `base` que vale para o ponto `world_pos` afastado da superfície por `shift` (o afastamento da consulta,
+ * ao longo da normal, em texels do nível do ponto): no referencial de uma vista, ele mesmo; no de seis (a luz pontual: as
+ * faces do cubo em volta dela; spec 013), a face da direção da luz ao ponto já afastado — para a consulta não cair fora
+ * da face na aresta entre duas.
  */
-fn shadow_cube_visibility(
+fn sv_point_view(base: ShadowMatrix, world_pos: vec3f, shift: vec3f) -> ShadowMatrix {
+    if (base.views <= 1u) { return base; }
+    let near = sv_face(base, sv_cube_face(world_pos - base.origin.xyz));
+    let l = sv_light(near, world_pos);
+    let k = sv_level_at(near, world_pos, l);
+    let moved = world_pos + shift * (sv_texel(near, k) * sv_metres(near, l.z));
+    return sv_face(base, sv_cube_face(moved - base.origin.xyz));
+}
+
+/**
+ * Visibilidade da luz no ponto `world_pos` pelo mapa de sombra de referencial `base`, de qualquer tipo de vista (a
+ * direcional, a de foco e as seis faces da pontual): escolhe a vista (`sv_point_view`) e lê nela
+ * (`shadow_virtual_visibility`) — uma chamada só da leitura, qualquer que seja a luz. Na pontual, as amostras do filtro
+ * que passam da aresta entre duas faces ficam de fora da média.
+ */
+fn shadow_light_visibility(
     base: ShadowMatrix,
     world_pos: vec3f,
     normal: vec3f,
@@ -326,15 +341,10 @@ fn shadow_cube_visibility(
     bias_texels: f32,
     normal_texels: f32,
     samples: u32,
-    radius: f32,
+    size: f32,
 ) -> f32 {
-    let levels = sv_levels(base);
-    if (levels == 0u) { return 1.0; }
-    let near = sv_face(base, sv_cube_face(world_pos - base.origin.xyz));
-    let l = sv_light(near, world_pos);
-    let k = sv_level_at(near, world_pos, l);
-    // O afastamento da consulta (até 1,5 texel do nível do ponto, em metros).
-    let lifted = world_pos + normal * (normal_texels * sv_texel(near, k) * sv_metres(near, l.z) * 1.5);
-    let m = sv_face(base, sv_cube_face(lifted - base.origin.xyz));
-    return shadow_virtual_visibility(m, world_pos, normal, light_dir, bias_texels, normal_texels, samples, radius);
+    if (sv_levels(base) == 0u) { return 1.0; }
+    // O afastamento da consulta: até 1,5 texel do nível do ponto, pela normal.
+    let m = sv_point_view(base, world_pos, normal * (normal_texels * 1.5));
+    return shadow_virtual_visibility(m, world_pos, normal, light_dir, bias_texels, normal_texels, samples, size);
 }

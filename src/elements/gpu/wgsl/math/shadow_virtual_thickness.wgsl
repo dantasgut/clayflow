@@ -77,14 +77,10 @@ fn shadow_virtual_thickness(m: ShadowMatrix, world_pos: vec3f, normal: vec3f, li
     return vec2f(max(p0.z - sum / weight, 0.0) * along, cos_entry);
 }
 
-// A espessura atravessada pela luz pontual no ponto `world_pos` pelo referencial de seis vistas `base` (spec 013): a
-// face é a da direção da luz ao ponto recuado para dentro do corpo (o mesmo recuo da leitura), e o resto,
-// `shadow_virtual_thickness` na vista da face.
-fn shadow_cube_thickness(base: ShadowMatrix, world_pos: vec3f, normal: vec3f, light_dir: vec3f) -> vec2f {
+// A espessura atravessada pela luz no ponto `world_pos` pelo mapa de sombra de referencial `base`, de qualquer tipo de
+// vista (spec 013): a vista é a do ponto recuado um texel para dentro do corpo (`sv_point_view`: na pontual, a face do
+// cubo), e a leitura, `shadow_virtual_thickness` nela — uma chamada só, qualquer que seja a luz.
+fn shadow_light_thickness(base: ShadowMatrix, world_pos: vec3f, normal: vec3f, light_dir: vec3f) -> vec2f {
     if (sv_levels(base) == 0u) { return vec2f(-1.0, 0.0); }
-    let near = sv_face(base, sv_cube_face(world_pos - base.origin.xyz));
-    let l = sv_light(near, world_pos);
-    let k = sv_level_at(near, world_pos, l);
-    let sunk = world_pos - normal * (sv_texel(near, k) * sv_metres(near, l.z));
-    return shadow_virtual_thickness(sv_face(base, sv_cube_face(sunk - base.origin.xyz)), world_pos, normal, light_dir);
+    return shadow_virtual_thickness(sv_point_view(base, world_pos, -normal), world_pos, normal, light_dir);
 }

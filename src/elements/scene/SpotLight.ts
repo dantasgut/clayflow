@@ -74,7 +74,6 @@ export class SpotLight extends Light {
                           () =>
                               this.data.castShadow === 1
                               && this.shadowMap?.data.view !== NONE.value,
-                          'spot',
                       ),
                       poolTransmittedContribution,
                   ];
