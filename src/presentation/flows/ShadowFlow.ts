@@ -598,7 +598,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
      */
     private drawnGenerations = new Map<number, number>();
     private frameGenerations = new Map<number, number>();
-    /** O cache recomeça no próximo quadro preparado (grupos mudados). */
+    /** O cache recomeça no próximo quadro desenhado (grupos ou aglomerados mudados); vale até um quadro o atender. */
     private reset = true;
     /** Grupos cuja contagem de índices vem da geometria (malha adaptativa): o registro e a fonte. */
     private readonly indirectSources = new Map<number, AnyBufferSpec>();
@@ -861,6 +861,8 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         bound.slots.clusterBoxes?.written();
         // As páginas das vistas do quadro foram desenhadas na geração de agora das faixas delas.
         this.drawnGenerations = this.frameGenerations;
+        // O recomeço pedido foi atendido: a partir do quadro seguinte, as séries seguem.
+        this.reset = false;
     }
 
     /**
@@ -1310,8 +1312,12 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         this.groupCount = units.length;
         this.instanceCount = instances;
         this.boundsDirty = true;
-        if (content !== this.groupsContent) this.reset = true;
+        // O conteúdo dos grupos ou os aglomerados deles mudados (um grupo passou a ir em aglomerados, o trecho dele nas
+        // caixas mudou de lugar, a malha dele é outra): o cache recomeça — as caixas dos aglomerados são refeitas (as
+        // carimbadas nesses lugares eram de outra malha) e as páginas, redesenhadas com elas.
+        if (content !== this.groupsContent || plans !== this.groupsPlans) this.reset = true;
         this.groupsContent = content;
+        this.groupsPlans = plans;
     }
 
     /**
@@ -1360,6 +1366,8 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
 
     /** O conteúdo dos grupos escrito (as chaves, primeiras instâncias e contagens). */
     private groupsContent = '';
+    /** Os grupos em aglomerados escritos (o trecho de cada um nas caixas, o pipeline e se está pronto). */
+    private groupsPlans = '';
 
     /** As caixas das geometrias precisam de kernels novos (grupos ou buffers mudados). */
     private boundsDirty = true;
@@ -1736,7 +1744,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             this.resources.writeNow(this.work, PARAMS, ShadowPagesParamsSchema.pack(values));
             this.paramsKey = key;
         }
-        // O recomeço vale só para este quadro: a partir do seguinte, as séries seguem.
-        this.reset = false;
+        // O recomeço vale até um quadro ser desenhado com ele (`dispatch`): o quadro que não desenha (um pipeline ainda
+        // por compilar) não o perde.
     }
 }

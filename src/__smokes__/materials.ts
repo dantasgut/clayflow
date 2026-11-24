@@ -57,6 +57,11 @@
 //     contraluz, as duas com sombra — a face contra a contraluz como quando ela é a única luz com sombra (a espessura é
 //     por luz: a da principal não toma o lugar da da contraluz), e a diferença entre quadros seguidos com a câmera
 //     girando sem saltos (nenhuma acima de 1,5 vez a mediana);
+//   - shadow-face (spec 013): de perto, uma esfera grande de pele (subsuperfície) com uma superfície adaptativa pequena
+//     (o globo ocular, `Materials.eye`) à frente, sob três direcionais com sombra no perfil alto — a imagem contra a soma
+//     das três imagens de uma luz com sombra, e a superfície adaptativa com a mesma luz da soma (não preta);
+//   - displaced-shadow (spec 013): a `ParametricSurface` adaptativa com a `DisplacementFunction` projeta sombra no chão
+//     com uma luz com sombra e com três;
 // Para rodar: `npm run smoke -- materials [--query case=closure-mix]`. Resultado: `MATERIALS SMOKE PASSED` ou `FAIL: …`.
 import {
     BoxGeometry,
@@ -1182,6 +1187,323 @@ async function caseSubsurfaceTwoLights(): Promise<void> {
         worst <= 1.5,
         `${name}: salto entre quadros com a câmera girando (${worst.toFixed(2)} × a mediana dos vizinhos)`,
     );
+}
+
+/** As três direcionais do retrato (de onde vêm) e a intensidade: o preenchimento, a principal e a contraluz. */
+const FACE_LIGHTS = [
+    { from: [0.7, 0.25, 0.65], intensity: 0.3 },
+    { from: [-0.55, 0.45, 0.7], intensity: 1.9 },
+    { from: [0.75, 0.3, -0.6], intensity: 0.8 },
+] as const;
+/** A câmera do caso `shadow-face`: de perto, como a do retrato. */
+const FACE_EYE: Vec3 = [0, 0.77, 2.4];
+const FACE_TARGET: Vec3 = [0, 0.72, 0.3];
+/** O centro e o raio da superfície adaptativa (o globo ocular) do caso, saindo da esfera de pele. */
+const FACE_BALL: Vec3 = [0.22, 0.86, 0.74];
+const FACE_BALL_RADIUS = 0.1;
+
+/**
+ * A cena do caso `shadow-face`: a esfera de pele de 0,8 de raio (malha grande), dois globos oculares adaptativos à frente
+ * dela e o chão, sob
+ * as direcionais de `FACE_LIGHTS` — cada uma fora da cena, sem sombra ou com sombra (`setup`) —, sem a luz ambiente.
+ */
+async function faceScene(
+    setup: readonly ('off' | 'plain' | 'shadow')[],
+    width: number,
+    height: number,
+): Promise<HdrImage> {
+    const { app, canvas } = await materialApp(width, height, engineErrors);
+    noAmbient(app);
+    app.world.insert(
+        new Camera({ projection: 'perspective', fov: GALLERY_FOV, near: 0.1, far: 60 }).add(
+            new Transform({
+                position: [...FACE_EYE, 1],
+                rotation: Transform.lookRotation([...FACE_EYE], [...FACE_TARGET]),
+            }),
+        ),
+    );
+    FACE_LIGHTS.forEach((light, k) => {
+        const mode = setup[k] ?? 'off';
+        if (mode === 'off') return;
+        app.world.insert(
+            new DirectionalLight({
+                direction: [...light.from.map((c) => -c), 0],
+                intensity: light.intensity,
+                castShadow: mode === 'shadow',
+            }),
+        );
+    });
+    app.world.insert(
+        new PlaneGeometry({ size: [40, 40] })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [0, -0.1, 0, 1] }))
+            .add(neutral(0.18)),
+    );
+    // Os dois globos oculares primeiro (como no retrato, em que a cabeça chega depois): o medido e o outro, do lado
+    // oposto.
+    for (const side of [1, -1])
+        app.world.insert(
+            new ParametricSurface({
+                domain: [0, 1, 0, 1],
+                adaptive: { ...RELIEF_MESH, patches: [24, 24], periodic: [false, false] },
+            })
+                .add(
+                    new SurfaceFunction({
+                        code: FRONT_SPHERE_CODE,
+                        params: { radius: 'f32' },
+                        values: { radius: FACE_BALL_RADIUS },
+                    }),
+                )
+                .add(new StandardMaterial())
+                .add(
+                    new Transform({
+                        position: [side * FACE_BALL[0], FACE_BALL[1], FACE_BALL[2], 1],
+                    }),
+                )
+                .add(Materials.eye({ scale: 6.2 })),
+        );
+    app.world.insert(
+        // Malha grande (mais de 65 mil vértices: índices de 32 bits, desenhada em aglomerados no mapa de sombra), como a
+        // cabeça do retrato.
+        new SphereGeometry({ radius: 0.8, latSegments: 256, lonSegments: 512 })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [0, 0.8, 0, 1] }))
+            .add(Materials.skin({ scale: 6.2 })),
+    );
+    const img = await renderHdr(app, 40, 1500);
+    if (new URLSearchParams(location.search).get('shot') !== null) {
+        app.step(0);
+        await writeFixture(
+            `zzFace-${setup.map((m) => m[0]).join('')}.png`,
+            await toPng(capture(canvas)),
+        );
+    }
+    disposeApp(app, canvas);
+    return img;
+}
+
+async function caseShadowFace(): Promise<void> {
+    const name = 'shadow-face';
+    const W = 640;
+    const H = 400;
+    const all = await faceScene(['shadow', 'shadow', 'shadow'], W, H);
+    const singles: HdrImage[] = [];
+    for (let k = 0; k < 3; k++)
+        singles.push(
+            await faceScene(
+                FACE_LIGHTS.map((_, i) => (i === k ? 'shadow' : 'off')),
+                W,
+                H,
+            ),
+        );
+    // O que não vem das luzes (o fundo) está em cada imagem de uma luz: entra uma vez só na soma.
+    const base = await faceScene(['off', 'off', 'off'], W, H);
+    const expected = (i: number, c: number): number =>
+        singles.reduce((sum, img) => sum + img.data[i * 4 + c]!, 0) - 2 * base.data[i * 4 + c]!;
+    // A escala: a pele acesa pela principal de frente (difuso de albedo ~0,8).
+    const lit = (0.8 * FACE_LIGHTS[1].intensity) / Math.PI;
+    const n = W * H;
+    let sum = 0;
+    let wrong = 0;
+    for (let i = 0; i < n; i++) {
+        let e = 0;
+        for (let c = 0; c < 3; c++)
+            e = Math.max(e, Math.abs(all.data[i * 4 + c]! - expected(i, c)) / lit);
+        sum += e;
+        if (e > 0.25) wrong++;
+    }
+    log(
+        `${name}: três direcionais com sombra contra a soma das três de uma luz — diferença média ${(100 * (sum / n)).toFixed(4)} % da pele acesa; ${(100 * (wrong / n)).toFixed(4)} % dos pixels a mais de 25 %`,
+    );
+    check(
+        sum / n <= 0.01 && wrong / n <= 0.01,
+        `${name}: difere da soma das luzes: média ${(100 * (sum / n)).toFixed(4)} %, ${(100 * (wrong / n)).toFixed(4)} % dos pixels a mais de 25 %`,
+    );
+    // A superfície adaptativa (o globo ocular): a luz dela, na média de um disco de metade do raio em volta do centro
+    // visto pela câmera, contra a da soma — não preta.
+    const [cx, cy] = galleryPixel(
+        [FACE_BALL[0], FACE_BALL[1], FACE_BALL[2] + FACE_BALL_RADIUS],
+        W,
+        H,
+        FACE_EYE,
+        FACE_TARGET,
+    );
+    const [ex] = galleryPixel(
+        [FACE_BALL[0] + 0.5 * FACE_BALL_RADIUS, FACE_BALL[1], FACE_BALL[2] + FACE_BALL_RADIUS],
+        W,
+        H,
+        FACE_EYE,
+        FACE_TARGET,
+    );
+    const r = Math.abs(ex - cx);
+    let got = 0;
+    let want = 0;
+    let count = 0;
+    for (let y = Math.floor(cy - r); y <= cy + r; y++)
+        for (let x = Math.floor(cx - r); x <= cx + r; x++) {
+            if (Math.hypot(x - cx, y - cy) > r) continue;
+            const i = y * W + x;
+            got += lum(hdrAt(all, x, y));
+            want += lum([expected(i, 0), expected(i, 1), expected(i, 2)]);
+            count++;
+        }
+    log(
+        `${name}: a superfície adaptativa (${count} pixels) — luz ${(got / count).toFixed(4)} com as três; ${(want / count).toFixed(4)} na soma (${(got / want).toFixed(3)} ×)`,
+    );
+    check(
+        want / count > 0.02 && Math.abs(got / want - 1) <= 0.05,
+        `${name}: a superfície adaptativa com ${(got / want).toFixed(3)} × a luz da soma (${(got / count).toFixed(4)} contra ${(want / count).toFixed(4)})`,
+    );
+}
+
+/** Os centros (x) das três esferas deslocadas do caso `displaced-shadow`, o raio delas e a câmera. */
+const DISPLACED_X = [-1.7, 0, 1.7] as const;
+const DISPLACED_R = 0.55;
+const DISPLACED_EYE: Vec3 = [0.3, 7, 5];
+const DISPLACED_TARGET: Vec3 = [0.3, 0, 0];
+
+/**
+ * A cena do caso `displaced-shadow`, vista de cima e de lado: três esferas adaptativas com o relevo na geometria
+ * (`Displacements.woodRough`; a do meio, a de parametrização frontal, como as da vitrine) sobre o chão, sob as
+ * direcionais com sombra ligadas em `lights` (a primeira vem de −x, a 45°); com `caster` falso, sem as esferas (o chão
+ * aceso).
+ */
+async function displacedScene(lights: readonly boolean[], caster: boolean): Promise<HdrImage> {
+    const { app, canvas } = await materialApp(640, 360, engineErrors);
+    noAmbient(app);
+    app.world.insert(
+        new Camera({ projection: 'perspective', fov: GALLERY_FOV, near: 0.5, far: 60 }).add(
+            new Transform({
+                position: [...DISPLACED_EYE, 1],
+                rotation: Transform.lookRotation([...DISPLACED_EYE], [...DISPLACED_TARGET]),
+            }),
+        ),
+    );
+    const from: readonly Vec3[] = [
+        [-1, 1, 0],
+        [0.3, 1, 0.9],
+        [0.5, 1, -0.8],
+    ];
+    from.forEach((f, k) => {
+        if (lights[k] !== true) return;
+        app.world.insert(
+            new DirectionalLight({
+                direction: [...f.map((c) => -c), 0],
+                intensity: 2,
+                castShadow: true,
+            }),
+        );
+    });
+    app.world.insert(
+        new PlaneGeometry({ size: [40, 40] })
+            .add(new StandardMaterial())
+            .add(new Transform())
+            .add(neutral(0.5)),
+    );
+    if (caster)
+        DISPLACED_X.forEach((x, i) => {
+            // Cada uma com o seu padrão (três grupos de desenho, cada um com os seus aglomerados).
+            const values = { pattern_scale: [2 + i, 1], scale: RELIEF_SCALE };
+            const surface =
+                i === 1
+                    ? new ParametricSurface({
+                          domain: [0, 1, 0, 1],
+                          adaptive: { ...RELIEF_MESH, patches: [24, 24], periodic: [false, false] },
+                      }).add(
+                          new SurfaceFunction({
+                              code: FRONT_SPHERE_CODE,
+                              params: { radius: 'f32' },
+                              values: { radius: DISPLACED_R },
+                          }),
+                      )
+                    : new ParametricSurface({
+                          preset: 'sphere',
+                          params: [DISPLACED_R],
+                          adaptive: RELIEF_MESH,
+                      });
+            app.world.insert(
+                surface
+                    .add(new StandardMaterial())
+                    .add(new Transform({ position: [x, DISPLACED_R, 0, 1] }))
+                    .add(Materials.woodRough(values))
+                    .add(Displacements.woodRough(values)),
+            );
+        });
+    const img = await renderHdr(app, 40, 1500);
+    if (new URLSearchParams(location.search).get('shot') !== null) {
+        app.step(0);
+        await writeFixture(
+            `zzDisplaced-${lights.map((on) => (on ? 1 : 0)).join('')}-${caster}.png`,
+            await toPng(capture(canvas)),
+        );
+    }
+    disposeApp(app, canvas);
+    return img;
+}
+
+async function caseDisplacedShadow(): Promise<void> {
+    const name = 'displaced-shadow';
+    const W = 640;
+    const H = 360;
+    // Uma luz (vem de −x a 45°): o centro da sombra de cada esfera cai no chão a um raio do pé dela, em +x, e fica sem
+    // luz nenhuma.
+    const single = await displacedScene([true, false, false], true);
+    const open = await displacedScene([true, false, false], false);
+    const ratios = DISPLACED_X.map((x) => {
+        const [sx, sy] = galleryPixel(
+            [x + DISPLACED_R, 0, 0],
+            W,
+            H,
+            DISPLACED_EYE,
+            DISPLACED_TARGET,
+        ).map(Math.round);
+        const mean = (img: HdrImage): number => {
+            let sum = 0;
+            for (let dy = -3; dy <= 3; dy++)
+                for (let dx = -3; dx <= 3; dx++) sum += lum(hdrAt(img, sx! + dx, sy! + dy)) / 49;
+            return sum;
+        };
+        return mean(single) / mean(open);
+    });
+    log(
+        `${name}: uma luz com sombra — o chão no centro da sombra de cada esfera deslocada, sobre o chão aberto: ${ratios.map((r) => r.toFixed(3)).join(', ')}`,
+    );
+    check(
+        ratios.every((r) => r <= 0.05),
+        `${name}: uma luz — esfera deslocada sem a sombra no chão (${ratios.map((r) => r.toFixed(3)).join(', ')})`,
+    );
+    // Três luzes: a imagem contra a soma das três de uma luz (as sombras das três esferas, de cada luz).
+    const all = await displacedScene([true, true, true], true);
+    const parts = [
+        single,
+        await displacedScene([false, true, false], true),
+        await displacedScene([false, false, true], true),
+    ];
+    // O chão aberto sob uma luz: a escala das diferenças.
+    const lit = lum(hdrAt(open, 20, H - 20));
+    let sum = 0;
+    let wrong = 0;
+    let shaded = 0;
+    const n = W * H;
+    for (let i = 0; i < n; i++) {
+        let e = 0;
+        for (let c = 0; c < 3; c++) {
+            const expected = parts.reduce((t, img) => t + img.data[i * 4 + c]!, 0);
+            e = Math.max(e, Math.abs(all.data[i * 4 + c]! - expected) / lit);
+        }
+        sum += e;
+        if (e > 0.25) wrong++;
+        // Pixels do chão com alguma das três sombras (a menos de 2,5 luzes).
+        if (all.data[i * 4]! < 2.5 * open.data[i * 4]! && open.data[i * 4]! > 0) shaded++;
+    }
+    log(
+        `${name}: três luzes com sombra contra a soma das três de uma luz — diferença média ${(100 * (sum / n)).toFixed(4)} % do chão sob uma luz; ${(100 * (wrong / n)).toFixed(4)} % dos pixels a mais de 25 %; ${shaded} pixels com sombra`,
+    );
+    check(
+        sum / n <= 0.01 && wrong / n <= 0.01,
+        `${name}: três luzes — difere da soma: média ${(100 * (sum / n)).toFixed(4)} %, ${(100 * (wrong / n)).toFixed(4)} % dos pixels a mais de 25 %`,
+    );
+    check(shaded > 5000, `${name}: três luzes — sem sombra no chão (${shaded} pixels)`);
 }
 
 async function caseEmission(): Promise<void> {
@@ -5191,6 +5513,8 @@ const CASES: Record<string, () => Promise<void>> = {
     'thin-film-angle': caseThinFilm,
     'subsurface-terminator': caseSubsurface,
     'subsurface-two-lights': caseSubsurfaceTwoLights,
+    'shadow-face': caseShadowFace,
+    'displaced-shadow': caseDisplacedShadow,
     sss: caseSss,
     'emission-hdr': caseEmission,
     'closure-mix': caseMix,

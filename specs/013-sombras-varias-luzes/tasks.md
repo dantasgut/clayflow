@@ -59,6 +59,30 @@ acima de 2 minutos ou Chrome travado: parar. Só o caso do que mudou durante a i
 
 **Checkpoint**: uma luz com sombra como antes, pelo atlas único — fechado em 2026-11-24.
 
+**Correção depois da fase 7 (2026-11-24) — as caixas dos aglomerados com várias vistas**
+
+Defeito visto no retrato (claflow-web) com três direcionais com sombra: faixas claras de borda reta no rosto e os globos
+oculares errados. Reproduzido no motor pelo caso `shadow-face` do smoke `materials` (a malha grande e dois globos
+adaptativos sob três luzes, no primeiro app da página): a superfície adaptativa com 2,74 × a luz da soma das três
+imagens de uma luz, e 0,61 % na média / 0,68 % dos pixels a mais de 25 %.
+
+- **Causa**: as caixas dos aglomerados das malhas grandes são uma série por páginas indexada pelo trecho de cada grupo
+  (`plan.first`); a caixa carimbada segue sem ser refeita. Quando um grupo passa a ir em aglomerados (o pipeline dele
+  fica pronto quadros depois) ou o trecho dele muda de lugar (as malhas por vista de sombra da T012 entram como grupos
+  de desenho novos, uma por vista, em quadros diferentes), ele herdava as caixas carimbadas de outra malha: os
+  aglomerados eram descartados das páginas erradas e a sombra saía com pedaços faltando — e, sem profundidade à frente
+  do ponto, a espessura atravessada lida como zero (a luz inteira atravessando: as faixas claras). Com uma vista o
+  trecho raramente muda; com três, muda várias vezes na partida.
+- **Correção** (`ShadowFlow.writeGroups`): a mudança dos aglomerados dos grupos (trecho, pipeline, pronto) recomeça o
+  cache, como a do conteúdo dos grupos; e o recomeço pedido vale até um quadro ser desenhado com ele (antes se perdia no
+  quadro que não desenhava por um pipeline ainda por compilar).
+- **Depois**: `shadow-face` 0,0250 % / 0,0000 % e a superfície adaptativa com 1,000 × a luz da soma. O reservatório não
+  estava esgotado (1172 das 3136 páginas com as três vistas): a hipótese do esgotamento não se confirmou neste caso.
+- **Não reproduzido no motor**: os globos oculares pretos (aqui saíram com a luz errada, não pretos), a pele chapada
+  com as máscaras de borda dura, e a esfera deslocada sem sombra com uma luz só (o caso `displaced-shadow`, com três
+  esferas deslocadas, passa com uma e com três luzes, com e sem a correção: 0,1330 % / 0,0239 % contra a soma). Ficam
+  por conferir na cena do claflow-web com esta correção.
+
 **Pendências da fase 7** (reais):
 
 - **A penumbra pelo raio da fonte não foi medida**: as luzes de foco e pontual ganharam a opção `radius` e a leitura em
