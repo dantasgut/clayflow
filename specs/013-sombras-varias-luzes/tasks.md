@@ -43,7 +43,7 @@ acima de 2 minutos ou Chrome travado: parar. Só o caso do que mudou durante a i
 
 **Purpose**: a estrutura que todas as histórias usam. Nenhuma história começa antes desta fase.
 
-- [ ] T003 Teste de unidade das faixas do atlas em `src/elements/scene/__tests__/ShadowAtlas.test.ts`: a faixa de cada vista (tabela e pedidos), sem sobreposição; o tamanho pelo perfil e pelo número de vistas; o teto pelo limite do adaptador
+- [x] T003 Teste de unidade das faixas do atlas em `src/elements/scene/__tests__/ShadowAtlas.test.ts`: a faixa de cada vista (tabela e pedidos), sem sobreposição; o tamanho pelo perfil e pelo número de vistas; o teto pelo limite do adaptador
 - [ ] T004 `ShadowAtlas` (Resource de cena) em `src/elements/scene/ShadowAtlas.ts`: os descritores `atlas` (tabelas por faixa + páginas físicas, histórico de páginas), `requests` (faixas, profundidade 2) e `params`; criado com a primeira luz com sombra por páginas e removido com a última (evento de mudança de entidades, sem chamada direta)
 - [ ] T005 `ShadowMap` em `src/elements/scene/ShadowMap.ts` sem `atlas` nem `requests` próprios; `matrixSchema` com `tableBase`, `requestBase`, `kind`, `origin`, `near`, `far`; a declaração das vistas da luz; ajustar `src/elements/scene/__tests__/ShadowMap.test.ts` e `src/elements/render/__tests__/Renderer.test.ts`
 - [ ] T006 As vistas vivas em `src/elements/scene/shadowCaster.ts`: a lista das vistas de sombra na ordem de inserção até o teto do perfil, no lugar de "o primeiro"; `ShadowCasterResolver` pelo `ShadowAtlas`; `src/elements/consumers.ts` e `src/elements/scene/resources.ts` (`shadow_atlas`)
