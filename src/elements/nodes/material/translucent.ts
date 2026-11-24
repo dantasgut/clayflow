@@ -290,6 +290,106 @@ export const skinDetailed = Subgraph.point(
 );
 
 /**
+ * `material.lips` — os lábios: a pele fina e sem pigmento do vermelhão, por onde se vê o sangue. Rosa escuro
+ * (`color`), manchado de leve, com as linhas finas que cruzam o lábio de cima a baixo (os sulcos verticais: um grão
+ * maciço alongado na vertical, `line_height` 0,06 mm de fundo, mais escuros no fundo) e o brilho de uma superfície
+ * úmida — dois lobos da interface (IOR 1,4): o seco (`roughness`, 0,5) e o molhado (`wet_roughness`, 0,18),
+ * misturados por `gloss` em [0, 1], que some dentro dos sulcos. O corpo é subsuperfície, de raio mais longo que o da
+ * pele ((3; 1,2; 0,8) mm, estimado: a camada de cima é fina e o vermelho atravessa mais), com `scale` unidades do
+ * mundo por metro. Os padrões são maciços (a posição no objeto, `pattern_scale` por unidade; as linhas correm ao longo
+ * do eixo y do objeto: o lábio de uma cabeça em pé). Num rosto, mistura-se à pele por uma máscara (`closure.mix`).
+ * Parâmetros: `color`, `line_color`, `line_height`, `gloss`, `roughness`, `wet_roughness`, `ior`, `radius`, `scale`,
+ * `pattern_scale`.
+ */
+export const lips = Subgraph.point(
+    new NodeGraph({
+        nodes: {
+            s: input.surfaceSample(),
+            solid: surface.solidSpace,
+            tile: math.value.with({ value: 1 }),
+            world: math.value.with({ value: 1 }),
+            // Os sulcos: variam depressa na horizontal e devagar na vertical (correm de cima a baixo).
+            lines: pattern.grain3.with({ scale: [90, 6, 30], octaves: 2, gain: 0.6, seed: 81 }),
+            mottle: skinGrain(22, 2, 82),
+            base: math.value3.with({ value: [0.5, 0.22, 0.22] }),
+            dark: math.value3.with({ value: [0.3, 0.1, 0.1] }),
+            // O fundo do sulco (o grão abaixo do nível) mais escuro, e a cor manchada ± 12 %.
+            groove: map.range.with({ in_min: 0.05, in_max: -0.45, out_min: 0, out_max: 0.8 }),
+            lined: math.mix3,
+            uneven: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.88, out_max: 1.12 }),
+            toned: math.scale3,
+            body: bsdf.subsurface.with({ radius: [3, 1.2, 0.8] }),
+            dry: bsdf.dielectric.with({ ior: 1.4, roughness: 0.5 }),
+            wet: bsdf.dielectric.with({ ior: 1.4, roughness: 0.18 }),
+            gloss: math.value.with({ value: 0.5 }),
+            open: map.range.with({ in_min: 0.05, in_max: -0.45, out_min: 1, out_max: 0.1 }),
+            shine: math.mul,
+            specular: closure.mix,
+            sum: closure.add,
+            relief: surface.solidRelief.with({ height: 0.06 }),
+            normal: surface.reliefNormal,
+            out: closure.normal,
+        },
+        links: [
+            ['s.object_position', 'solid.position'],
+            ['s.dodu', 'solid.dodu'],
+            ['s.dodv', 'solid.dodv'],
+            ['s.duvdx', 'solid.duvdx'],
+            ['s.duvdy', 'solid.duvdy'],
+            ['s.footprint', 'solid.footprint'],
+            ['tile.value', 'solid.scale'],
+            ['solid.p', 'lines.p'],
+            ['solid.width', 'lines.width'],
+            ['solid.p', 'mottle.p'],
+            ['solid.width', 'mottle.width'],
+            ['lines.value', 'groove.x'],
+            ['base.value', 'lined.a'],
+            ['dark.value', 'lined.b'],
+            ['groove.value', 'lined.t'],
+            ['mottle.value', 'uneven.x'],
+            ['lined.value', 'toned.v'],
+            ['uneven.value', 'toned.s'],
+            ['toned.value', 'body.color'],
+            ['world.value', 'body.scale'],
+            ['lines.value', 'open.x'],
+            ['gloss.value', 'shine.a'],
+            ['open.value', 'shine.b'],
+            ['dry.value', 'specular.a'],
+            ['wet.value', 'specular.b'],
+            ['shine.value', 'specular.t'],
+            ['specular.value', 'sum.a'],
+            ['body.value', 'sum.b'],
+            ['lines.value', 'relief.value'],
+            ['lines.gradient', 'relief.gradient'],
+            ['solid.du', 'relief.du'],
+            ['solid.dv', 'relief.dv'],
+            ['relief.value', 'normal.relief'],
+            ['world.value', 'normal.scale'],
+            ['sum.value', 'out.c'],
+            ['normal.value', 'out.normal'],
+        ],
+        output: 'out.value',
+    }),
+    {
+        name: 'material.lips',
+        inputs: { s: 'SurfaceSample' },
+        defaults: { s: 's' },
+        expose: [
+            ['base.value', 'color'],
+            ['dark.value', 'line_color'],
+            ['relief.height', 'line_height'],
+            ['gloss.value', 'gloss'],
+            ['dry.roughness', 'roughness'],
+            ['wet.roughness', 'wet_roughness'],
+            ['dry.ior', 'ior'],
+            ['body.radius', 'radius'],
+            ['world.value', 'scale'],
+            ['tile.value', 'pattern_scale'],
+        ],
+    },
+);
+
+/**
  * `material.eye` — o globo ocular: a esclera branca, translúcida, com os vasos finos (`veins` em [0, 1],
  * `vein_color`), a íris — de `iris_color` junto da pupila a `iris_edge_color` na borda, riscada pelas fibras radiais do
  * estroma e fechada pelo anel escuro do limbo —, a pupila preta e, por cima de tudo, a córnea molhada: a interface lisa
