@@ -293,7 +293,7 @@ export const skinDetailed = Subgraph.point(
  * `material.eye` — o globo ocular: a esclera branca, translúcida, com os vasos finos (`veins` em [0, 1],
  * `vein_color`), a íris — de `iris_color` junto da pupila a `iris_edge_color` na borda, riscada pelas fibras radiais do
  * estroma e fechada pelo anel escuro do limbo —, a pupila preta e, por cima de tudo, a córnea molhada: a interface lisa
- * (IOR 1,376, `roughness` 0,04), que dá o reflexo das luzes. A íris é sombreada como o disco fundo que é (`iris_depth`,
+ * (IOR 1,376, `roughness` 0,03), que dá o reflexo das luzes. A íris é sombreada como o disco fundo que é (`iris_depth`,
  * −1,6 mm no centro: a normal de uma tigela), e a esclera escurece e fica rosada dos cantos para trás. A geometria é uma esfera centrada na origem do
  * objeto, com o olhar ao longo de `axis` (+z); `iris_size` é o raio da íris na esfera unitária (0,49: 11,7 mm num
  * globo de 24 mm) e `pupil_size` o da pupila como fração do da íris. O corpo é subsuperfície (`radius`, (0,6; 0,45;
@@ -308,22 +308,25 @@ export const eye = Subgraph.point(
             s: input.surfaceSample(),
             solid: surface.solidSpace.with({ axis: [0, 0, 1] }),
             world: math.value.with({ value: 1 }),
-            parts: pattern.iris.with({ iris: 0.46, pupil: 0.36 }),
+            parts: pattern.iris.with({ iris: 0.46, pupil: 0.36, fibers: 64, soften: 0.06 }),
             // A íris: a cor do centro à borda, as fibras (± 45 %) e o limbo escuro.
             hue: color.ramp.with({
-                color_a: [0.1, 0.045, 0.015],
-                color_b: [0.035, 0.015, 0.006],
+                color_a: [0.075, 0.036, 0.014],
+                color_b: [0.028, 0.013, 0.006],
                 low: 0,
                 high: 1,
             }),
-            streak: map.range.with({ in_min: -0.6, in_max: 0.6, out_min: 0.55, out_max: 1.45 }),
+            streak: map.range.with({ in_min: -0.6, in_max: 0.6, out_min: 0.35, out_max: 1.65 }),
+            // O anel claro em volta da pupila (a colarete) e a queda para a borda.
+            lift: map.curve4.with({ p0: [0, 0.4], p1: [0.22, 1.5], p2: [0.6, 0.95], p3: [1, 0.6] }),
+            lifted: math.mul,
             ring: map.range.with({ out_min: 1, out_max: 0.12 }),
             shade: math.mul,
             stroma: math.scale3,
             // A esclera e os vasos.
-            white: math.value3.with({ value: [0.78, 0.75, 0.72] }),
-            vessel: math.value3.with({ value: [0.62, 0.16, 0.14] }),
-            veins: math.value.with({ value: 0.5 }),
+            white: math.value3.with({ value: [0.5, 0.47, 0.45] }),
+            vessel: math.value3.with({ value: [0.55, 0.12, 0.1] }),
+            veins: math.value.with({ value: 0.9 }),
             vein_amount: math.mul,
             sclera: math.mix3,
             // A esclera escurece e fica rosada dos cantos para trás (a conjuntiva, mais vascular longe da íris).
@@ -340,7 +343,7 @@ export const eye = Subgraph.point(
             bowl: surface.solidRelief.with({ height: -1.6 }),
             hollow: surface.reliefNormal,
             deep: closure.normal,
-            cornea: bsdf.dielectric.with({ ior: 1.376, roughness: 0.04 }),
+            cornea: bsdf.dielectric.with({ ior: 1.376, roughness: 0.03 }),
             out: closure.add,
         },
         links: [
@@ -355,7 +358,10 @@ export const eye = Subgraph.point(
             ['parts.radial', 'hue.t'],
             ['parts.fiber', 'streak.x'],
             ['parts.limbus', 'ring.x'],
-            ['streak.value', 'shade.a'],
+            ['parts.radial', 'lift.x'],
+            ['streak.value', 'lifted.a'],
+            ['lift.value', 'lifted.b'],
+            ['lifted.value', 'shade.a'],
             ['ring.value', 'shade.b'],
             ['hue.color', 'stroma.v'],
             ['shade.value', 'stroma.s'],

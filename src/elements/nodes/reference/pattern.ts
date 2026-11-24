@@ -604,6 +604,7 @@ export function patternIris(
     pupil: number,
     fibers: number,
     seed: number,
+    soften: number,
 ): {
     iris: number;
     pupil: number;
@@ -620,7 +621,7 @@ export function patternIris(
     const rho = Math.hypot(d[0]!, d[2]!);
     const size = Math.max(iris, 1e-3);
     const t = rho / size;
-    const edge = Math.max(0.02, width / (l * size));
+    const edge = Math.max(Math.max(soften, 0.01), width / (l * size));
     const front = d[1]! >= 0 ? 1 : 0;
     const step = (a: number, b: number, x: number): number => smooth(clamp01((x - a) / (b - a)));
     const disc = front * (1 - step(1 - edge, 1 + edge, t));
@@ -643,7 +644,7 @@ export function patternIris(
     const at = (s: number): V3 => [f32(d[0]! * s), f32(d[1]! * s), f32(d[2]! * s)];
     const ridge = 1 - Math.abs(patternNoise3(at(5), seed + 7)[0]) * 6;
     const fine = 1 - Math.abs(patternNoise3(at(13), seed + 8)[0]) * 9;
-    const far = clamp01(step(1.1, 2, t) + (1 - front));
+    const far = clamp01(step(1.02, 1.6, t) + (1 - front));
     const vein = clamp01(Math.max(ridge, 0.6 * fine)) * far * (1 - disc);
     const u = clamp01((t - 0.35) / 0.65);
     const bowl = front * (1 - smooth(u));
@@ -656,7 +657,8 @@ export function patternIris(
         iris: disc,
         pupil: hole,
         limbus,
-        fiber: fiber / norm,
+        fiber:
+            (0.8 * fiber) / norm + 0.3 * patternNoise([f32(radial * 5), 0.5], [0, 0], seed + 5)[0],
         radial,
         vein,
         bowl,
@@ -1511,6 +1513,7 @@ export const patternCases: readonly NodeCase[] = [
             pupil: uniform(r, 0.2, 0.5),
             fibers: [16, 32, 48][k % 3]!,
             seed: k % 5,
+            soften: uniform(r, 0.02, 0.08),
         }),
         reference: (x) =>
             patternIris(
@@ -1520,6 +1523,7 @@ export const patternCases: readonly NodeCase[] = [
                 num(x.pupil),
                 num(x.fibers),
                 num(x.seed),
+                num(x.soften),
             ),
     },
     {

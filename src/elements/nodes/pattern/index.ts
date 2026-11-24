@@ -515,6 +515,7 @@ const iris = defineNode({
         pupil: { type: 'f32', default: 0.32 },
         fibers: { type: 'f32', default: 48 },
         seed: { type: 'u32', default: 0 },
+        soften: { type: 'f32', default: 0.05 },
     },
     code: nodePattern,
     fn: 'node_pattern_iris',

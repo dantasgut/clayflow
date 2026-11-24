@@ -1315,18 +1315,20 @@ struct NodePatternIris {
  * escuro na borda da íris, de 0 a 1), `radial` (0 na borda da pupila, 1 na da íris), `fiber` em [-1, 1] — as fibras
  * do estroma: riscos radiais, `fibers` por volta, em três oitavas, sem emenda na volta — e `vein` em [0, 1]: os vasos
  * da esclera, linhas finas e ramificadas (onde um ruído 3D passa por zero), mais densas longe da íris. `width`: a
- * largura do pixel em `p` (as bordas não ficam mais finas que ela). `bowl` em [0, 1] e o `gradient` dele (∂/∂p): a
+ * largura do pixel em `p` (as bordas não ficam mais finas que ela); `soften`: a meia largura das bordas da íris e da
+ * pupila, em raios da íris (o limbo é uma passagem suave, não uma linha). `bowl` em [0, 1] e o `gradient` dele (∂/∂p): a
  * forma da íris atrás da córnea — 0 na esclera e na borda, descendo até 1 junto da pupila (uma tigela: a íris é um
  * disco fundo, não a superfície do globo), mais as fibras em relevo —, a entrada de `surface.solidRelief` para a
  * normal do corpo da íris. `rim` em [0, 1]: a distância à íris na esclera (0 junto dela, 1 dos cantos para trás).
  */
-fn node_pattern_iris(p: vec3f, width: f32, iris: f32, pupil: f32, fibers: f32, seed: u32) -> NodePatternIris {
+fn node_pattern_iris(p: vec3f, width: f32, iris: f32, pupil: f32, fibers: f32, seed: u32, soften: f32)
+    -> NodePatternIris {
     let l = max(length(p), 1e-6);
     let d = p / l;
     let rho = length(d.xz);
     let size = max(iris, 1e-3);
     let t = rho / size;
-    let edge = max(0.02, width / (l * size));
+    let edge = max(max(soften, 0.01), width / (l * size));
     let front = step(0.0, d.y);
     let disc = front * (1.0 - smoothstep(1.0 - edge, 1.0 + edge, t));
     let hole = front * (1.0 - smoothstep(pupil - edge, pupil + edge, t));
@@ -1347,7 +1349,7 @@ fn node_pattern_iris(p: vec3f, width: f32, iris: f32, pupil: f32, fibers: f32, s
     }
     let ridge = 1.0 - abs(node_pattern_noise3(d * 5.0, seed + 7u).x) * 6.0;
     let fine = 1.0 - abs(node_pattern_noise3(d * 13.0, seed + 8u).x) * 9.0;
-    let far = clamp(smoothstep(1.1, 2.0, t) + (1.0 - front), 0.0, 1.0);
+    let far = clamp(smoothstep(1.02, 1.6, t) + (1.0 - front), 0.0, 1.0);
     let vein = clamp(max(ridge, 0.6 * fine), 0.0, 1.0) * far * (1.0 - disc);
     // A tigela: 1 − smoothstep(0,35; 1; t) na frente, e o gradiente pelo de t — ∇t = (I − d dᵀ) (d.x, 0, d.z) / (ρ l
     // size), a variação da distância ao eixo sobre a esfera.
@@ -1356,5 +1358,8 @@ fn node_pattern_iris(p: vec3f, width: f32, iris: f32, pupil: f32, fibers: f32, s
     let axial = vec3f(d.x, 0.0, d.z) / max(rho, 1e-6);
     let dt = (axial - d * dot(d, axial)) / (l * size);
     let slope = -front * 6.0 * u * (1.0 - u) / 0.65;
-    return NodePatternIris(disc, hole, limbus, fiber / norm, radial, vein, bowl, slope * dt, far * (1.0 - disc));
+    // Os sulcos de contração: anéis irregulares em volta da pupila, somados às fibras.
+    let furrow = node_pattern_noise(vec2f(radial * 5.0, 0.5), vec2f(0.0), seed + 5u).x;
+    return NodePatternIris(disc, hole, limbus, 0.8 * fiber / norm + 0.3 * furrow, radial, vein, bowl, slope * dt,
+        far * (1.0 - disc));
 }
