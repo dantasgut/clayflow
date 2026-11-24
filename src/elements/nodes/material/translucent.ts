@@ -114,8 +114,8 @@ export const skinDetailed = Subgraph.point(
             melanin: math.value.with({ value: 0.25 }),
             blood: math.value.with({ value: 0.5 }),
             freckles: math.value.with({ value: 0.25 }),
-            oil: math.value.with({ value: 0.4 }),
-            light: math.value3.with({ value: [0.74, 0.5, 0.39] }),
+            oil: math.value.with({ value: 0.55 }),
+            light: math.value3.with({ value: [0.72, 0.46, 0.34] }),
             dark: math.value3.with({ value: [0.2, 0.11, 0.065] }),
             flush: math.value3.with({ value: [1, 0.52, 0.5] }),
             // A melanina em manchas largas: ± 7 % em volta do valor.
@@ -138,7 +138,7 @@ export const skinDetailed = Subgraph.point(
             tinted: math.mul3,
             body: bsdf.subsurface.with({ radius: [0.91, 0.6, 0.52] }),
             dry: bsdf.dielectric.with({ ior: 1.4, roughness: 0.55 }),
-            oily: bsdf.dielectric.with({ ior: 1.4, roughness: 0.3 }),
+            oily: bsdf.dielectric.with({ ior: 1.4, roughness: 0.26 }),
             // O óleo por partes: de 0,4 a 1,6 vez o valor, em manchas.
             slick: map.range.with({ in_min: -0.4, in_max: 0.4, out_min: 0.4, out_max: 1.6 }),
             slick_amount: math.mul,
@@ -257,7 +257,8 @@ export const skinDetailed = Subgraph.point(
  * `material.eye` — o globo ocular: a esclera branca, translúcida, com os vasos finos (`veins` em [0, 1],
  * `vein_color`), a íris — de `iris_color` junto da pupila a `iris_edge_color` na borda, riscada pelas fibras radiais do
  * estroma e fechada pelo anel escuro do limbo —, a pupila preta e, por cima de tudo, a córnea molhada: a interface lisa
- * (IOR 1,376, `roughness` 0,08), que dá o reflexo das luzes. A geometria é uma esfera centrada na origem do
+ * (IOR 1,376, `roughness` 0,04), que dá o reflexo das luzes. A íris é sombreada como o disco fundo que é (`iris_depth`,
+ * −1,6 mm no centro: a normal de uma tigela), e a esclera escurece e fica rosada dos cantos para trás. A geometria é uma esfera centrada na origem do
  * objeto, com o olhar ao longo de `axis` (+z); `iris_size` é o raio da íris na esfera unitária (0,49: 11,7 mm num
  * globo de 24 mm) e `pupil_size` o da pupila como fração do da íris. O corpo é subsuperfície (`radius`, (0,6; 0,45;
  * 0,35) mm, estimado; `scale` unidades do mundo por metro): a esclera não é opaca. O que falta à física do olho: a
@@ -271,29 +272,39 @@ export const eye = Subgraph.point(
             s: input.surfaceSample(),
             solid: surface.solidSpace.with({ axis: [0, 0, 1] }),
             world: math.value.with({ value: 1 }),
-            parts: pattern.iris,
+            parts: pattern.iris.with({ iris: 0.46, pupil: 0.36 }),
             // A íris: a cor do centro à borda, as fibras (± 45 %) e o limbo escuro.
             hue: color.ramp.with({
-                color_a: [0.2, 0.1, 0.03],
-                color_b: [0.06, 0.03, 0.012],
+                color_a: [0.1, 0.045, 0.015],
+                color_b: [0.035, 0.015, 0.006],
                 low: 0,
                 high: 1,
             }),
             streak: map.range.with({ in_min: -0.6, in_max: 0.6, out_min: 0.55, out_max: 1.45 }),
-            ring: map.range.with({ out_min: 1, out_max: 0.25 }),
+            ring: map.range.with({ out_min: 1, out_max: 0.12 }),
             shade: math.mul,
             stroma: math.scale3,
             // A esclera e os vasos.
-            white: math.value3.with({ value: [0.86, 0.83, 0.79] }),
+            white: math.value3.with({ value: [0.78, 0.75, 0.72] }),
             vessel: math.value3.with({ value: [0.62, 0.16, 0.14] }),
             veins: math.value.with({ value: 0.5 }),
             vein_amount: math.mul,
             sclera: math.mix3,
+            // A esclera escurece e fica rosada dos cantos para trás (a conjuntiva, mais vascular longe da íris).
+            corner: math.value3.with({ value: [0.7, 0.5, 0.48] }),
+            cornered: math.mul3,
+            shaded: math.mix3,
+            corner_amount: map.range.with({ out_min: 0, out_max: 0.9 }),
             fronted: math.mix3,
             black: math.value3.with({ value: [0.005, 0.005, 0.005] }),
             holed: math.mix3,
             body: bsdf.subsurface.with({ radius: [0.6, 0.45, 0.35] }),
-            cornea: bsdf.dielectric.with({ ior: 1.376, roughness: 0.08 }),
+            // A íris atrás da córnea é um disco fundo: o corpo recebe a normal da tigela (`iris_depth`, em mm), não a
+            // do globo — a luz de lado acende a borda oposta da íris, como no olho; a córnea reflete pela do globo.
+            bowl: surface.solidRelief.with({ height: -1.6 }),
+            hollow: surface.reliefNormal,
+            deep: closure.normal,
+            cornea: bsdf.dielectric.with({ ior: 1.376, roughness: 0.04 }),
             out: closure.add,
         },
         links: [
@@ -317,7 +328,13 @@ export const eye = Subgraph.point(
             ['white.value', 'sclera.a'],
             ['vessel.value', 'sclera.b'],
             ['vein_amount.value', 'sclera.t'],
-            ['sclera.value', 'fronted.a'],
+            ['sclera.value', 'cornered.a'],
+            ['corner.value', 'cornered.b'],
+            ['parts.rim', 'corner_amount.x'],
+            ['sclera.value', 'shaded.a'],
+            ['cornered.value', 'shaded.b'],
+            ['corner_amount.value', 'shaded.t'],
+            ['shaded.value', 'fronted.a'],
             ['stroma.value', 'fronted.b'],
             ['parts.iris', 'fronted.t'],
             ['fronted.value', 'holed.a'],
@@ -325,8 +342,16 @@ export const eye = Subgraph.point(
             ['parts.pupil', 'holed.t'],
             ['holed.value', 'body.color'],
             ['world.value', 'body.scale'],
+            ['parts.bowl', 'bowl.value'],
+            ['parts.gradient', 'bowl.gradient'],
+            ['solid.du', 'bowl.du'],
+            ['solid.dv', 'bowl.dv'],
+            ['bowl.value', 'hollow.relief'],
+            ['world.value', 'hollow.scale'],
+            ['body.value', 'deep.c'],
+            ['hollow.value', 'deep.normal'],
             ['cornea.value', 'out.a'],
-            ['body.value', 'out.b'],
+            ['deep.value', 'out.b'],
         ],
         output: 'out.value',
     }),
@@ -343,6 +368,7 @@ export const eye = Subgraph.point(
             ['parts.iris', 'iris_size'],
             ['parts.pupil', 'pupil_size'],
             ['parts.fibers', 'fibers'],
+            ['bowl.height', 'iris_depth'],
             ['cornea.roughness', 'roughness'],
             ['cornea.ior', 'ior'],
             ['body.radius', 'radius'],

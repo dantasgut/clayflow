@@ -492,7 +492,8 @@ const trunk = defineNode({
  * Olho: as regiões de um globo ocular centrado na origem de `p` (de `surface.solidSpace`), com o olhar ao longo de
  * `p.y` — a íris (`iris`: o raio dela na esfera unitária, 0,49), a pupila (`pupil`: fração do raio da íris), o anel
  * escuro da borda (`limbus`), as fibras radiais do estroma (`fiber` em [-1, 1], `fibers` por volta), a posição entre a
- * pupila e a borda (`radial`) e os vasos da esclera (`vein`). Ver `node_pattern_iris`.
+ * pupila e a borda (`radial`), os vasos da esclera (`vein`), a tigela da íris atrás da córnea (`bowl` e o `gradient`
+ * dela, a entrada de `surface.solidRelief`) e a distância à íris na esclera (`rim`). Ver `node_pattern_iris`.
  */
 const iris = defineNode({
     name: 'pattern.iris',
@@ -504,6 +505,9 @@ const iris = defineNode({
         fiber: 'f32',
         radial: 'f32',
         vein: 'f32',
+        bowl: 'f32',
+        gradient: 'vec3f',
+        rim: 'f32',
     },
     params: {
         width: { type: 'f32', default: 0 },

@@ -604,7 +604,17 @@ export function patternIris(
     pupil: number,
     fibers: number,
     seed: number,
-): { iris: number; pupil: number; limbus: number; fiber: number; radial: number; vein: number } {
+): {
+    iris: number;
+    pupil: number;
+    limbus: number;
+    fiber: number;
+    radial: number;
+    vein: number;
+    bowl: number;
+    gradient: number[];
+    rim: number;
+} {
     const l = Math.max(Math.hypot(p[0]!, p[1]!, p[2]!), 1e-6);
     const d = [f32(f32(p[0]!) / f32(l)), f32(f32(p[1]!) / f32(l)), f32(f32(p[2]!) / f32(l))];
     const rho = Math.hypot(d[0]!, d[2]!);
@@ -633,9 +643,26 @@ export function patternIris(
     const at = (s: number): V3 => [f32(d[0]! * s), f32(d[1]! * s), f32(d[2]! * s)];
     const ridge = 1 - Math.abs(patternNoise3(at(5), seed + 7)[0]) * 6;
     const fine = 1 - Math.abs(patternNoise3(at(13), seed + 8)[0]) * 9;
-    const far = step(1.1, 2, t) + (1 - front);
-    const vein = clamp01(Math.max(ridge, 0.6 * fine)) * clamp01(far) * (1 - disc);
-    return { iris: disc, pupil: hole, limbus, fiber: fiber / norm, radial, vein };
+    const far = clamp01(step(1.1, 2, t) + (1 - front));
+    const vein = clamp01(Math.max(ridge, 0.6 * fine)) * far * (1 - disc);
+    const u = clamp01((t - 0.35) / 0.65);
+    const bowl = front * (1 - smooth(u));
+    const r = Math.max(rho, 1e-6);
+    const axial = [d[0]! / r, 0, d[2]! / r];
+    const along = d[0]! * axial[0]! + d[2]! * axial[2]!;
+    const slope = (-front * 6 * u * (1 - u)) / 0.65;
+    const gradient = [0, 1, 2].map((n) => (slope * (axial[n]! - d[n]! * along)) / (l * size));
+    return {
+        iris: disc,
+        pupil: hole,
+        limbus,
+        fiber: fiber / norm,
+        radial,
+        vein,
+        bowl,
+        gradient,
+        rim: far * (1 - disc),
+    };
 }
 
 /** `pattern.bricks`: as fiadas de peças com junta (altura, gradiente, valor da peça, junta). */
