@@ -662,14 +662,27 @@ describe('Materials (spec 011, US5)', () => {
         );
         expect(nodes.material.woodAshBrushed.params.furrow_depth!.default).toBeLessThanOrEqual(1.5);
         expect(nodes.material.woodAsh.params.furrow_depth!.default).toBe(0);
-        // O pinho de veio fino: subsuperfície de raio curto (mais longo no vermelho), relevo sutil em milímetros,
+        // O pinho de veio fino: subsuperfície de raio curto (mais longo no vermelho), relevo à vista em milímetros,
         // com anéis e nós, sem poros; mais amarelo que o freixo.
         const pine = nodes.material.woodPineFine.params;
         const reach = pine.radius!.default as number[];
         expect(reach[0]).toBeGreaterThan(reach[2]!);
         expect(reach[0]).toBeLessThanOrEqual(1.5);
-        expect(pine.ring_height!.default).toBeGreaterThanOrEqual(0.2);
-        expect(pine.ring_height!.default).toBeLessThanOrEqual(0.5);
+        expect(pine.ring_height!.default).toBeGreaterThanOrEqual(0.6);
+        expect(pine.ring_height!.default).toBeLessThanOrEqual(1.5);
+        // Os anéis, a medula e os nós são um valor só, ligado à cor e ao relevo.
+        expect(pine.ring_count!.default).toBe(nodes.relief.woodPineFine.params.ring_count!.default);
+        expect(pine.knot_density!.default).toBeGreaterThan(0);
+        expect(subgraphOrigin(nodes.material.woodPineFine)!.graph.links).toEqual(
+            expect.arrayContaining([
+                ['count.value', 'rings.scale'],
+                ['count.value', 'height.ring_count'],
+                ['knots.value', 'rings.knots'],
+                ['knots.value', 'height.knot_density'],
+                ['pith.value', 'rings.depth'],
+                ['pith.value', 'height.pith_depth'],
+            ]),
+        );
         expect(pine.pore_depth!.default).toBe(0);
         expect(Materials.woodPineFine().lobeMask & LOBES.subsurface).toBe(LOBES.subsurface);
         expect(has('woodPineFine', 'pattern.rings')).toBe(true);

@@ -559,6 +559,21 @@ interface RawWoodValues {
     readonly radius: Rgb3;
     readonly roughness: number;
     readonly anisotropy: number;
+    /** O grão dos traços ao longo da fibra e os níveis dele entre os quais a face vira traço (os do freixo). */
+    readonly pore_grain?: Record<string, number | number[]>;
+    readonly pit?: Record<string, number>;
+    /** A variação do tom (± a fração) de anel para anel e das faixas da grã (0,07). */
+    readonly year?: number;
+    readonly figure?: number;
+    /**
+     * As faixas largas mais quentes ao longo da fibra: o grão delas, a cor que multiplica a da madeira e o quanto
+     * entram no máximo (sem: nenhuma).
+     */
+    readonly warm?: {
+        readonly grain: Record<string, number | number[]>;
+        readonly tint: Rgb3;
+        readonly amount: number;
+    };
 }
 type Rgb3 = readonly [number, number, number];
 
@@ -584,15 +599,22 @@ function ash(
     reliefNode: NodeDefinition,
     v: RawWoodValues = ASH_WOOD,
 ): NodeDefinition {
+    const year = v.year ?? 0.07;
+    const figure = v.figure ?? 0.07;
+    const { warm } = v;
     return Subgraph.point(
         new NodeGraph({
             nodes: {
                 ...patternSpace(v.offset),
+                // Os anéis, a medula e os nós: os mesmos valores na cor e no relevo.
+                count: math.value.with({ value: v.rings.scale as number }),
+                pith: math.value.with({ value: v.rings.depth as number }),
+                knots: math.value.with({ value: v.rings.knots ?? 0 }),
                 rings: pattern.rings.with(v.rings),
                 fiber: pattern.grain.with(ASH_FIBER),
                 thread: pattern.grain.with({ scale: [7, 300], octaves: 2, seed: 44 }),
-                pore: pattern.grain.with(ASH_PORE),
-                pit: pattern.threshold.with(ASH_PIT),
+                pore: pattern.grain.with(v.pore_grain ?? ASH_PORE),
+                pit: pattern.threshold.with(v.pit ?? ASH_PIT),
                 figure: pattern.grain.with({ scale: [1.1, 8], octaves: 3, gain: 0.55, seed: 45 }),
                 broad: pattern.grain.with({ scale: [0.45, 2.4], octaves: 3, gain: 0.55, seed: 46 }),
                 tone: color.ramp.with({
@@ -601,14 +623,19 @@ function ash(
                     low: v.low,
                     high: 1,
                 }),
-                year: map.range.with({ out_min: 0.93, out_max: 1.07 }),
+                year: map.range.with({ out_min: 1 - year, out_max: 1 + year }),
                 wide: map.range.with({
                     in_min: -0.5,
                     in_max: 0.5,
                     out_min: 1 - v.broad,
                     out_max: 1 + v.broad,
                 }),
-                band: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.93, out_max: 1.07 }),
+                band: map.range.with({
+                    in_min: -0.5,
+                    in_max: 0.5,
+                    out_min: 1 - figure,
+                    out_max: 1 + figure,
+                }),
                 streak: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.88, out_max: 1.12 }),
                 hair: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.93, out_max: 1.07 }),
                 shade_a: math.mul,
@@ -616,6 +643,21 @@ function ash(
                 shade_c: math.mul,
                 shade: math.mul,
                 lit: math.scale3,
+                // As faixas quentes: a cor da madeira multiplicada pela cor da faixa, onde o grão largo passa do nível.
+                ...(warm === undefined
+                    ? {}
+                    : {
+                          warm: pattern.grain.with(warm.grain),
+                          warm_mask: map.range.with({
+                              in_min: -0.2,
+                              in_max: 0.3,
+                              out_min: 0,
+                              out_max: warm.amount,
+                          }),
+                          warm_tint: math.value3.with({ value: [...warm.tint] }),
+                          tinted: math.mul3,
+                          warmed: math.mix3,
+                      }),
                 // Os vasos abertos: escuros no fundo, só no lenho inicial.
                 early: map.range.with(v.early),
                 hollow: map.range.with({ out_min: v.pore, out_max: 0 }),
@@ -642,6 +684,12 @@ function ash(
                 ...SPACE_LINKS,
                 ...patternLinks('rings', 'fiber', 'thread', 'pore', 'figure', 'broad'),
                 ['tile.value', 'uv.scale'],
+                ['count.value', 'rings.scale'],
+                ['pith.value', 'rings.depth'],
+                ['knots.value', 'rings.knots'],
+                ['count.value', 'height.ring_count'],
+                ['pith.value', 'height.pith_depth'],
+                ['knots.value', 'height.knot_density'],
                 ['pore.value', 'pit.value'],
                 ['pore.gradient', 'pit.gradient'],
                 ['rings.value', 'tone.t'],
@@ -664,7 +712,18 @@ function ash(
                 ['pit.value', 'hollow.x'],
                 ['early.value', 'pore_mask.a'],
                 ['hollow.value', 'pore_mask.b'],
-                ['lit.value', 'pored.a'],
+                ...(warm === undefined
+                    ? ([['lit.value', 'pored.a']] as Link[])
+                    : ([
+                          ...patternLinks('warm'),
+                          ['warm.value', 'warm_mask.x'],
+                          ['lit.value', 'tinted.a'],
+                          ['warm_tint.value', 'tinted.b'],
+                          ['lit.value', 'warmed.a'],
+                          ['tinted.value', 'warmed.b'],
+                          ['warm_mask.value', 'warmed.t'],
+                          ['warmed.value', 'pored.a'],
+                      ] as Link[])),
                 ['pore_color.value', 'pored.b'],
                 ['pore_mask.value', 'pored.t'],
                 ['pored.value', 'knotted.a'],
@@ -699,6 +758,9 @@ function ash(
                 ['height.pore_depth', 'pore_depth'],
                 ['height.fiber_height', 'fiber_height'],
                 ['height.furrow_depth', 'furrow_depth'],
+                ['count.value', 'ring_count'],
+                ['pith.value', 'pith_depth'],
+                ['knots.value', 'knot_density'],
                 ['world.value', 'scale'],
                 ['tile.value', 'pattern_scale'],
             ],
@@ -719,9 +781,11 @@ function ash(
  * 0,62) e alongado através da fibra (`anisotropy`, 0,6, a tangente ao longo do veio: o realce de fibra de Marschner
  * et al., aqui no lobo da interface). O relevo é o de `relief.woodAsh`, em milímetros — o lenho tardio saliente
  * (`ring_height`, 0,12), os poros abertos (`pore_depth`, 0,25) e a fibra levantada (`fiber_height`, 0,08) —, na
- * normal; com `Displacements.woodAsh()` na entidade de uma `ParametricSurface`, na geometria. Parâmetros: `color`,
- * `late_color`, `pore_color`, `roughness`, `anisotropy`, `radius`, `ring_height`, `pore_depth`, `fiber_height`,
- * `furrow_depth`, `scale`, `pattern_scale`.
+ * normal; com `Displacements.woodAsh()` na entidade de uma `ParametricSurface`, na geometria. Os anéis (`ring_count`,
+ * por unidade do padrão), a distância da medula ao plano do corte (`pith_depth`) e os nós (`knot_density`, células por
+ * unidade do padrão; 0 no freixo) são um valor só, ligado à cor e ao relevo. Parâmetros: `color`, `late_color`,
+ * `pore_color`, `roughness`, `anisotropy`, `radius`, `ring_height`, `pore_depth`, `fiber_height`, `furrow_depth`,
+ * `ring_count`, `pith_depth`, `knot_density`, `scale`, `pattern_scale`.
  */
 export const woodAsh = ash('material.woodAsh', relief.woodAsh);
 
@@ -739,33 +803,44 @@ export const woodAsh = ash('material.woodAsh', relief.woodAsh);
 export const woodAshBrushed = ash('material.woodAshBrushed', relief.woodAshBrushed);
 
 /**
- * `material.woodPineFine` — pinho claro de veio fino, cru (fosco, sem verniz), escovado de leve: amarelo-mel
- * (`color`), com muitas linhas de veio finas e próximas, quase paralelas, de ondulação suave e largura irregular (105
- * anéis por unidade do padrão, o lenho tardio castanho-alaranjado: `late_color`), faixas largas de tom mais claras e
- * mais escuras por cima delas, as "catedrais" fechadas e as ilhas onde o corte passa perto da medula, os nós — o olho
- * oval de anéis apertados e miolo escuro (`knot_color`), com o veio desviando em volta —, as bolsas de resina em
- * riscos claros e curtos ao longo da fibra (`pore_color`) e a fibra fina. O corpo é subsuperfície (`radius`, (1,2;
- * 0,75; 0,35) mm, mais longo no vermelho: estimado, da ordem de 1 mm como o do freixo — sem medida publicada do
- * pinho): o aspecto macio e quente, e o fundo dos sulcos mais claro. O relevo é o de `relief.woodPineFine`, em
- * milímetros — o lenho tardio saliente (`ring_height`, 0,45), os sulcos rasos da escova (`furrow_depth`, 0,25), a
- * fibra (`fiber_height`, 0,05) —, na normal; com `Displacements.woodPineFine()` na entidade de uma
- * `ParametricSurface`, na geometria. A escala do veio e dos nós é a do padrão (`pattern_scale`: a contagem dos anéis
- * e dos nós é a mesma na cor e no relevo). Parâmetros: os de `woodAsh`.
+ * `material.woodPineFine` — pinho claro de veio fino, cru (fosco, sem verniz), escovado: amarelo-mel (`color`), com
+ * muitas linhas de veio finas (o lenho tardio estreito, castanho-alaranjado: `late_color`) que ondulam, abrem e
+ * fecham, de largura e tom irregulares (`ring_count`, 92 anéis por unidade do padrão), faixas largas de tom e faixas
+ * mais alaranjadas ao longo da fibra, a fileira de "catedrais" fechadas e de ilhas onde o corte é tangente aos anéis
+ * (`pith_depth`, 0,015: a medula quase no plano do corte), os nós — o olho oval de anéis apertados e miolo escuro
+ * (`knot_color`), com o veio desviando em gota (`knot_density`, 4,5 células por unidade do padrão) —, as bolsas de
+ * resina em riscos claros, finos e curtos ao longo da fibra (`pore_color`) e a fibra fina. O corpo é subsuperfície
+ * (`radius`, (1,2; 0,75; 0,35) mm, mais longo no vermelho: estimado, da ordem de 1 mm como o do freixo — sem medida
+ * publicada do pinho): o aspecto macio e quente, e o fundo dos sulcos mais claro. O relevo é o de
+ * `relief.woodPineFine`, em milímetros — o lenho tardio em crista (`ring_height`, 0,8), os sulcos da escova
+ * (`furrow_depth`, 0,2), a fibra (`fiber_height`, 0,06) —, na normal; com `Displacements.woodPineFine()` na entidade
+ * de uma `ParametricSurface`, na geometria (a silhueta serrilhada de leve, a sombra fina nos sulcos sob a luz
+ * rasante atravessada ao veio). Os anéis, a medula e os nós são um valor só para a cor e o relevo: passe os mesmos
+ * ao material e ao deslocamento. Parâmetros: os de `woodAsh`.
  */
 export const woodPineFine = ash('material.woodPineFine', relief.woodPineFine, {
     offset: PINE_FINE_OFFSET,
     rings: PINE_FINE_RINGS,
     color: [0.6, 0.4, 0.17],
     late: [0.4, 0.21, 0.07],
-    low: 0.45,
+    low: 0.76,
     pore_color: [0.82, 0.66, 0.38],
-    pore: 0.8,
-    early: { in_min: 0, in_max: 1, out_min: 0.55, out_max: 0.55 },
-    broad: 0.26,
+    pore: 0.9,
+    early: { in_min: 0, in_max: 1, out_min: 0.7, out_max: 0.7 },
+    broad: 0.24,
     knot_color: [0.2, 0.09, 0.03],
     radius: [1.2, 0.75, 0.35],
     roughness: 0.58,
     anisotropy: 0.5,
+    pore_grain: { scale: [4.5, 170], octaves: 1, seed: 47 },
+    pit: { low: 0.54, high: 0.4 },
+    year: 0.13,
+    figure: 0.1,
+    warm: {
+        grain: { scale: [0.35, 3.4], octaves: 2, gain: 0.5, seed: 48 },
+        tint: [1.1, 0.76, 0.45],
+        amount: 1,
+    },
 });
 
 /**

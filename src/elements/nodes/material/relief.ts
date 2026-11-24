@@ -978,6 +978,9 @@ function ashRelief(
                 ['deep.value', 'pore_depth'],
                 ['fiber_relief.height', 'fiber_height'],
                 ['dug.value', 'furrow_depth'],
+                ['rings.scale', 'ring_count'],
+                ['rings.depth', 'pith_depth'],
+                ['rings.knots', 'knot_density'],
                 PATTERN_SCALE,
             ],
         },
@@ -989,8 +992,11 @@ function ashRelief(
  * (`ring_height`, 0,12 mm entre o lenho inicial e a crista do anel); os vasos grandes do lenho inicial ficam abertos,
  * em sulcos curtos ao longo do veio (`pore_depth`, 0,25 mm no lenho inicial, quase nada no tardio: o freixo tem o anel
  * poroso); a fibra levantada risca a face (`fiber_height`, 0,08 mm); sem os sulcos da escova (`furrow_depth`, 0).
- * Medidas estimadas (os vasos do lenho inicial do freixo têm de 0,15 a 0,35 mm de diâmetro). Parâmetros:
- * `ring_height`, `pore_depth`, `fiber_height`, `furrow_depth`, `pattern_scale`.
+ * Medidas estimadas (os vasos do lenho inicial do freixo têm de 0,15 a 0,35 mm de diâmetro). Os anéis são entradas
+ * com valor — `ring_count` (anéis por unidade do padrão), `pith_depth` (a distância da medula ao plano do corte, em
+ * unidades do padrão) e `knot_density` (células de nó por unidade do padrão; 0 = sem nós) —, as mesmas do material:
+ * passe os mesmos valores aos dois. Parâmetros: `ring_height`, `pore_depth`, `fiber_height`, `furrow_depth`,
+ * `ring_count`, `pith_depth`, `knot_density`, `pattern_scale`.
  */
 const woodAsh = ashRelief('relief.woodAsh', { ring: 0.12, pore: 0.25, fiber: 0.08, furrow: 0 });
 
@@ -1010,37 +1016,39 @@ const woodAshBrushed = ashRelief('relief.woodAshBrushed', {
 });
 
 /** O deslocamento do padrão do pinho de veio fino no uv. */
-export const PINE_FINE_OFFSET = [0.63, -0.47] as const;
+export const PINE_FINE_OFFSET = [0.63, -0.73] as const;
 
 /**
- * Os anéis do pinho de veio fino (`pattern.rings`): 105 por unidade do padrão — linhas finas e próximas, de largura
- * irregular e ondulação suave —, o corte passando perto da medula numa faixa (as "catedrais" fechadas e as ilhas) e os
- * nós (2,4 células por unidade do padrão, um em três de cada dez: o olho de anéis apertados, com o veio desviando).
+ * Os anéis do pinho de veio fino (`pattern.rings`): 92 por unidade do padrão — linhas finas, de largura irregular, que
+ * ondulam, abrem e fecham (a ondulação do raio de 0,05, larga) —, o corte tangente aos anéis ao longo da medula (a
+ * 0,015 do plano, a fundura variando 0,05: a fileira de "catedrais" fechadas e de ilhas alongadas; com o deslocamento
+ * `PINE_FINE_OFFSET`, a 0,73 unidade do padrão acima da origem do uv) e os nós (4,5 células por unidade do padrão, um
+ * em três de cada dez: o olho de anéis apertados, com o veio desviando em gota).
  */
 export const PINE_FINE_RINGS = {
-    scale: 105,
-    depth: 0.1,
-    distortion: 0.2,
-    distortion_scale: [1.1, 2.6],
+    scale: 92,
+    depth: 0.015,
+    distortion: 0.05,
+    distortion_scale: [2.2, 3],
     irregularity: 1,
-    waviness: 0.02,
-    waviness_scale: [1.8, 4.5],
+    waviness: 0.05,
+    waviness_scale: [1.6, 5],
     seed: 19,
-    knots: 2.4,
-    knot_size: 0.035,
-    knot_rings: 7,
+    knots: 4.5,
+    knot_size: 0.03,
+    knot_rings: 6,
 };
 
 /**
- * `relief.woodPineFine` — o relevo do pinho de veio fino escovado de leve: o lenho tardio (as linhas escuras, duras)
- * saliente e o inicial um pouco afundado (`ring_height`, 0,45 mm entre os dois — os anéis apertados do nó saem em
- * relevo com ele), os sulcos rasos onde a escova tirou a fibra macia (`furrow_depth`, 0,25 mm) e a fibra levantada
- * (`fiber_height`, 0,05 mm); sem poros (`pore_depth`, 0: é conífera). Medidas estimadas (uma tábua de pinho escovada
- * de leve tem de 0,2 a 0,5 mm entre o lenho tardio e o inicial). Parâmetros: os de `relief.woodAsh`.
+ * `relief.woodPineFine` — o relevo do pinho de veio fino escovado: o lenho tardio (as linhas escuras, duras) em
+ * crista e o inicial afundado (`ring_height`, 0,8 mm entre os dois — os anéis apertados do nó saem em relevo com
+ * ele), os sulcos onde a escova tirou a fibra macia (`furrow_depth`, 0,2 mm) e a fibra levantada (`fiber_height`,
+ * 0,06 mm) — cerca de 1 mm do fundo às cristas, o de uma tábua de pinho escovada com escova de aço; sem poros
+ * (`pore_depth`, 0: é conífera). Medidas estimadas. Parâmetros: os de `relief.woodAsh`.
  */
 const woodPineFine = ashRelief(
     'relief.woodPineFine',
-    { ring: 0.45, pore: 0, fiber: 0.05, furrow: 0.25 },
+    { ring: 0.8, pore: 0, fiber: 0.06, furrow: 0.2 },
     { offset: PINE_FINE_OFFSET, rings: PINE_FINE_RINGS },
 );
 

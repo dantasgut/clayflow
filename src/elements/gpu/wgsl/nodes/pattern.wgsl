@@ -307,11 +307,12 @@ fn node_pattern_cells(p: vec2f, width: f32, wrap: vec2f, scale: f32, jitter: f32
  * um um galho que atravessa a tábua — soma ao raio um monte gaussiano de meia largura `knot_size` (em `p`, alongado 1,6
  * vez ao longo da fibra) e altura de `knot_rings` anéis: os anéis do tronco desviam em volta dele e, dentro, fecham em
  * voltas concêntricas; `knot` é o miolo do nó em [0, 1] (a madeira escura e dura do galho). `knots` 0: sem nós.
- * Abaixo do pixel: o perfil à média (0,59), `ring` a 0,5, gradiente a zero.
+ * Abaixo do pixel: o perfil à média (0,59), `ring` a 0,5, gradiente a zero. `scale`, `depth` e `knots` vêm primeiro: são
+ * entradas com valor do nó (ligáveis).
  */
-fn node_pattern_rings(p: vec2f, width: f32, wrap: vec2f, scale: f32, depth: f32, distortion: f32,
-    distortion_scale: vec2f, seed: u32, irregularity: f32, waviness: f32, waviness_scale: vec2f, knots: f32,
-    knot_size: f32, knot_rings: f32) -> NodePatternRings {
+fn node_pattern_rings(p: vec2f, width: f32, wrap: vec2f, scale: f32, depth: f32, knots: f32, distortion: f32,
+    distortion_scale: vec2f, seed: u32, irregularity: f32, waviness: f32, waviness_scale: vec2f, knot_size: f32,
+    knot_rings: f32) -> NodePatternRings {
     let fx = node_pattern_fit(distortion_scale.x, wrap.x, 1.0);
     let fr = vec2f(fx.x, distortion_scale.y);
     let nz = node_pattern_noise(p * fr, vec2f(fx.y, 0.0), seed);

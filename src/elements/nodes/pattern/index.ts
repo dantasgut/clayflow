@@ -83,11 +83,13 @@ const cells = defineNode({
  * `waviness_scale`) — as linhas tortas também longe da medula. `value` em [0, 1]: do lenho inicial (0) ao tardio (1, a
  * faixa escura e dura), com o `gradient`; `ring` o valor em [0, 1] do anel (o tom de ano para ano). Os nós (olhos):
  * `knots` células por unidade de `p` (0 = sem nós), um nó em três de cada dez — os anéis desviam em volta dele e fecham
- * em `knot_rings` voltas dentro da meia largura `knot_size` (em `p`); `knot` o miolo do nó em [0, 1].
+ * em `knot_rings` voltas dentro da meia largura `knot_size` (em `p`); `knot` o miolo do nó em [0, 1]. `scale`, `depth`
+ * e `knots` são entradas com valor: ligadas a um mesmo nó, a cor e o relevo de uma madeira contam os mesmos anéis e os
+ * mesmos nós, do mesmo corte.
  */
 const rings = defineNode({
     name: 'pattern.rings',
-    inputs: RELIEF_INPUTS,
+    inputs: { ...RELIEF_INPUTS, scale: 'f32', depth: 'f32', knots: 'f32' },
     outputs: { value: 'f32', gradient: 'vec2f', ring: 'f32', knot: 'f32' },
     params: {
         ...RELIEF_VALUES,
