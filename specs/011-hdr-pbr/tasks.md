@@ -54,6 +54,9 @@ Ficam 7 abertas: a US6 (T095–T100, a comparação com o Three.js no bench) e T
 Acrescentada e fechada (2026-11-22): T113, o espalhamento sob a superfície físico (a difusão entre pixels e a luz que
 atravessa as partes finas), junto da US5.
 
+Em 2026-11-24 a US6 (T095–T100) foi **transferida** para a spec curta de desempenho (nota em cada tarefa). Fica 1
+aberta: T112 (vídeos). O que resta de qualidade e de cálculo está na seção "Fechamento (2026-11-24)", no fim.
+
 Acrescentada e fechada (2026-11-22): T114, o reflexo traçado dos opacos lisos (o metal polido como espelho), com a
 pintura de carro e a ferrugem refeitas e os rótulos na galeria, junto da US5.
 
@@ -435,24 +438,30 @@ OpenPBR como sub-grafo.
 
 **Independent Test**: `npm run bench -- --scene materials,point-lights --engines clayflow,three --headless` e a página de comparação.
 
-- [ ] T095 [US6] Adaptador Three em `bench/engines/three.ts`: `antialias: true` (MSAA 4×), AgX equivalente, luzes físicas no lugar de `addDefaultLighting`, hemisfério equivalente
+- [x] T095 [US6] Adaptador Three em `bench/engines/three.ts`: `antialias: true` (MSAA 4×), AgX equivalente, luzes físicas no lugar de `addDefaultLighting`, hemisfério equivalente
   - **Reconciliação (2026-11-12, 034 T071)**: não feita: `bench/engines/three.ts` segue com `antialias: false` e `addDefaultLighting`. US6 vai para a 035.
   - **Conferência (2026-11-17)**: (d) não entregue: `bench/engines/three.ts:39` com `antialias: false` e `addDefaultLighting` (`:20`, `:55`).
-- [ ] T096 [P] [US6] Cena `bench/scenes/materials/` (`scene.ts`, `clayflow.ts`, `three.ts`): galeria 5×5 com os materiais da biblioteca e os correspondentes do `MeshPhysicalMaterial` (clearcoat, sheen, transmission, iridescence, anisotropy, dispersion)
+  - **Transferida (2026-11-24)**: vai para a spec curta de desempenho (`specs/ANALISE-TEMPO-REAL.md`). A medição comparativa só roda a pedido do usuário (regra de 2026-11-21); o usuário foi consultado três vezes e não escolheu outra opção. Fica na fila com as cenas `materials`, `point-lights` e `water-lake`.
+- [x] T096 [P] [US6] Cena `bench/scenes/materials/` (`scene.ts`, `clayflow.ts`, `three.ts`): galeria 5×5 com os materiais da biblioteca e os correspondentes do `MeshPhysicalMaterial` (clearcoat, sheen, transmission, iridescence, anisotropy, dispersion)
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem `bench/scenes/materials/`). US6 vai para a 035.
   - **Conferência (2026-11-17)**: (d) não entregue: sem `bench/scenes/materials/` (as cenas do bench são `clouds`, `global-illumination`, `graph-geometry`, `instances`, `particles`, `point-lights`, `rigid-bodies`, `skinned-characters`, `surfaces`, `unique-objects`).
-- [ ] T097 [P] [US6] `bench/scenes/point-lights/clayflow.ts` (256 luzes, 200 objetos) e remoção do `unsupported until 'F4'` em `scene.ts`
+  - **Transferida (2026-11-24)**: vai para a spec curta de desempenho (`specs/ANALISE-TEMPO-REAL.md`). A medição comparativa só roda a pedido do usuário (regra de 2026-11-21); o usuário foi consultado três vezes e não escolheu outra opção. Fica na fila com as cenas `materials`, `point-lights` e `water-lake`.
+- [x] T097 [P] [US6] `bench/scenes/point-lights/clayflow.ts` (256 luzes, 200 objetos) e remoção do `unsupported until 'F4'` em `scene.ts`
   - **Reconciliação (2026-11-12, 034 T071)**: não feita: `bench/scenes/point-lights/scene.ts` ainda declara `unsupported ... until: 'F4'`. US6 vai para a 035.
   - **Conferência (2026-11-17)**: (d) não entregue: `bench/scenes/point-lights/` só com `scene.ts` e `three.ts`; `scene.ts:15` ainda com `unsupported: 'o forward ignora PointLight', until: 'F4'`.
-- [ ] T098 [P] [US6] Variante `water-lake` em `bench/scenes/particles/` (ou `surfaces/`) com a água nas duas engines
+  - **Transferida (2026-11-24)**: vai para a spec curta de desempenho (`specs/ANALISE-TEMPO-REAL.md`). A medição comparativa só roda a pedido do usuário (regra de 2026-11-21); o usuário foi consultado três vezes e não escolheu outra opção. Fica na fila com as cenas `materials`, `point-lights` e `water-lake`.
+- [x] T098 [P] [US6] Variante `water-lake` em `bench/scenes/particles/` (ou `surfaces/`) com a água nas duas engines
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem variante `water-lake`). US6 vai para a 035.
   - **Conferência (2026-11-17)**: (d) não entregue: as variantes `*-water` de `bench/scenes/particles/scene.ts:43` são água só no Clayflow (o Three desenha as partículas instanciadas); não há `water-lake` com a água nas duas engines.
-- [ ] T099 [US6] Página de comparação lado a lado em `bench/page/` (as duas engines na mesma página, leitura de imagem só no fim): faixas, forno, cintilação especular, serrilhado de borda; resultado gravado em `bench/results/`
+  - **Transferida (2026-11-24)**: vai para a spec curta de desempenho (`specs/ANALISE-TEMPO-REAL.md`). A medição comparativa só roda a pedido do usuário (regra de 2026-11-21); o usuário foi consultado três vezes e não escolheu outra opção. Fica na fila com as cenas `materials`, `point-lights` e `water-lake`.
+- [x] T099 [US6] Página de comparação lado a lado em `bench/page/` (as duas engines na mesma página, leitura de imagem só no fim): faixas, forno, cintilação especular, serrilhado de borda; resultado gravado em `bench/results/`
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem página de comparação). US6 vai para a 035.
   - **Conferência (2026-11-17)**: (d) não entregue: `bench/page/` só com `main.ts`, `sampler.ts` e `smoke.ts`.
-- [ ] T100 [US6] Registrar as medidas e o tempo de quadro (SC-011) em `specs/011-hdr-pbr/comparison.md`
+  - **Transferida (2026-11-24)**: vai para a spec curta de desempenho (`specs/ANALISE-TEMPO-REAL.md`). A medição comparativa só roda a pedido do usuário (regra de 2026-11-21); o usuário foi consultado três vezes e não escolheu outra opção. Fica na fila com as cenas `materials`, `point-lights` e `water-lake`.
+- [x] T100 [US6] Registrar as medidas e o tempo de quadro (SC-011) em `specs/011-hdr-pbr/comparison.md`
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem `comparison.md`). US6 vai para a 035.
   - **Conferência (2026-11-17)**: (d) não entregue: sem `specs/011-hdr-pbr/comparison.md`.
+  - **Transferida (2026-11-24)**: vai para a spec curta de desempenho (`specs/ANALISE-TEMPO-REAL.md`). A medição comparativa só roda a pedido do usuário (regra de 2026-11-21); o usuário foi consultado três vezes e não escolheu outra opção. Fica na fila com as cenas `materials`, `point-lights` e `water-lake`.
 
 **Checkpoint**: US6 verificável sozinha.
 
@@ -528,3 +537,39 @@ OpenPBR como sub-grafo.
 Entrega completa de todas as fases na ordem das dependências, sem escopo parcial. Cada fase termina com `npm run ci`
 verde e os smokes da história no fonte; as fixtures de imagem só são regravadas na fase 10, de uma vez. Commits por
 fase na `feature/011-hdr-pbr`.
+
+## Fechamento (2026-11-24)
+
+O ramo `feature/011-biblioteca-de-materiais` recebeu o `develop` com a spec 041 (nuvens volumétricas) e fecha a 011 com
+a US6 transferida e T112 (vídeos) aberta. Pendências de qualidade e de cálculo que ficam, sem meta nova:
+
+- **Folha** (`leaf`, `leafMatte`, `leafDry`): aspecto de desenho.
+- **Gelo**: o miolo leitoso.
+- **Mogno**: o brilho de borda dura.
+- **Bétula** (`barkBirch`): as tiras saem em fita.
+- **Fibra de carbono, papel e madrepérola**: longe da aparência real.
+- **Telha cerâmica** (`roofTile`): a altura padrão de 18 mm é rasa.
+- **Madeira bruta** (`woodRaw`, `woodRough`): a fibra e as frestas seguem retas, fora da coordenada do veio.
+- **Padrão que aperta nos polos**: o padrão segue o uv; falta seguir a posição do objeto.
+- **Luz de área** (`RectLight`): sem sombra e fora dos reflexos.
+- **SSS**: só com luz direcional, e a difusão é feita na tela.
+- **Reflexo traçado dos opacos**: um salto só, e o custo dele.
+- **Deslocamento**: o custo de perto (a malha adaptativa no nível máximo).
+- **Colisor**: sem a forma deslocada.
+- **Refração**: duas leituras de volta por quadro e os registros maiores (ver `specs/ANALISE-TEMPO-REAL.md`).
+- **Pinho deslocado** (`woodPineFine`, rodada 15): os pontos escuros em fileiras vêm da normal do relevo por pixel
+  sobre a malha deslocada (somem com `ring_height` 0 no material; não mudam sem a sombra). A largura do filtro do
+  padrão seguia a faceta inclinada; agora segue a superfície lisa (`forward.wgsl`), e a maior parte saiu. Restam
+  pontos mais fracos onde a malha tem de dois a quatro segmentos por anel: filtrar o deslocamento pelo dobro do passo
+  tira-os, mas corta à metade o relevo da madeira bruta (contorno 0,65 → 0,31 px no quadro `relevo`) e foi desfeito.
+- **Superfície deslocada e as vistas da malha adaptativa** (041, R20): a deslocada não produz a vista da luz (o
+  critério da vista mede a superfície sem o relevo); a sombra dela usa a malha da câmera.
+- **Custo do quadro `relevo` depois da junção com a 041**: 28,1 → 39,7 ms de GPU (1440 × 960, M4); sem o
+  deslocamento 11,0 → 12,7 ms; sem a iluminação global 17,9 → 14,4 ms — a diferença aparece só com as duas juntas
+  (os passes `ProbeFlow.direct` e `ProbeFlow.trace` passam de 0,96 e 0,51 para 7,76 e 5,15 ms). Causa não achada.
+
+Verificação da junção (2026-11-24, M4, headless): `tsc`, `lint`, `format:check`, `check:circular`, `check:dead`,
+`doc:coverage` e o Vitest (2361 testes) verdes; smokes `materials`, `nodeGraphs`, `lighting`, `hdr`, `refraction`
+(inteiro, com os casos de água), `fluidField` (`caustics`, `close`), `sky`, `clouds` (os nove casos de imagem e o
+`timing`: `high-sun` 2,785 ms, 2,78 antes), `parametricSurfaces` e `rayScene` passaram; `fog` falhou só no tempo
+(névoa 1,08 ms contra 1,05), a falha já registrada da 041.
