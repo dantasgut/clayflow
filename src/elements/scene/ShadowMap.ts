@@ -54,8 +54,9 @@ export interface ShadowMapData {
     /** Páginas por lado de um nível (par, 4–64): `size` / 128. */
     pagesPerLevel: number;
     /**
-     * A vista de sombra do mapa no atlas único da cena (spec 013): o índice da faixa dele (`ShadowAtlas`); `NONE` fora
-     * das vistas vivas (sem atlas, ou acima do teto de vistas) — a luz não tem sombra.
+     * A vista de sombra do mapa no atlas único da cena (spec 013): o índice da faixa dele (`ShadowAtlas`; a primeira das
+     * faixas seguidas dele, no mapa de várias vistas); `NONE` fora das vistas vivas (sem atlas, ou acima do teto de
+     * vistas) — a luz não tem sombra.
      */
     view: number;
 }
@@ -76,6 +77,16 @@ export interface ShadowViewDeclaration {
 export const DIRECTIONAL_SHADOW_VIEWS: readonly ShadowViewDeclaration[] = Object.freeze([
     Object.freeze({ projection: 'orthographic' as const }),
 ]);
+
+/** As vistas de uma luz de foco: uma, em perspectiva (o cone externo). */
+export const SPOT_SHADOW_VIEWS: readonly ShadowViewDeclaration[] = Object.freeze([
+    Object.freeze({ projection: 'perspective' as const }),
+]);
+
+/** As vistas de uma luz pontual: seis, em perspectiva de 90° (as faces do cubo em volta da posição). */
+export const POINT_SHADOW_VIEWS: readonly ShadowViewDeclaration[] = Object.freeze(
+    Array.from({ length: 6 }, () => Object.freeze({ projection: 'perspective' as const })),
+);
 
 /** O que o mapa avisa ao atlas onde está (o `ShadowAtlas`): o tamanho dele mudou. */
 export interface ShadowMapHost {
@@ -155,7 +166,10 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
      * A vista no atlas único (spec 013): `tableBase` e `requestBase`, a primeira palavra da tabela da vista no atlas e a
      * dos pedidos dela; `pagesBase`, a primeira palavra das páginas físicas (a mesma em todas as vistas); `kind`, a
      * projeção (0 ortográfica, 1 perspectiva); `origin`, a posição da luz, e `near` e `far`, os planos, nas vistas em
-     * perspectiva (zero na ortográfica).
+     * perspectiva (zero na ortográfica), com a tangente do meio ângulo em `origin.w`. `eye` e `pixel`: a câmera para o
+     * nível pela resolução na tela (a posição dela e, em `eye.w`, o tamanho do pixel da câmera ortográfica; o ângulo de
+     * um pixel da em perspectiva). `views` e `stripWords`: as vistas do mapa (6 na pontual: as faces do cubo, em faixas
+     * seguidas a partir de `tableBase`) e as palavras da tabela de uma faixa (as dos pedidos: metade).
      */
     static readonly matrixSchema = new StructSchema('ShadowMatrix', {
         lightView: FieldType.mat4x4f,
@@ -164,6 +178,7 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
         direction: FieldType.vec4f,
         cacheDirection: FieldType.vec4f,
         origin: FieldType.vec4f,
+        eye: FieldType.vec4f,
         kernelRotation: FieldType.vec2f,
         texelJitter: FieldType.vec2f,
         firstLevelRadius: FieldType.f32,
@@ -176,18 +191,25 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
         kind: FieldType.u32,
         near: FieldType.f32,
         far: FieldType.f32,
+        pixel: FieldType.f32,
+        views: FieldType.u32,
+        stripWords: FieldType.u32,
     });
 
     state: ResourceState = ResourceState.Uninitialized;
     /** Os valores fixados pela autoria (nas opções): o perfil do `Renderer` não os muda (spec 034, T079). */
     readonly authored: ReadonlySet<ShadowMapProfileField>;
-    /** As vistas de sombra da luz do mapa (a direcional: uma, ortográfica). */
-    readonly views: readonly ShadowViewDeclaration[] = DIRECTIONAL_SHADOW_VIEWS;
+    /** As vistas de sombra da luz do mapa: uma ortográfica (direcional), uma em perspectiva (foco) ou seis (pontual). */
+    readonly views: readonly ShadowViewDeclaration[];
     /** O atlas onde o mapa tem a vista (posto por ele; `undefined` fora das vistas vivas). */
     private host: ShadowMapHost | undefined;
 
-    constructor(options: ShadowMapOptions = {}) {
+    constructor(
+        options: ShadowMapOptions = {},
+        views: readonly ShadowViewDeclaration[] = DIRECTIONAL_SHADOW_VIEWS,
+    ) {
         super();
+        this.views = views;
         const samples = options.penumbraSamples ?? 9;
         checkSamples(samples);
         if (options.size !== undefined) checkSize(options.size);

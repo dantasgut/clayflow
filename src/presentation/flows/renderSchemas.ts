@@ -6,7 +6,8 @@ import { StructSchema } from '../../scene/descriptors/StructSchema';
  *
  * As vistas de sombra, pelo índice da faixa de cada uma no atlas: `viewSpan` (o maior índice vivo mais um: o que os
  * laços percorrem), `liveMask` (um bit por vista viva), `resetMask` (as vistas cuja faixa mudou de dono: o cache delas
- * recomeça) e `views0`–`views3` (o slot do referencial de cada vista no pool `ShadowMatrix`, quatro por vetor).
+ * recomeça), `views0`–`views3` (o slot do referencial de cada vista no pool `ShadowMatrix`, quatro por vetor) e
+ * `faces0`–`faces1` (qual das vistas do referencial cada uma é — a face do cubo da pontual —, 4 bits por vista).
  *
  * O estágio: os grupos de desenho e as instâncias, o orçamento de páginas desenhadas por quadro entre as vistas
  * (`budget`), o recomeço de todas (`reset`: a série dos retângulos interrompida, os grupos mudados), se os pedidos do
@@ -55,9 +56,9 @@ export const ShadowPagesParamsSchema = new StructSchema(
         rectsBase: FieldType.u32,
         spriteRecord: FieldType.u32,
         spriteCap: FieldType.u32,
+        faces0: FieldType.u32,
+        faces1: FieldType.u32,
         _pad0: FieldType.u32,
-        _pad1: FieldType.u32,
-        _pad2: FieldType.u32,
         views0: FieldType.vec4u,
         views1: FieldType.vec4u,
         views2: FieldType.vec4u,
@@ -132,19 +133,26 @@ export interface ShadowViewSlots {
     readonly views1: readonly number[];
     readonly views2: readonly number[];
     readonly views3: readonly number[];
+    /** Qual das vistas do referencial cada vista é (0 no de uma vista; a face do cubo na pontual): 4 bits por vista. */
+    readonly faces0: number;
+    readonly faces1: number;
 }
 
 /**
  * Os campos das vistas de sombra de um estágio: `slots` leva o índice da vista (a faixa no atlas, menor que 16) ao slot
- * do referencial dela.
+ * do referencial dela e a qual das vistas do referencial ela é (`face`).
  */
-export function shadowViewSlots(slots: ReadonlyMap<number, number>): ShadowViewSlots {
-    const all = Array.from({ length: 16 }, (_, v) => slots.get(v) ?? 0);
+export function shadowViewSlots(
+    slots: ReadonlyMap<number, { readonly slot: number; readonly face: number }>,
+): ShadowViewSlots {
+    const all = Array.from({ length: 16 }, (_, v) => slots.get(v)?.slot ?? 0);
     let liveMask = 0;
     let viewSpan = 0;
-    for (const v of slots.keys()) {
+    const faces = [0, 0];
+    for (const [v, { face }] of slots) {
         liveMask |= 1 << v;
         viewSpan = Math.max(viewSpan, v + 1);
+        faces[v >> 3] = (faces[v >> 3]! | (face << ((v & 7) * 4))) >>> 0;
     }
     return {
         viewSpan,
@@ -153,6 +161,8 @@ export function shadowViewSlots(slots: ReadonlyMap<number, number>): ShadowViewS
         views1: all.slice(4, 8),
         views2: all.slice(8, 12),
         views3: all.slice(12, 16),
+        faces0: faces[0]!,
+        faces1: faces[1]!,
     };
 }
 
@@ -169,6 +179,10 @@ export const ShadowRequestParamsSchema = new StructSchema(
         viewSpan: FieldType.u32,
         liveMask: FieldType.u32,
         stripWords: FieldType.u32,
+        faces0: FieldType.u32,
+        faces1: FieldType.u32,
+        _pad0: FieldType.u32,
+        _pad1: FieldType.u32,
         views0: FieldType.vec4u,
         views1: FieldType.vec4u,
         views2: FieldType.vec4u,

@@ -46,6 +46,8 @@ struct ShadowVsOut {
     @builtin(position) position: vec4f,
     /** A página física. */
     @location(0) @interpolate(flat) phys: u32,
+    /** Na vista em perspectiva (y = 1): a profundidade linear guardada (x), interpolada com a correção de perspectiva. */
+    @location(1) depth: vec2f,
 }
 
 /** O ponto `p` (espaço do objeto) do par `pair` (instância × página suja) na página do desenho. */
@@ -53,12 +55,27 @@ fn shadow_depth_place(p: vec3f, pair: u32) -> ShadowVsOut {
     let page = shadow_dirty(pair >> SP_PAIR_SHIFT);
     let m = sp_view_matrix(page.view);
     let world = worlds[instances[pair & SP_PAIR_MASK].world].world * vec4f(p, 1.0);
-    let l = sv_light(m, world.xyz);
     let t = sv_texel(m, page.level);
     let origin = vec2f(page.global) * sv_page_size(m, page.level) - t;
     var out: ShadowVsOut;
-    out.position = vec4f(shadow_page_clip((l.xy - origin) / t), max(sv_depth(m, l.z, page.z0), 0.0), 1.0);
     out.phys = page.phys;
+    if (m.kind == 1u) {
+        // A vista em perspectiva (spec 013): o recorte da página é afim no plano da vista q = (x, y) / (z · tan) —
+        // clip(q) = c0 + cx · q.x + cy · q.y —, e a posição homogênea é clip(q) · w com w = z (a divisão é do rasterizador:
+        // o triângulo que passa por trás da luz é cortado no plano próximo). A profundidade guardada é a linear ao longo
+        // do eixo, levada ao fragmento como atributo.
+        let v = sv_view(m, world.xyz);
+        let c0 = shadow_page_clip((vec2f(0.0) - origin) / t);
+        let cx = shadow_page_clip((vec2f(1.0, 0.0) - origin) / t) - c0;
+        let cy = shadow_page_clip((vec2f(0.0, 1.0) - origin) / t) - c0;
+        let qw = v.xy / m.origin.w;
+        out.position = vec4f(c0 * v.z + cx * qw.x + cy * qw.y, (v.z - m.near) * m.far / (m.far - m.near), v.z);
+        out.depth = vec2f(sv_depth(m, v.z, page.z0), 1.0);
+        return out;
+    }
+    let l = sv_light(m, world.xyz);
+    out.position = vec4f(shadow_page_clip((l.xy - origin) / t), max(sv_depth(m, l.z, page.z0), 0.0), 1.0);
+    out.depth = vec2f(0.0);
     return out;
 }
 
@@ -79,6 +96,7 @@ fn shadow_cluster_vs(@builtin(vertex_index) v: u32, @builtin(instance_index) ins
     var out: ShadowVsOut;
     out.position = vec4f(0.0, 0.0, 2.0, 1.0);
     out.phys = 0u;
+    out.depth = vec2f(0.0);
     if (instance >= shadow_group.listCap) { return out; }
     let entry = sp_scratch_read[shadow_group.listBase + instance];
     let i = (entry & SP_CLUSTER_MASK) * SP_CLUSTER_TRIS * 3u + v;
@@ -96,7 +114,8 @@ fn shadow_cluster_vs(@builtin(vertex_index) v: u32, @builtin(instance_index) ins
 @fragment
 fn shadow_depth_fs(in: ShadowVsOut) {
     let w = sp_atlas_word(in.phys, vec2u(in.position.xy));
-    atomicMin(&sp_atlas_depth[w], bitcast<u32>(clamp(in.position.z, 0.0, 1.0)));
+    let depth = select(in.position.z, in.depth.x, in.depth.y > 0.5);
+    atomicMin(&sp_atlas_depth[w], bitcast<u32>(clamp(depth, 0.0, 1.0)));
 }
 
 // ---- os sprites que projetam (esferas impostoras; a lista de `ss_pairs_main`) ----
@@ -144,7 +163,8 @@ fn shadow_sprite_vs(@builtin(vertex_index) v: u32, @builtin(instance_index) inst
     let radius = r / t;
     out.position = vec4f(shadow_page_clip(center + corners[v % 6u] * (radius + 1.0)), 0.5, 1.0);
     out.phys = page.phys;
-    out.scale = vec2f(t, m.depthRange);
+    // O texel em metros à profundidade do sprite (na vista em perspectiva, pela distância).
+    out.scale = vec2f(t * sv_metres(m, l.z), m.depthRange);
     out.disk = vec3f(center, radius);
     out.depth = vec2f(l.z, page.z0);
     return out;

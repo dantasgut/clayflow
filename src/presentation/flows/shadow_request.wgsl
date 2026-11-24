@@ -11,11 +11,12 @@
 // Requer: shadow_virtual, WORKGROUP_SIZE, `shadow_matrices`, `sr_cameras`, `sr` e `sr_requests` (a profundidade da cena,
 // sem ou com amostras, nas entradas `shadow_request_single` e `shadow_request_ms`).
 
-/** O referencial da vista `v` no quadro. */
+/** O referencial da vista `v` no quadro (o da face dela, no referencial de várias vistas: a luz pontual). */
 fn shadow_request_view(v: u32) -> ShadowMatrix {
     let q = (v >> 2u) & 3u;
     let row = select(select(select(sr.views0, sr.views1, q == 1u), sr.views2, q == 2u), sr.views3, q == 3u);
-    return shadow_matrices[row[v & 3u]];
+    let face = (select(sr.faces0, sr.faces1, v >= 8u) >> ((v & 7u) * 4u)) & 0xFu;
+    return sv_face(shadow_matrices[row[v & 3u]], face);
 }
 
 /** Uma invocação por palavra da faixa de cada vista (`sr.stripWords` por vista, até `sr.viewSpan` vistas). */
@@ -71,8 +72,11 @@ fn shadow_request_at(pixel: vec2u, depth: f32, dims: vec2u) {
         if (sv_levels(m) == 0u) { continue; }
         let l = sv_light(m, world);
         let q = l.xy;
+        // Na vista em perspectiva: só o que está no tronco dela (do plano próximo ao alcance, dentro da abertura, com a
+        // margem da penumbra) — na pontual, o ponto perto da aresta entre duas faces pede páginas nas duas.
+        if (m.kind == 1u && (l.z < m.near || l.z > m.far || any(abs(q) > vec2f(1.25)))) { continue; }
         let z = sv_order(l.z);
-        let k = sv_level(m, q);
+        let k = sv_level_at(m, world, l);
         // A margem da penumbra (o raio da grade 3 × 3 girada e o deslocamento dentro do texel), menor que uma página.
         shadow_request_page(m, k, q, 2.0 * sv_texel(m, k), z);
         let coarse = min(k + 2u, sv_levels(m) - 1u);

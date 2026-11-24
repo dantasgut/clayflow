@@ -16,9 +16,14 @@ fn sp_view_slot(v: u32) -> u32 {
     return row[v & 3u];
 }
 
-/** O referencial da vista `v` no quadro. */
+/** Qual das vistas do referencial a vista `v` é: 0 no de uma vista; a face do cubo na luz pontual. */
+fn sp_view_face(v: u32) -> u32 {
+    return (select(sp.faces0, sp.faces1, v >= 8u) >> ((v & 7u) * 4u)) & 0xFu;
+}
+
+/** O referencial da vista `v` no quadro (o da face dela, no referencial de várias vistas). */
 fn sp_view_matrix(v: u32) -> ShadowMatrix {
-    return shadow_matrices[sp_view_slot(v)];
+    return sv_face(shadow_matrices[sp_view_slot(v)], sp_view_face(v));
 }
 
 /**

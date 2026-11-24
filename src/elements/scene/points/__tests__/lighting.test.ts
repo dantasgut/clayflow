@@ -234,6 +234,45 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
         },
     );
 
+    it('a luz de foco e a pontual com sombra: a visibilidade e a espessura pela vista em perspectiva delas (spec 013, T033)', () => {
+        // Arrange
+        const atlas = new ShadowAtlas();
+        const spot = new SpotLight({ castShadow: true, radius: 0.05 });
+        const point = new PointLight({ castShadow: true });
+        atlas.assign(spot.shadowMap!);
+        atlas.assign(point.shadowMap!);
+        const slots = (p: { name: string }) => (p.name === 'Light' ? 4 : 2);
+        const built = (light: SpotLight | PointLight, at: typeof lightVisibilityPoint) =>
+            light
+                .getSceneContributions()
+                .find((c) => c.point === at)!
+                .build(slots)!;
+        // Assert: a de foco lê a vista dela, com a direção do ponto à luz e o raio da fonte (`cones.w`).
+        expect(spot.data.cones[3]).toBeCloseTo(0.05);
+        const spotVisibility = built(spot, lightVisibilityPoint);
+        expect(spotVisibility.source).toContain('if (light != 4u) { return 1.0; }');
+        expect(spotVisibility.source).toContain('let l = normalize(lights[4u].position.xyz - p);');
+        expect(spotVisibility.source).toContain('shadow_virtual_visibility(matrix, p, n, l,');
+        expect(spotVisibility.source).toContain('lights[4u].cones.w');
+        expect(built(spot, lightThicknessPoint).source).toContain(
+            'shadow_virtual_thickness(shadow_matrices[2u], p, n, l)',
+        );
+        // A pontual escolhe a face do cubo pela direção (na leitura do cubo).
+        const pointVisibility = built(point, lightVisibilityPoint);
+        expect(pointVisibility.source).toContain('shadow_cube_visibility(matrix, p, n, l,');
+        expect(built(point, lightThicknessPoint).source).toContain(
+            'shadow_cube_thickness(shadow_matrices[2u], p, n, l)',
+        );
+        for (const m of [spotVisibility, pointVisibility, built(point, lightThicknessPoint)])
+            expect(() => composeWgsl(m)).not.toThrow();
+        // Com a sombra, também a luz que atravessa a subsuperfície; a face é escolhida pela direção da luz ao ponto.
+        expect(spot.getSceneContributions()).toContain(poolTransmittedContribution);
+        expect(point.getSceneContributions()).toContain(poolTransmittedContribution);
+        const cube = composeWgsl(pointVisibility).spec.source;
+        expect(cube).toContain('fn sv_cube_face(d: vec3f) -> u32');
+        expect(cube).toContain('sv_face(base, sv_cube_face(lifted - base.origin.xyz))');
+    });
+
     it('a luz de área tem o laço dela (os lobos integrados sobre o retângulo), depois do das outras', () => {
         const rect = new RectLight({
             position: [1, 2, 3, 1],

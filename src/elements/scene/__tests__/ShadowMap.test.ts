@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BoxGeometry } from '../../geometry/BoxGeometry';
 import { DirectionalLight } from '../DirectionalLight';
+import { PointLight } from '../PointLight';
+import { SpotLight } from '../SpotLight';
 import { NONE } from '../../../scene/shaders/engineConstants';
 import { SHADOW_MAX_VIEWS, ShadowAtlas, shadowAtlasLayout } from '../ShadowAtlas';
 import { SHADOW_MAX_LEVELS, ShadowMap, shadowTableWords } from '../ShadowMap';
@@ -62,6 +64,24 @@ describe('ShadowMap', () => {
             ]),
         );
         expect([...ShadowMap.schema.fields.keys()]).toContain('view');
+    });
+
+    it('as vistas declaradas por tipo de luz: uma ortográfica, uma em perspectiva (foco) ou seis (pontual)', () => {
+        expect(new DirectionalLight({ castShadow: true }).shadowMap!.views).toEqual([
+            { projection: 'orthographic' },
+        ]);
+        expect(new SpotLight({ castShadow: true }).shadowMap!.views).toEqual([
+            { projection: 'perspective' },
+        ]);
+        const point = new PointLight({ castShadow: true, shadow: { size: [1024, 1024] } });
+        expect(point.shadowMap!.views).toHaveLength(6);
+        expect(point.shadowMap!.views.every((v) => v.projection === 'perspective')).toBe(true);
+        // As opções do mapa valem nas luzes locais.
+        expect(point.shadowMap!.data.pagesPerLevel).toBe(8);
+        // O referencial leva o que as vistas em perspectiva pedem.
+        expect([...ShadowMap.matrixSchema.fields.keys()]).toEqual(
+            expect.arrayContaining(['eye', 'pixel', 'views', 'stripWords']),
+        );
     });
 
     it('a DirectionalLight que projeta sombra anexa o seu ShadowMap; sem sombra, nenhum', () => {

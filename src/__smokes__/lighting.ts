@@ -28,6 +28,14 @@
 //   - shadow-limit (spec 013, SC-006): mais luzes com sombra do que o teto do renderizador — o evento
 //     `shadowUnavailable` nomeia as que ficaram sem, que iluminam sem sombra (a imagem contra a soma com elas sem
 //     sombra); o teto que sobe devolve a sombra, o que baixa a tira, com o evento.
+//   - spot-shadow (spec 013, FR-009): uma placa sob a luz de foco — a borda da sombra no chão contra a posição que a
+//     geometria dá (a projeção da aresta a partir da luz), a sombra dentro do cone igual à razão entre a cena com e sem
+//     sombra, e nada mudando fora do cone;
+//   - point-shadow (spec 013, FR-008): uma placa sob a luz pontual, com a borda da sombra cruzando a aresta entre duas
+//     faces do cubo — a borda contra a posição geométrica ao longo da linha que cruza a aresta, sem degrau, e o chão sem
+//     sombra igual ao da luz sem sombra dos dois lados da aresta (sem emenda);
+//   - spot-travel, point-travel (spec 013, SC-002): a luz de foco e a pontual andando a cada quadro — o último quadro
+//     contra o da luz parada no lugar final.
 // Para rodar: `npm run smoke -- lighting [--query case=furnace]`. Resultado: `LIGHTING SMOKE PASSED` ou `FAIL: …`.
 import {
     Application,
@@ -640,6 +648,10 @@ const CASES: Record<string, () => Promise<void>> = {
     'sun-travel': caseSunTravel,
     'shadow-sum': caseShadowSum,
     'shadow-limit': caseShadowLimit,
+    'spot-shadow': caseSpotShadow,
+    'point-shadow': casePointShadow,
+    'spot-travel': caseSpotTravel,
+    'point-travel': casePointTravel,
 };
 
 /** Fração do disco de raio 1 com x < s (o disco coberto por uma borda reta em s). */
@@ -1267,6 +1279,356 @@ async function caseShadowLimit(): Promise<void> {
         await shadowSumError(await s.read(), ['shadow', 'plain', 'plain']),
     );
     dispose(s.app, s.canvas);
+}
+
+/** Posição z (m) do centro da linha `py` na câmera de cima. */
+function topWorldZ(py: number, height: number, h: number): number {
+    return ((py + 0.5) / h - 0.5) * height;
+}
+
+/**
+ * A cena dos casos `spot-shadow` e `point-shadow` vista de cima (4 m de altura da imagem, 1 cm por pixel): o chão
+ * difuso branco, uma direcional fraca a pino sem sombra (o chão fora do alcance da luz local tem luz) e a luz local
+ * `light`, com uma placa fina (`plate`: centro e meias medidas em x e z, a `height` do chão) entre ela e o chão.
+ */
+async function localShadowImage(
+    light: SpotLight | PointLight,
+    plate: { readonly center: readonly [number, number]; readonly half: readonly [number, number] },
+    height: number,
+): Promise<HdrImage> {
+    const { app, canvas } = await createApp(LOCAL_W, LOCAL_H);
+    noAmbient(app);
+    topCamera(app, LOCAL_VIEW, 8);
+    diffusePlane(app, 16);
+    app.world.insert(new DirectionalLight({ direction: [0, -1, 0, 0], intensity: LOCAL_FILL }));
+    app.world.insert(light);
+    app.world.insert(
+        new BoxGeometry({ size: [2 * plate.half[0], 0.002, 2 * plate.half[1]] })
+            .add(new StandardMaterial({ albedo: [0.3, 0.3, 0.3, 1] }))
+            .add(new Transform({ position: [plate.center[0], height, plate.center[1], 1] })),
+    );
+    const hdr = await renderHdr(app);
+    dispose(app, canvas);
+    return hdr;
+}
+
+/** O alvo, a altura da imagem (m) e a direcional de preenchimento dos casos das luzes locais com sombra. */
+const LOCAL_W = 800;
+const LOCAL_H = 400;
+const LOCAL_VIEW = 4;
+const LOCAL_FILL = 0.5;
+/** A radiância do chão só com a direcional de preenchimento (difuso branco, a pino). */
+const LOCAL_FLOOR = LOCAL_FILL / Math.PI;
+/**
+ * A tolerância da borda da sombra das luzes locais: 2 cm — um texel do mapa no chão (o nível é o da resolução na tela:
+ * o texel fica entre um e dois pixels da câmera, de 1 cm) e meio pixel da câmera de cada lado da leitura.
+ */
+const LOCAL_EDGE = 0.02;
+
+/**
+ * A fração da luz local que chega a cada pixel: a cena com sombra sobre a mesma cena sem sombra, descontada a
+ * direcional de preenchimento — 1 no chão aceso, 0 na sombra; `undefined` onde a luz local não chega (fora do cone, do
+ * alcance) ou onde a câmera vê a placa.
+ */
+function localFraction(
+    shadowed: HdrImage,
+    plain: HdrImage,
+    x: number,
+    y: number,
+): number | undefined {
+    const lit = hdrAt(plain, x, y)[0] - LOCAL_FLOOR;
+    if (lit < 0.02) return undefined;
+    return (hdrAt(shadowed, x, y)[0] - LOCAL_FLOOR) / lit;
+}
+
+async function caseSpotShadow(): Promise<void> {
+    const name = 'spot-shadow';
+    // A luz de foco a 4 m, a pino, cone externo de 0,5 rad (2,19 m de raio no chão); a placa a 2 m, de x = −1,2 a 0,3:
+    // a aresta em x = 0,3 projeta a borda da sombra em x = 0,3 · 4 / (4 − 2) = 0,6.
+    const H = 4;
+    const h = 2;
+    const outer = 0.5;
+    const edge = 0.3;
+    const spot = (castShadow: boolean): SpotLight =>
+        new SpotLight({
+            position: [0, H, 0, 1],
+            direction: [0, -1, 0, 0],
+            innerCone: 0.4,
+            outerCone: outer,
+            intensity: 40,
+            range: 12,
+            castShadow,
+        });
+    const plate = { center: [edge - 0.75, 0], half: [0.75, 0.6] } as const;
+    const shadowed = await localShadowImage(spot(true), plate, h);
+    const plain = await localShadowImage(spot(false), plate, h);
+    const row = LOCAL_H / 2;
+    const expected = (edge * H) / (H - h);
+    // A borda: onde a fração cruza 50 %, na linha z = 0, à direita da placa.
+    let found = Number.NaN;
+    for (let x = topPixel(edge + 0.05, 0, LOCAL_VIEW, LOCAL_W, LOCAL_H)[0]; x < LOCAL_W - 1; x++) {
+        const a = localFraction(shadowed, plain, x, row);
+        const b = localFraction(shadowed, plain, x + 1, row);
+        if (a === undefined || b === undefined) continue;
+        if (a < 0.5 && b >= 0.5) {
+            found = topWorldX(x + (0.5 - a) / (b - a), LOCAL_VIEW, LOCAL_W, LOCAL_H);
+            break;
+        }
+    }
+    // Dentro da sombra (x = 0,45) e no chão aceso (x = 1,2), longe da borda.
+    const inside = localFraction(
+        shadowed,
+        plain,
+        topPixel(0.45, 0, LOCAL_VIEW, LOCAL_W, LOCAL_H)[0],
+        row,
+    );
+    const outside = localFraction(
+        shadowed,
+        plain,
+        topPixel(1.2, 0, LOCAL_VIEW, LOCAL_W, LOCAL_H)[0],
+        row,
+    );
+    log(
+        `${name}: borda da sombra em x = ${found.toFixed(4)} m (a geometria dá ${expected.toFixed(4)}; ${(1000 * Math.abs(found - expected)).toFixed(1)} mm); fração da luz na sombra ${inside?.toFixed(4)}, no chão aceso ${outside?.toFixed(4)}`,
+    );
+    check(
+        Math.abs(found - expected) <= LOCAL_EDGE,
+        `${name}: borda em ${found.toFixed(4)} m contra ${expected.toFixed(4)} m`,
+    );
+    check(inside !== undefined && inside < 0.02, `${name}: luz na sombra (${inside})`);
+    check(
+        outside !== undefined && Math.abs(outside - 1) < 0.01,
+        `${name}: sombra no chão aceso (${outside})`,
+    );
+    // Fora do cone externo (a mais de 2,19 m do eixo, com 5 cm de folga): nem luz da luz de foco nem sombra dela — a
+    // imagem é a da direcional de preenchimento, igual com e sem a sombra.
+    const reach = H * Math.tan(outer) + 0.05;
+    let leak = 0;
+    let differ = 0;
+    let counted = 0;
+    for (let y = 0; y < LOCAL_H; y++)
+        for (let x = 0; x < LOCAL_W; x++) {
+            const wx = topWorldX(x, LOCAL_VIEW, LOCAL_W, LOCAL_H);
+            const wz = topWorldZ(y, LOCAL_VIEW, LOCAL_H);
+            if (Math.hypot(wx, wz) < reach) continue;
+            counted++;
+            leak = Math.max(leak, Math.abs(hdrAt(shadowed, x, y)[0] - LOCAL_FLOOR) / LOCAL_FLOOR);
+            differ = Math.max(
+                differ,
+                Math.abs(hdrAt(shadowed, x, y)[0] - hdrAt(plain, x, y)[0]) / LOCAL_FLOOR,
+            );
+        }
+    log(
+        `${name}: fora do cone (${counted} pixels) — maior desvio do chão só com o preenchimento ${(100 * leak).toFixed(3)} %; maior diferença com e sem a sombra ${(100 * differ).toFixed(3)} %`,
+    );
+    check(leak <= 0.01, `${name}: luz ou sombra fora do cone (${(100 * leak).toFixed(3)} %)`);
+    check(
+        differ <= 0.001,
+        `${name}: a sombra muda a imagem fora do cone (${(100 * differ).toFixed(3)} %)`,
+    );
+}
+
+async function casePointShadow(): Promise<void> {
+    const name = 'point-shadow';
+    // A pontual a 2 m do chão: a face de baixo do cubo cobre |x|, |z| < 2 no chão; além, as faces dos lados. A placa a
+    // 1 m, de x = −1,5 a 1,5 e z = −1 a 0,25: a aresta em z = 0,25 projeta a borda da sombra em z = 0,5, de x = −3 a
+    // 3 — cruzando a aresta entre a face de baixo e a face +x em x = 2.
+    const H = 2;
+    const h = 1;
+    const edge = 0.25;
+    const point = (castShadow: boolean): PointLight =>
+        new PointLight({ position: [0, H, 0, 1], intensity: 12, range: 14, castShadow });
+    const plate = { center: [0, edge - 0.625], half: [1.5, 0.625] } as const;
+    const shadowed = await localShadowImage(point(true), plate, h);
+    const plain = await localShadowImage(point(false), plate, h);
+    const expected = (edge * H) / (H - h);
+    // A borda (onde a fração cruza 50 % ao longo de z) em colunas dos dois lados da aresta das faces e sobre ela.
+    const columns = [0.5, 1.6, 1.8, 1.9, 1.96, 2.0, 2.04, 2.1, 2.2, 2.4, 2.8];
+    const edges: number[] = [];
+    for (const wx of columns) {
+        const x = topPixel(wx, 0, LOCAL_VIEW, LOCAL_W, LOCAL_H)[0];
+        let found = Number.NaN;
+        for (
+            let y = topPixel(0, edge + 0.05, LOCAL_VIEW, LOCAL_W, LOCAL_H)[1];
+            y < LOCAL_H - 1;
+            y++
+        ) {
+            const a = localFraction(shadowed, plain, x, y);
+            const b = localFraction(shadowed, plain, x, y + 1);
+            if (a === undefined || b === undefined) continue;
+            if (a < 0.5 && b >= 0.5) {
+                found = topWorldZ(y + (0.5 - a) / (b - a), LOCAL_VIEW, LOCAL_H);
+                break;
+            }
+        }
+        edges.push(found);
+    }
+    const worst = Math.max(...edges.map((z) => Math.abs(z - expected)));
+    let step = 0;
+    for (let i = 1; i < edges.length; i++)
+        step = Math.max(step, Math.abs(edges[i]! - edges[i - 1]!));
+    log(
+        `${name}: borda da sombra em z = ${edges.map((z) => z.toFixed(4)).join(', ')} m nas colunas x = ${columns.join(', ')} (a geometria dá ${expected.toFixed(4)}; maior erro ${(1000 * worst).toFixed(1)} mm; maior degrau entre colunas ${(1000 * step).toFixed(1)} mm)`,
+    );
+    check(
+        edges.every((z) => Math.abs(z - expected) <= LOCAL_EDGE),
+        `${name}: borda a ${(1000 * worst).toFixed(1)} mm da posição geométrica`,
+    );
+    check(
+        step <= 0.01,
+        `${name}: degrau de ${(1000 * step).toFixed(1)} mm na borda entre as faces`,
+    );
+    // Sem emenda: ao longo das linhas que cruzam a aresta das faces (x = 2), no chão aceso (z = 1) e na sombra
+    // (z = 0,35), a fração da luz não muda ao cruzar — 1 e 0 dos dois lados, pixel a pixel.
+    let seamLit = 0;
+    let seamDark = 0;
+    const from = topPixel(1.7, 0, LOCAL_VIEW, LOCAL_W, LOCAL_H)[0];
+    const to = topPixel(2.3, 0, LOCAL_VIEW, LOCAL_W, LOCAL_H)[0];
+    const litRow = topPixel(0, 1, LOCAL_VIEW, LOCAL_W, LOCAL_H)[1];
+    const darkRow = topPixel(0, 0.35, LOCAL_VIEW, LOCAL_W, LOCAL_H)[1];
+    for (let x = from; x <= to; x++) {
+        seamLit = Math.max(seamLit, Math.abs((localFraction(shadowed, plain, x, litRow) ?? 0) - 1));
+        seamDark = Math.max(seamDark, Math.abs(localFraction(shadowed, plain, x, darkRow) ?? 1));
+    }
+    // A outra aresta (z = 2, entre a face de baixo e a face +z), no chão aceso, ao longo de z.
+    let seamOther = 0;
+    const column = topPixel(0.7, 0, LOCAL_VIEW, LOCAL_W, LOCAL_H)[0];
+    for (
+        let y = topPixel(0, 1.8, LOCAL_VIEW, LOCAL_W, LOCAL_H)[1];
+        y < Math.min(LOCAL_H, topPixel(0, 1.99, LOCAL_VIEW, LOCAL_W, LOCAL_H)[1] + 1);
+        y++
+    )
+        seamOther = Math.max(
+            seamOther,
+            Math.abs((localFraction(shadowed, plain, column, y) ?? 0) - 1),
+        );
+    log(
+        `${name}: cruzando a aresta das faces em x = 2 (de 1,7 a 2,3 m) — maior desvio no chão aceso ${(100 * seamLit).toFixed(3)} %, na sombra ${(100 * seamDark).toFixed(3)} %; junto à aresta em z = 2, ${(100 * seamOther).toFixed(3)} %`,
+    );
+    check(seamLit <= 0.01, `${name}: emenda no chão aceso (${(100 * seamLit).toFixed(3)} %)`);
+    check(seamDark <= 0.01, `${name}: emenda na sombra (${(100 * seamDark).toFixed(3)} %)`);
+    check(
+        seamOther <= 0.01,
+        `${name}: emenda junto à aresta em z = 2 (${(100 * seamOther).toFixed(3)} %)`,
+    );
+}
+
+/**
+ * O alvo HDR dos casos `spot-travel` e `point-travel`: as esferas sobre o chão (a cena do `sun-travel`) sob uma luz
+ * local com sombra que anda 1 cm por quadro em x até o lugar final — com `moving`, `frames` quadros de caminho; sem
+ * ele, parada no lugar final.
+ */
+async function localTravelImage(
+    kind: 'spot' | 'point',
+    moving: boolean,
+    frames: number,
+): Promise<HdrImage> {
+    const { app, canvas } = await createApp(640, 400);
+    noAmbient(app);
+    app.world.insert(
+        new Camera({ fov: Math.PI / 3, near: 0.1, far: 40 }).add(
+            new Transform({
+                position: [0, 3.5, 7, 1],
+                rotation: Transform.lookRotation([0, 3.5, 7], [0, 0, 0], [0, 1, 0]),
+            }),
+        ),
+    );
+    app.world.insert(
+        new PlaneGeometry({ size: [40, 40] })
+            .add(new StandardMaterial())
+            .add(new Transform())
+            .add(new MaterialFunction({ code: DIFFUSE_ONLY, lobes: ['diffuse'] })),
+    );
+    const position = (left: number): [number, number, number, number] => [
+        0.5 - (moving ? 0.01 * left : 0),
+        LOCAL_TRAVEL_HEIGHT,
+        0.8,
+        1,
+    ];
+    const light =
+        kind === 'spot'
+            ? new SpotLight({
+                  position: position(frames),
+                  direction: [-0.1, -1, -0.15, 0],
+                  innerCone: 0.7,
+                  outerCone: 0.9,
+                  intensity: LOCAL_TRAVEL_INTENSITY,
+                  range: 20,
+                  castShadow: true,
+              })
+            : new PointLight({
+                  position: position(frames),
+                  intensity: LOCAL_TRAVEL_INTENSITY,
+                  range: 20,
+                  castShadow: true,
+              });
+    app.world.insert(light);
+    for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * 2 * Math.PI;
+        const r = 1.2 + 0.9 * (i % 3);
+        app.world.insert(
+            new SphereGeometry({ radius: 0.35 })
+                .add(new StandardMaterial({ albedo: [0.6, 0.6, 0.6, 1] }))
+                .add(new Transform({ position: [r * Math.cos(a), 0.35, r * Math.sin(a), 1] })),
+        );
+    }
+    await settle(app, 600);
+    for (let i = 1; i <= frames; i++) {
+        if (moving) light.data.position = position(frames - i);
+        if (i > 1) await nextGpuFrame(app);
+        app.step(1 / 60);
+    }
+    const texture = app.resources.textureOf(app.defaults.targets, 'color');
+    if (texture === undefined) throw new Error('alvo HDR não alocado');
+    const hdr = await readHdrTexture(app, texture);
+    dispose(app, canvas);
+    return hdr;
+}
+
+/** A altura e a intensidade da luz local dos casos de movimento. */
+const LOCAL_TRAVEL_HEIGHT = 4;
+const LOCAL_TRAVEL_INTENSITY = 40;
+
+/** A luz local andando a cada quadro contra a parada no lugar final (SC-002). */
+async function localTravel(kind: 'spot' | 'point'): Promise<void> {
+    const name = `${kind}-travel`;
+    const still = await localTravelImage(kind, false, 60);
+    // O chão aceso sob a luz (a pino, à altura dela): a escala das diferenças.
+    const lit = LOCAL_TRAVEL_INTENSITY / (LOCAL_TRAVEL_HEIGHT * LOCAL_TRAVEL_HEIGHT) / Math.PI;
+    // A cena tem sombra: parte do chão aceso sob a luz está escura (abaixo de um décimo dele) na imagem parada.
+    let shaded = 0;
+    for (let i = 0; i < still.width * still.height; i++)
+        if (still.data[i * 4]! > 0 && still.data[i * 4]! < 0.1 * lit) shaded++;
+    for (const frames of [180, 177]) {
+        const moving = await localTravelImage(kind, true, frames);
+        let sum = 0;
+        let wrong = 0;
+        const n = still.width * still.height;
+        for (let i = 0; i < n; i++) {
+            const e = Math.abs(moving.data[i * 4]! - still.data[i * 4]!) / lit;
+            sum += e;
+            if (e > 0.25) wrong++;
+        }
+        const mean = sum / n;
+        const far = wrong / n;
+        log(
+            `${name}: a luz andando 1 cm por quadro, ${frames} quadros — diferença média ${(100 * mean).toFixed(4)} % do chão aceso; ${(100 * far).toFixed(4)} % dos pixels a mais de 25 %`,
+        );
+        check(
+            mean <= 0.0005 && far <= 0.0005,
+            `${name}: ${frames} quadros — a sombra da luz que anda difere da parada: média ${(100 * mean).toFixed(4)} %, ${(100 * far).toFixed(4)} % dos pixels a mais de 25 %`,
+        );
+    }
+    log(`${name}: ${shaded} pixels do chão na sombra na imagem parada`);
+    check(shaded > 500, `${name}: a cena não tem sombra para comparar (${shaded} pixels)`);
+}
+
+async function caseSpotTravel(): Promise<void> {
+    await localTravel('spot');
+}
+
+async function casePointTravel(): Promise<void> {
+    await localTravel('point');
 }
 
 async function main(): Promise<void> {

@@ -208,10 +208,13 @@ export class ShadowAtlas extends Entity<ShadowAtlasData> implements Resource {
         this.maxBindingSize = options.maxBindingSize ?? BINDING_SIZE_FLOOR;
         this.placed = Array.from({ length: views }, () => undefined);
         this.generations = Array.from({ length: views }, () => 0);
-        this.data = { ...this.shape(views, 4, 0), budget };
+        this.data = { ...this.shape(views, 4, 0, 0), budget };
     }
 
-    /** O mapa de cada faixa, pelo índice da vista (`undefined`: faixa livre). */
+    /**
+     * O mapa de cada faixa, pelo índice da vista (`undefined`: faixa livre). O mapa de várias vistas aparece nas faixas
+     * seguidas dele, a partir de `map.data.view`.
+     */
     get views(): readonly (ShadowMap | undefined)[] {
         return this.placed;
     }
@@ -243,7 +246,7 @@ export class ShadowAtlas extends Entity<ShadowAtlasData> implements Resource {
             this.generations = Array.from({ length: limits.views }, () => 0);
             this.epoch += 1 << 20;
             this.redescribe(this.getDescriptors(), {
-                ...this.shape(limits.views, now.pagesPerLevel, 0),
+                ...this.shape(limits.views, now.pagesPerLevel, 0, 0),
                 budget: now.budget,
             });
         } else {
@@ -258,25 +261,58 @@ export class ShadowAtlas extends Entity<ShadowAtlasData> implements Resource {
     }
 
     /**
-     * Põe o mapa nas vistas vivas, na faixa livre de menor índice, e lhe dá a vista. Devolve `false` sem faixa livre (o
+     * Põe o mapa nas vistas vivas e lhe dá a vista: as faixas dele (uma por vista do mapa: 6 na luz pontual) são
+     * seguidas, a partir da livre de menor índice onde cabem. Havendo faixas livres bastantes mas espalhadas, as vistas
+     * vivas são reagrupadas (o cache das que mudam de faixa recomeça). Devolve `false` sem faixas livres bastantes (o
      * mapa fica sem vista: a luz dele não tem sombra).
      */
     assign(map: ShadowMap): boolean {
         if (this.placed.includes(map)) return true;
-        const view = this.placed.indexOf(undefined);
-        if (view < 0) return false;
-        this.placed[view] = map;
-        this.generations[view] = (this.generations[view] ?? 0) + 1;
-        map.place(this, view);
+        const count = map.views.length;
+        const free = this.placed.filter((m) => m === undefined).length;
+        if (count > free) return false;
+        let first = this.runOf(count);
+        if (first < 0) {
+            // As vistas vivas juntas no começo, na ordem das faixas: sobra um trecho seguido no fim.
+            const order = [...new Set(this.placed.filter((m): m is ShadowMap => m !== undefined))];
+            this.placed.fill(undefined);
+            let next = 0;
+            for (const other of order) {
+                if (other.data.view !== next) this.bump(next, other.views.length);
+                this.placed.fill(other, next, next + other.views.length);
+                other.place(this, next);
+                next += other.views.length;
+            }
+            first = next;
+        }
+        this.placed.fill(map, first, first + count);
+        this.bump(first, count);
+        map.place(this, first);
         this.fit();
         return true;
     }
 
-    /** Tira o mapa das vistas vivas: a faixa fica livre. */
+    /** A primeira faixa de um trecho de `count` faixas livres seguidas (−1: não há). */
+    private runOf(count: number): number {
+        let run = 0;
+        for (let v = 0; v < this.placed.length; v++) {
+            run = this.placed[v] === undefined ? run + 1 : 0;
+            if (run === count) return v - count + 1;
+        }
+        return -1;
+    }
+
+    /** As faixas de `first` a `first + count` mudam de dono: outra geração. */
+    private bump(first: number, count: number): void {
+        for (let v = first; v < first + count; v++)
+            this.generations[v] = (this.generations[v] ?? 0) + 1;
+    }
+
+    /** Tira o mapa das vistas vivas: as faixas dele ficam livres. */
     release(map: ShadowMap): void {
-        const view = this.placed.indexOf(map);
-        if (view < 0) return;
-        this.placed[view] = undefined;
+        if (!this.placed.includes(map)) return;
+        for (let v = 0; v < this.placed.length; v++)
+            if (this.placed[v] === map) this.placed[v] = undefined;
         map.place(undefined, 0);
         this.fit();
     }
@@ -288,13 +324,15 @@ export class ShadowAtlas extends Entity<ShadowAtlasData> implements Resource {
      * na saída de uma vista e pelo mapa que muda de tamanho; `shrink`: o teto de páginas baixou (o reservatório encolhe).
      */
     fit(shrink = false): void {
-        const maps = this.placed.filter((m): m is ShadowMap => m !== undefined);
+        const views = this.placed.filter((m): m is ShadowMap => m !== undefined);
+        // Os mapas vivos (o de várias vistas ocupa várias faixas).
+        const maps = [...new Set(views)];
         const now = this.rawData;
         const pagesPerLevel =
             maps.length === 0
                 ? now.pagesPerLevel
                 : Math.max(...maps.map((m) => m.data.pagesPerLevel));
-        const shaped = this.shape(now.views, pagesPerLevel, maps.length);
+        const shaped = this.shape(now.views, pagesPerLevel, maps.length, views.length);
         // Com as mesmas faixas o reservatório só cresce: a vista que sai não realoca o atlas (o cache das outras segue).
         const keep =
             !shrink && pagesPerLevel === now.pagesPerLevel && shaped.atlasPages < now.atlasPages;
@@ -310,15 +348,19 @@ export class ShadowAtlas extends Entity<ShadowAtlasData> implements Resource {
         this.redescribe(this.getDescriptors(), next);
     }
 
-    /** O dado das faixas para `pagesPerLevel` e `live` vistas vivas. */
+    /**
+     * O dado das faixas para `pagesPerLevel`, `maps` mapas vivos e `live` vistas vivas. O reservatório cresce com os
+     * mapas, não com as vistas: as seis faces de uma pontual repartem o que a câmera vê dela.
+     */
     private shape(
         views: number,
         pagesPerLevel: number,
+        maps: number,
         live: number,
     ): Omit<ShadowAtlasData, 'budget'> {
         const atlasPages = shadowAtlasPagesFor({
             pagesPerLevel,
-            liveViews: live,
+            liveViews: maps,
             views,
             ceiling: this.ceiling,
             maxBindingSize: this.maxBindingSize,

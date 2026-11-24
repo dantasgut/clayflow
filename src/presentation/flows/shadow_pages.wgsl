@@ -59,6 +59,15 @@ fn sp_split(i: u32, per: u32) -> vec2u {
     return vec2u(i / n, i % n);
 }
 
+/**
+ * O ponto do mundo das coordenadas do plano `l.xy` e da profundidade `l.z` da vista (o inverso de `sv_light`): na vista
+ * em perspectiva o plano volta a metros pela profundidade e a tangente; depois, a translação e a rotação do referencial.
+ */
+fn sp_unproject(m: ShadowMatrix, l: vec3f) -> vec3f {
+    let v = select(l, vec3f(l.xy * l.z * m.origin.w, l.z), m.kind == 1u);
+    return rigid_rotation_inverse(m.lightView) * (v - m.lightView[3].xyz);
+}
+
 /** A entrada `slot` (de `sv_slot`) da tabela da vista, na faixa dela no atlas. */
 fn sp_table_load(m: ShadowMatrix, slot: vec2u) -> vec4u {
     let w = sv_table_word(m, slot);
@@ -184,14 +193,7 @@ fn sp_instances_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wo
         let b = sp.boundsBase + group * 6u;
         let lo = vec3f(sp_f(b), sp_f(b + 1u), sp_f(b + 2u));
         let hi = vec3f(sp_f(b + 3u), sp_f(b + 4u), sp_f(b + 5u));
-        if (all(lo <= hi)) {
-            let world = worlds[instances[j].world].world;
-            for (var c = 0u; c < 8u; c++) {
-                let corner = select(lo, hi, vec3<bool>((c & 1u) != 0u, (c & 2u) != 0u, (c & 4u) != 0u));
-                let q = sv_light(m, (world * vec4f(corner, 1.0)).xyz).xy;
-                rect = vec4f(min(rect.xy, q), max(rect.zw, q));
-            }
-        }
+        if (all(lo <= hi)) { rect = sp_box_rect(m, worlds[instances[j].world].world, lo, hi); }
     }
     let r = sp_vb(v) + sp.rectsBase + j * 4u;
     sp_set_f(r, rect.x);
@@ -216,7 +218,7 @@ fn sp_instances_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wo
 
 /** O referencial da vista `v` no quadro anterior (a série `ShadowMatrix`, atraso 1). */
 fn sp_view_matrix_previous(v: u32) -> ShadowMatrix {
-    return sp_matrices_previous[sp_view_slot(v)];
+    return sv_face(sp_matrices_previous[sp_view_slot(v)], sp_view_face(v));
 }
 
 /**
@@ -249,7 +251,8 @@ fn sp_requests_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
     if (hi == 0u) { return; }
     let lo = sp_requests_previous[before.requestBase + i * 2u];
     let same = all(before.lightView[0] == m.lightView[0]) && all(before.lightView[1] == m.lightView[1])
-        && all(before.lightView[2] == m.lightView[2]);
+        && all(before.lightView[2] == m.lightView[2]) && all(before.lightView[3] == m.lightView[3])
+        && all(before.origin == m.origin);
     if (same) {
         atomicStore(&sp_scratch[wanted + i], 1u);
         return;
@@ -266,7 +269,8 @@ fn sp_requests_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
             (g.y + select(0.0, 1.0, (c & 2u) != 0u)) * p,
             sv_unorder(select(lo, hi, (c & 4u) != 0u)),
         );
-        let q = (turn * corner).xy;
+        // Na vista em perspectiva (a luz que andou): a vista de antes → mundo → a vista de agora.
+        let q = select((turn * corner).xy, sv_light(m, sp_unproject(before, corner)).xy, m.kind == 1u);
         rect = vec4f(min(rect.xy, q), max(rect.zw, q));
     }
     let first = sv_page_of(m, k, rect.xy);
@@ -290,13 +294,17 @@ fn sp_in_frustum(m: ShadowMatrix, rect: vec4f) -> bool {
     if (all(vp[3] == vec4f(0.0)) && all(vp[2] == vec4f(0.0))) { return true; }
     // Mundo ← luz: a transposta da rotação.
     let back = rigid_rotation_inverse(m.lightView);
+    let perspective = m.kind == 1u;
     var below = vec4u(0u);
     var above = vec4u(0u);
     for (var c = 0u; c < 8u; c++) {
         let x = select(rect.x, rect.z, (c & 1u) != 0u);
         let y = select(rect.y, rect.w, (c & 2u) != 0u);
         let z = m.camera.z + select(-m.depthRange, m.depthRange, (c & 4u) != 0u);
-        let clip = vp * vec4f(back * vec3f(x, y, z), 1.0);
+        // Na vista em perspectiva o canto do tronco da página (do plano próximo ao alcance) volta ao mundo pela origem.
+        var corner = back * vec3f(x, y, z);
+        if (perspective) { corner = sp_unproject(m, vec3f(x, y, z)); }
+        let clip = vp * vec4f(corner, 1.0);
         below += vec4u(vec4<bool>(clip.x < -clip.w, clip.y < -clip.w, clip.z < 0.0, false));
         above += vec4u(vec4<bool>(clip.x > clip.w, clip.y > clip.w, clip.z > clip.w, false));
     }
@@ -361,7 +369,8 @@ fn sp_update_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workg
     var requested = atomicLoad(&sp_scratch[section + sp.requestBase + i]) != 0u;
     // O nível mais grosso no frustum, sempre: a reserva do que não está numa superfície vista no quadro anterior (os
     // pontos do volume da névoa, o primeiro quadro, um corte, a borda que aparece).
-    if (k + 1u == sv_levels(m)) { requested = requested || sp_in_frustum(m, rect); }
+    // Na vista em perspectiva, só as páginas do tronco existem.
+    if (k + 1u == sv_levels(m)) { requested = requested || (sp_in_frustum(m, rect) && sv_in_window(m, k, g)); }
     let age = select(min(((old.z >> SV_AGE_SHIFT) & SV_AGE_MASK) + 1u, 255u), 0u, requested);
     if (valid && age <= SP_MAX_AGE) {
         let phys = old.z & SV_PHYS_MASK;
@@ -752,15 +761,30 @@ fn sp_cluster_box(g: u32) -> array<vec3f, 2> {
     );
 }
 
-/** O retângulo no plano da luz da caixa (lo, hi) do objeto na matriz de mundo `world`; vazio se a caixa é vazia. */
+/**
+ * O retângulo no plano da vista da caixa (lo, hi) do objeto na matriz de mundo `world`; vazio se a caixa é vazia. Na
+ * vista em perspectiva (spec 013): a caixa toda antes do plano próximo (atrás da luz) ou além do alcance não projeta
+ * (vazio); a que cruza o plano próximo cobre o tronco inteiro (a projeção dos cantos de trás não vale).
+ */
 fn sp_box_rect(m: ShadowMatrix, world: mat4x4f, lo: vec3f, hi: vec3f) -> vec4f {
     var rect = vec4f(3.0e38, 3.0e38, -3.0e38, -3.0e38);
     if (any(lo > hi)) { return rect; }
+    var behind = 0u;
+    var beyond = 0u;
     for (var c = 0u; c < 8u; c++) {
         let corner = select(lo, hi, vec3<bool>((c & 1u) != 0u, (c & 2u) != 0u, (c & 4u) != 0u));
-        let q = sv_light(m, (world * vec4f(corner, 1.0)).xyz).xy;
-        rect = vec4f(min(rect.xy, q), max(rect.zw, q));
+        let l = sv_light(m, (world * vec4f(corner, 1.0)).xyz);
+        if (m.kind == 1u) {
+            if (l.z < m.near) {
+                behind++;
+                continue;
+            }
+            if (l.z > m.far) { beyond++; }
+        }
+        rect = vec4f(min(rect.xy, l.xy), max(rect.zw, l.xy));
     }
+    if (behind == 8u || beyond == 8u) { return vec4f(3.0e38, 3.0e38, -3.0e38, -3.0e38); }
+    if (behind != 0u) { return vec4f(-SP_FRUSTUM_REACH, -SP_FRUSTUM_REACH, SP_FRUSTUM_REACH, SP_FRUSTUM_REACH); }
     return rect;
 }
 
@@ -952,10 +976,17 @@ fn sp_clusters_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
         if (v >= sp.viewSpan) { break; }
         if (((mask >> v) & 1u) == 0u || !sp_view_live(v)) { continue; }
         let m = sp_view_matrix(v);
+        // Na vista em perspectiva a projeção da caixa não é a soma de três segmentos: o retângulo dela no plano.
+        let perspective = m.kind == 1u;
         var shapes: array<SpClusterShape, SP_CLUSTER_MAX_INSTANCES>;
+        var rects: array<vec4f, SP_CLUSTER_MAX_INSTANCES>;
         for (var j = 0u; j < SP_CLUSTER_MAX_INSTANCES; j++) {
             if (j >= instancesN) { break; }
             let world = worlds[instances[firstInstance + j].world].world;
+            if (perspective) {
+                rects[j] = sp_box_rect(m, world, lo, hi);
+                continue;
+            }
             let to_light = m.lightView * world;
             shapes[j] = SpClusterShape(
                 sv_light(m, (world * vec4f(0.5 * (lo + hi), 1.0)).xyz).xy,
@@ -973,7 +1004,10 @@ fn sp_clusters_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
             let place = sp_dirty_place(atomicLoad(&sp_scratch[w]));
             if (place.y != v) { continue; }
             let g = vec2i(bitcast<i32>(atomicLoad(&sp_scratch[w + 1u])), bitcast<i32>(atomicLoad(&sp_scratch[w + 2u])));
-            if (!sp_shape_touches(shapes[local], sp_page_rect(m, place.x, g))) { continue; }
+            let page = sp_page_rect(m, place.x, g);
+            if (perspective) {
+                if (!sp_overlap(rects[local], page)) { continue; }
+            } else if (!sp_shape_touches(shapes[local], page)) { continue; }
             let idx = atomicAdd(&sp_args[record * 5u + 1u], 1u);
             if (idx < cap) { atomicStore(&sp_scratch[list + idx], (p << SP_CLUSTER_SHIFT) | c); }
         }
@@ -1019,9 +1053,12 @@ fn ss_rect_main(@builtin(workgroup_id) wid: vec3u, @builtin(local_invocation_ind
     for (var c = 0u; c < SS_RECT_CHUNK; c++) {
         let i = lid * per + c;
         if (c >= per || i >= count) { break; }
-        let q = sv_light(m, ss_center(i)).xy;
-        lo = min(lo, q);
-        hi = max(hi, q);
+        let l = sv_light(m, ss_center(i));
+        // Na vista em perspectiva: o ponto antes do plano próximo não projeta, e o raio vai ao plano pela distância.
+        if (m.kind == 1u && l.z < m.near) { continue; }
+        let reach = select(0.0, ss_source.radius / max(sv_metres(m, l.z), 1.0e-6), m.kind == 1u);
+        lo = min(lo, l.xy - vec2f(reach));
+        hi = max(hi, l.xy + vec2f(reach));
     }
     ss_lo[lid] = lo;
     ss_hi[lid] = hi;
@@ -1033,7 +1070,8 @@ fn ss_rect_main(@builtin(workgroup_id) wid: vec3u, @builtin(local_invocation_ind
         }
     }
     if (lid != 0u || !live) { return; }
-    let r = ss_source.radius;
+    // Na vista ortográfica o raio (m) entra aqui; na em perspectiva já entrou por ponto.
+    let r = select(ss_source.radius, 0.0, m.kind == 1u);
     var rect = vec4f(3.0e38, 3.0e38, -3.0e38, -3.0e38);
     if (all(ss_lo[0] <= ss_hi[0])) { rect = vec4f(ss_lo[0] - vec2f(r), ss_hi[0] + vec2f(r)); }
     let slot = v * sp.rectStride + ss_source.rectSlot;
@@ -1056,12 +1094,14 @@ fn ss_pairs_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgr
     if (i >= ss_source.count) { return; }
     if (atomicLoad(&sp_scratch[SP_DIRTY_COUNT]) == 0u) { return; }
     let center = ss_center(i);
-    let r = ss_source.radius;
     for (var v = 0u; v < SV_MAX_VIEWS; v++) {
         if (v >= sp.viewSpan) { break; }
         if (!sp_view_live(v)) { continue; }
         let m = sp_view_matrix(v);
         let l = sv_light(m, center);
+        // O raio no plano da vista (na em perspectiva, pela distância; o ponto antes do plano próximo não projeta).
+        if (m.kind == 1u && l.z < m.near) { continue; }
+        let r = ss_source.radius / max(sv_metres(m, l.z), 1.0e-6);
         let n = m.pagesPerLevel;
         let marks = sp_vb(v) + sp.needBase;
         for (var k = 0u; k < SV_MAX_LEVELS; k++) {

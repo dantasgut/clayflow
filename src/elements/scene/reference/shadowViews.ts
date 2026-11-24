@@ -57,7 +57,7 @@ export function shadowProject(frame: ShadowFrame, tan: number, p: V3): V3 | unde
     return [dot(frame.x, d) / (z * tan), dot(frame.y, d) / (z * tan), z];
 }
 
-/** O ponto do mundo das coordenadas do plano `q` e da profundidade `z` da vista (`sv_unproject`). */
+/** O ponto do mundo das coordenadas do plano `q` e da profundidade `z` da vista (`sp_unproject`, em `shadow_pages.wgsl`). */
 export function shadowUnproject(frame: ShadowFrame, tan: number, l: V3): V3 {
     const v: V3 = [l[0] * l[2] * tan, l[1] * l[2] * tan, l[2]];
     return [

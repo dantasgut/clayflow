@@ -72,7 +72,11 @@ fn shadow_virtual_volume(
     let levels = sv_levels(m);
     if (levels == 0u) { return 1.0; }
     let p = sv_light(m, world_pos);
-    var k = max(sv_level(m, p.xy), max(levels, 3u) - 3u);
+    // Fora do tronco da vista em perspectiva (antes do plano próximo, além do alcance): sem sombra dela.
+    if (m.kind == 1u && (p.z < m.near || p.z > m.far)) { return 1.0; }
+    let scale = sv_metres(m, p.z);
+    let size = sv_source_size(m, angular_radius);
+    var k = max(sv_level_at(m, world_pos, p), max(levels, 3u) - 3u);
     // O lado da página do nível (dobra a cada nível) calculado uma vez.
     var page = sv_page_size(m, k);
     let n = i32(m.pagesPerLevel);
@@ -86,9 +90,9 @@ fn shadow_virtual_volume(
             let e = shadow_table_entry(m, sv_slot(m, k, g));
             if (sv_readable(e, g)) {
                 let z0 = bitcast<f32>(e.w);
-                let reference = clamp(sv_depth(m, p.z, z0) - bias_texels * t / (2.0 * m.depthRange), 0.0, 0.99999);
+                let reference = clamp(sv_depth(m, p.z, z0) - bias_texels * t * scale / (2.0 * m.depthRange), 0.0, 0.99999);
                 let c = shadow_page_compare_blocker(m, e.z & SV_PHYS_MASK, 1.0 + (q - vec2f(g) * page) / t, reference, z0);
-                let radius = max(p.z - bias_texels * t - c.y, 0.0) * tan(max(angular_radius, 0.0));
+                let radius = sv_cone(m, size, max(p.z - bias_texels * t * scale - c.y, 0.0), p.z, c.y);
                 if (radius <= 0.5 * t) { return c.x; }
                 let rot = m.kernelRotation;
                 let o = mat2x2f(rot.x, rot.y, -rot.y, rot.x) * sv_concentric(clamp(m.texelJitter * 2.0, vec2f(-1.0), vec2f(1.0))) * radius;
@@ -97,7 +101,7 @@ fn shadow_virtual_volume(
                 if (!sv_in_window(m, k, g2)) { return c.x; }
                 let e2 = shadow_table_entry(m, sv_slot(m, k, g2));
                 if (!sv_readable(e2, g2)) { return c.x; }
-                let reference2 = clamp(sv_depth(m, p.z, bitcast<f32>(e2.w)) - bias_texels * t / (2.0 * m.depthRange), 0.0, 0.99999);
+                let reference2 = clamp(sv_depth(m, p.z, bitcast<f32>(e2.w)) - bias_texels * t * scale / (2.0 * m.depthRange), 0.0, 0.99999);
                 return shadow_page_compare(m, e2.z & SV_PHYS_MASK, 1.0 + (q2 - vec2f(g2) * page) / t, reference2);
             }
         }
@@ -124,10 +128,37 @@ fn sv_readable_level(m: ShadowMatrix, first: u32, q: vec2f) -> u32 {
  * Inclinação da profundidade da luz no plano receptor (Isidoro 2006, sem derivadas de tela: pela normal `normal` no
  * espaço da luz): dz por unidade de x e de y do plano da luz, com o rasante limitado a 85°.
  */
-fn sv_receiver_slope(m: ShadowMatrix, normal: vec3f) -> vec2f {
+fn sv_receiver_slope(m: ShadowMatrix, normal: vec3f, pl: vec3f) -> vec2f {
     let nl = (m.lightView * vec4f(normal, 0.0)).xyz;
+    if (m.kind == 1u) {
+        // Na vista em perspectiva o plano receptor é z(q) = c / (n · (q · tan, 1)): dz/dq = −z · tan · n.xy / (n · (q · tan, 1)).
+        let along = dot(nl, vec3f(pl.xy * m.origin.w, 1.0));
+        let d = select(min(along, -0.0872), max(along, 0.0872), along >= 0.0);
+        return -pl.z * m.origin.w * nl.xy / d;
+    }
     let nz = select(min(nl.z, -0.0872), max(nl.z, 0.0872), nl.z >= 0.0);
     return -nl.xy / nz;
+}
+
+/**
+ * O tamanho da fonte para a penumbra, de `size`: na vista ortográfica (a luz direcional), a tangente do raio angular
+ * do disco (`size` em rad); na em perspectiva (a luz local), o raio da fonte em metros.
+ */
+fn sv_source_size(m: ShadowMatrix, size: f32) -> f32 {
+    return select(tan(max(size, 0.0)), max(size, 0.0), m.kind == 1u);
+}
+
+/**
+ * A meia largura, no plano da vista, do que a fonte de tamanho `spread` (`sv_source_size`) cobre atrás de um bloqueador
+ * a `gap` metros (ao longo do eixo) do receptor de profundidade `z_receiver`, com o bloqueador em `z_blocker`: na vista
+ * ortográfica, gap × tan θ (m); na em perspectiva, raio × gap / z do bloqueador (triângulos semelhantes a partir da
+ * fonte), levado às coordenadas do tronco no receptor.
+ */
+fn sv_cone(m: ShadowMatrix, spread: f32, gap: f32, z_receiver: f32, z_blocker: f32) -> f32 {
+    if (m.kind == 1u) {
+        return spread * gap / (max(z_blocker, m.near) * max(z_receiver, m.near) * m.origin.w);
+    }
+    return spread * gap;
 }
 
 /** O quadrado [-1, 1]² no disco unitário, preservando as áreas (o mapa concêntrico de Shirley e Chiu 1997). */
@@ -155,6 +186,7 @@ const SV_BLOCKER_RING_SAMPLES: u32 = 8u;
  */
 fn sv_blockers(m: ShadowMatrix, k: u32, pl: vec3f, slope: vec2f, spread: f32, reach: f32, turn: mat2x2f, bias_texels: f32) -> vec2f {
     let t = sv_texel(m, k);
+    let scale = sv_metres(m, pl.z);
     let page = sv_page_size(m, k);
     var z = 0.0;
     var count = 0.0;
@@ -173,8 +205,8 @@ fn sv_blockers(m: ShadowMatrix, k: u32, pl: vec3f, slope: vec2f, spread: f32, re
         let tx = vec2u(clamp(vec2i(floor(1.0 + (q - vec2f(g) * page) / t)), vec2i(0), vec2i(i32(SV_STRIDE) - 1)));
         let d = bitcast<f32>(shadow_atlas[sv_page_word(m, e.z & SV_PHYS_MASK, tx)]);
         let blocker = (d - 0.5) * 2.0 * m.depthRange + bitcast<f32>(e.w);
-        let gap = pl.z + dot(slope, o) - bias_texels * t - blocker;
-        if (gap > 0.0 && length(o) <= spread * gap + t) {
+        let gap = pl.z + dot(slope, o) - bias_texels * t * scale - blocker;
+        if (gap > 0.0 && length(o) <= sv_cone(m, spread, gap, pl.z, blocker) + t) {
             z += blocker;
             count += 1.0;
         }
@@ -194,6 +226,11 @@ fn sv_blockers(m: ShadowMatrix, k: u32, pl: vec3f, slope: vec2f, spread: f32, re
  * desenhada fica de fora da média. Os vieses em texels do nível: a consulta sai do ponto pela normal `normal`
  * `normal_texels` texels, mais quanto mais rasante a luz `light_dir` (unitária, do ponto para a luz), e compara com
  * `bias_texels` texels de profundidade. Fora dos níveis, 1. Laços com teto constante.
+ *
+ * Na vista em perspectiva (a luz de foco, a face da pontual; spec 013, R4) a conta é a mesma no plano do tronco: o nível
+ * pela resolução na tela, a profundidade linear ao longo do eixo, e os vieses e a penumbra escalados pela distância (o
+ * texel em metros é o do plano pela profundidade e a tangente; `angular_radius` é o raio da fonte em metros — 0: a borda
+ * do texel). Fora do tronco (antes do plano próximo, além do alcance, fora da abertura), 1.
  */
 fn shadow_virtual_visibility(
     m: ShadowMatrix,
@@ -210,23 +247,33 @@ fn shadow_virtual_visibility(
     if (all(normal == vec3f(0.0))) {
         return shadow_virtual_volume(m, world_pos, bias_texels, angular_radius);
     }
-    let q0 = sv_light(m, world_pos).xy;
-    let k0 = sv_readable_level(m, sv_level(m, q0), q0);
+    let l0 = sv_light(m, world_pos);
+    // Fora do tronco da vista em perspectiva (antes do plano próximo, além do alcance): sem sombra dela.
+    if (m.kind == 1u && (l0.z < m.near || l0.z > m.far)) { return 1.0; }
+    // Na vista em perspectiva o ponto na borda do tronco (a aresta entre duas faces do cubo) conta como dentro dele.
+    let q0 = select(l0.xy, clamp(l0.xy, vec2f(-0.99999), vec2f(0.99999)), m.kind == 1u);
+    let k0 = sv_readable_level(m, sv_level_at(m, world_pos, l0), q0);
     if (k0 >= levels) { return 1.0; }
     let t0 = sv_texel(m, k0);
     let n_dot_l = clamp(dot(normal, light_dir), 0.0, 1.0);
     let sin_l = sqrt(max(1.0 - n_dot_l * n_dot_l, 0.0));
-    let pl = sv_light(m, world_pos + normal * (normal_texels * t0 * (0.5 + sin_l)));
-    let slope = sv_receiver_slope(m, normal);
+    let pl = sv_light(m, world_pos + normal * (normal_texels * t0 * sv_metres(m, l0.z) * (0.5 + sin_l)));
+    let slope = sv_receiver_slope(m, normal, pl);
+    // Metros por unidade do plano da vista no receptor (1 na ortográfica).
+    let scale = sv_metres(m, pl.z);
     let r = m.kernelRotation;
     let turn = mat2x2f(r.x, r.y, -r.y, r.x);
-    // A meia largura da penumbra (m) pelo disco da luz; sem disco, a do texel.
-    let spread = tan(max(angular_radius, 0.0));
+    // A meia largura da penumbra (no plano da vista) pelo tamanho da fonte — o disco da luz direcional, o raio da luz
+    // local; sem ele, a do texel.
+    let spread = sv_source_size(m, angular_radius);
     var penumbra = 0.0;
     if (spread > 0.0) {
-        let b = sv_blockers(m, k0, pl, slope, spread, spread * 2.0 * m.depthRange, turn, bias_texels);
+        // A maior penumbra possível: o bloqueador do outro lado da faixa de profundidade (na vista em perspectiva, no
+        // plano próximo).
+        let reach = select(spread * 2.0 * m.depthRange, sv_cone(m, spread, pl.z, pl.z, m.near), m.kind == 1u);
+        let b = sv_blockers(m, k0, pl, slope, spread, reach, turn, bias_texels);
         if (b.y == 0.0) { return 1.0; }
-        penumbra = max(pl.z - b.x, 0.0) * spread;
+        penumbra = sv_cone(m, spread, max(pl.z - b.x, 0.0), pl.z, b.x);
     }
     // O filtro no nível do receptor (o mais fino desenhado nele): as páginas dos outros níveis dependem do que os pixels
     // pediram, e o nível mudaria de um lado da borda para o outro.
@@ -257,10 +304,37 @@ fn shadow_virtual_visibility(
             let e = shadow_table_entry(m, sv_slot(m, k, g));
             if (!sv_readable(e, g)) { continue; }
             let z = pl.z + dot(slope, o);
-            let reference = clamp(sv_depth(m, z, bitcast<f32>(e.w)) - bias_texels * t / (2.0 * m.depthRange), 0.0, 0.99999);
+            let reference = clamp(sv_depth(m, z, bitcast<f32>(e.w)) - bias_texels * t * scale / (2.0 * m.depthRange), 0.0, 0.99999);
             sum += shadow_page_compare(m, e.z & SV_PHYS_MASK, 1.0 + (q - vec2f(g) * page) / t, reference);
             count += 1.0;
         }
     }
     return select(1.0, sum / count, count > 0.0);
+}
+
+/**
+ * Visibilidade da luz pontual no ponto `world_pos` pelo referencial de seis vistas `base` (as faces do cubo em volta da
+ * luz; spec 013): a face é a da direção da luz ao ponto — a do ponto já afastado da superfície pela normal (o mesmo
+ * afastamento da consulta), para a consulta não cair fora da face na aresta entre duas. O resto, `shadow_virtual_visibility`
+ * na vista da face; as amostras do filtro que passam da aresta ficam de fora da média.
+ */
+fn shadow_cube_visibility(
+    base: ShadowMatrix,
+    world_pos: vec3f,
+    normal: vec3f,
+    light_dir: vec3f,
+    bias_texels: f32,
+    normal_texels: f32,
+    samples: u32,
+    radius: f32,
+) -> f32 {
+    let levels = sv_levels(base);
+    if (levels == 0u) { return 1.0; }
+    let near = sv_face(base, sv_cube_face(world_pos - base.origin.xyz));
+    let l = sv_light(near, world_pos);
+    let k = sv_level_at(near, world_pos, l);
+    // O afastamento da consulta (até 1,5 texel do nível do ponto, em metros).
+    let lifted = world_pos + normal * (normal_texels * sv_texel(near, k) * sv_metres(near, l.z) * 1.5);
+    let m = sv_face(base, sv_cube_face(lifted - base.origin.xyz));
+    return shadow_virtual_visibility(m, world_pos, normal, light_dir, bias_texels, normal_texels, samples, radius);
 }

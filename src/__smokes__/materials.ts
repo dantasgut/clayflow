@@ -956,6 +956,8 @@ const TWO_LIGHTS_MAIN = [0.55, 0.6, 0.58] as const;
 /** As peças do caso: o centro da vela de cera (8 mm) e o da esfera de pele. */
 const TWO_LIGHTS_CANDLE: Vec3 = [-0.8, 0.85, 0];
 const twoLightsSkin = (): Vec3 => [0.9, GALLERY_R, 0.2];
+/** A distância da contraluz pontual à vela (unidades), na direção da contraluz. */
+const TWO_LIGHTS_BACK_DISTANCE = 5;
 
 /**
  * A cena do caso `subsurface-two-lights` (a 55 unidades por metro, como o quadro da subsuperfície): a vela de cera de
@@ -966,6 +968,7 @@ async function twoLightsScene(
     width: number,
     height: number,
     mainShadow: boolean,
+    back: 'directional' | 'point' = 'directional',
 ): Promise<{ app: Application; canvas: HTMLCanvasElement; look: (eye: Vec3) => void }> {
     const { app, canvas } = await materialApp(width, height, engineErrors);
     const camera = new Transform({
@@ -976,13 +979,26 @@ async function twoLightsScene(
         new Camera({ projection: 'perspective', fov: GALLERY_FOV, near: 0.5, far: 60 }).add(camera),
     );
     app.defaults.ambient.data.intensity = 0.12;
-    // A contraluz primeiro (a primeira luz com sombra), depois a principal.
+    // A contraluz primeiro (a primeira luz com sombra), depois a principal. A pontual fica a 5 unidades da vela, na
+    // direção da contraluz, com a intensidade que dá na vela a mesma iluminância da direcional (6 lux: 6 · 5² cd).
     app.world.insert(
-        new DirectionalLight({
-            direction: [...SSS_BACK.map((c) => -c), 0],
-            intensity: 6,
-            castShadow: true,
-        }),
+        back === 'directional'
+            ? new DirectionalLight({
+                  direction: [...SSS_BACK.map((c) => -c), 0],
+                  intensity: 6,
+                  castShadow: true,
+              })
+            : new PointLight({
+                  position: [
+                      TWO_LIGHTS_CANDLE[0] + TWO_LIGHTS_BACK_DISTANCE * SSS_BACK[0],
+                      TWO_LIGHTS_CANDLE[1] + TWO_LIGHTS_BACK_DISTANCE * SSS_BACK[1],
+                      TWO_LIGHTS_CANDLE[2] + TWO_LIGHTS_BACK_DISTANCE * SSS_BACK[2],
+                      1,
+                  ],
+                  intensity: 6 * TWO_LIGHTS_BACK_DISTANCE * TWO_LIGHTS_BACK_DISTANCE,
+                  range: 30,
+                  castShadow: true,
+              }),
     );
     app.world.insert(
         new DirectionalLight({
@@ -1086,6 +1102,35 @@ async function caseSubsurfaceTwoLights(): Promise<void> {
         `${name}: vela — a luz que atravessa (vermelho) ${through.toFixed(3)}; com a subsuperfície ${(lum(around(on, candle)) / lum(around(off, candle))).toFixed(2)} × sem ela (a face também recebe a principal de frente)`,
     );
     check(through > 0.02, `${name}: a contraluz não atravessa a vela (${through.toFixed(4)})`);
+    // A contraluz pontual (spec 013, T036): a espessura pelas vistas em perspectiva — a face contra ela como quando é a
+    // única luz com sombra, e a luz que atravessa a vela da mesma ordem da direcional de mesma iluminância.
+    {
+        const alone = await twoLightsScene(W, H, false, 'point');
+        const want = await renderHdr(alone.app, 40, 1500);
+        disposeApp(alone.app, alone.canvas);
+        const pair = await twoLightsScene(W, H, true, 'point');
+        const lit = await renderHdr(pair.app, 40, 1500);
+        pair.app.defaults.renderer.subsurface.enabled = false;
+        const dark = await renderHdr(pair.app, 8);
+        disposeApp(pair.app, pair.canvas);
+        for (const [piece, p] of points) {
+            log(
+                `${name}: contraluz pontual — ${piece}, as duas luzes com sombra (${fmt(around(lit, p))}); só a contraluz com sombra (${fmt(around(want, p))}): ${pct(rel3(around(lit, p), around(want, p)))}; sem a subsuperfície (${fmt(around(dark, p))})`,
+            );
+            check(
+                rel3(around(lit, p), around(want, p)) <= 0.03,
+                `${name}: contraluz pontual, ${piece} — difere do caso de uma luz com sombra (${pct(rel3(around(lit, p), around(want, p)))})`,
+            );
+        }
+        const crossing = around(lit, candle)[0] - around(dark, candle)[0];
+        log(
+            `${name}: contraluz pontual — a luz que atravessa a vela (vermelho) ${crossing.toFixed(3)}, ${(crossing / through).toFixed(2)} × a da direcional`,
+        );
+        check(
+            crossing > 0.02 && crossing / through > 0.5 && crossing / through < 2,
+            `${name}: a contraluz pontual atravessa a vela ${(crossing / through).toFixed(2)} × a direcional (${crossing.toFixed(4)})`,
+        );
+    }
     // A câmera girando em volta do alvo (0,4° por quadro, 48 quadros): a diferença entre quadros seguidos.
     const texture = both.app.resources.textureOf(both.app.defaults.targets, 'color');
     if (texture === undefined) throw new Error('alvo HDR não alocado');

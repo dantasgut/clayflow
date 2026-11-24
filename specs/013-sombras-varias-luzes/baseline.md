@@ -60,3 +60,14 @@ Buffers de storage por estágio, pela mesma medida da T002: forward 6 (só a luz
 três) — igual a antes; com três luzes com sombra, os mesmos. Estágios da sombra: iguais, salvo `sp_clear_main` 3 → 2,
 `sp_free_main` 2 → 1, `sp_fill_main` 3 → 2 (não leem mais o referencial) e `shadow_request_clear` 1 → 2 (lê o referencial
 para esvaziar só as faixas vivas). O maior segue `sp_clusters_main`, com 8.
+
+## Depois da fase 7 (T029–T036)
+
+2026-11-24, mesma medida da T002. Buffers de storage do forward: 6 (só a direcional com sombra), 7 (função), 6 (GI), 7
+(névoa), 8 (os três) — iguais a antes; com uma luz de foco e uma pontual com sombra na cena também (a pontual são seis
+vistas no mesmo `shadow_atlas`). Estágios da sombra iguais aos da fase 2: `shadow_matrix` 5 (6 com a câmera),
+`sp_instances_main` 7, `sp_clusters_main` 8, `sp_requests_main` 4, `sp_update_main` 4, `sp_allocate_main` 5,
+`shadow_depth` 6, `shadow_request` 3, `shadow_request_clear` 2.
+
+Uma direcional só: `penumbra` 1,8 % / 12,3 % / 1,6 % e 2,89 mm — igual; `sun-travel` igual, salvo o caso de 0,002° na
+origem com 177 quadros, 0,0019 % na média (era 0,0018 %; os pixels a mais de 25 %, 0,0020 %, iguais).

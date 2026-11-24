@@ -538,7 +538,8 @@ interface BoundsKernel {
  * época da C2, T060a) com as tabelas das vistas no começo, refeitas no lugar a cada quadro; os pedidos e os retângulos,
  * séries de buffer de duas fatias.
  *
- * Cada vista (um referencial: a de uma luz direcional) tem a sua faixa da tabela e dos pedidos e a sua seção do trabalho;
+ * Cada vista (um referencial: a de uma luz direcional, a de uma luz de foco, cada face do cubo de uma pontual) tem a sua
+ * faixa da tabela e dos pedidos e a sua seção do trabalho;
  * as páginas físicas e o orçamento do quadro são comuns, repartidos na GPU (a reserva grossa de cada vista primeiro,
  * depois os níveis seguintes em rodízio; a vista cujo cache recomeça não tira as páginas das outras). As etapas por vista
  * percorrem as vistas vivas com teto constante, e um passe de desenho só serve a todas: cada página suja leva a vista.
@@ -927,12 +928,12 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         const atlas = s.shadowAtlas.resource as ShadowAtlas;
         // As vistas de sombra vivas (a ordem das faixas) com o referencial alocado.
         const live: LiveShadowView[] = [];
-        const slots = new Map<number, number>();
+        const slots = new Map<number, { slot: number; face: number }>();
         for (const view of liveShadowViews(this.world, atlas)) {
             const matrix = s.matrices.slotOf(view.entity);
             if (matrix === undefined) continue;
             live.push(view);
-            slots.set(view.view, matrix);
+            slots.set(view.view, { slot: matrix, face: view.face });
         }
         const groups = s.casters.groups;
         const sprites = this.collectSprites(ctx);
@@ -983,7 +984,10 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
      * malha de sempre); a troca recomeça o cache (o conteúdo dos grupos muda).
      */
     private requestLightViews(ctx: Ctx, live: readonly LiveShadowView[]): void {
-        const wanted = live.slice(0, SHADOW_MESH_VIEWS);
+        // Só as vistas ortográficas (a luz direcional): o critério da malha da vista é o do plano da luz.
+        const wanted = live
+            .filter((v) => v.map.views[v.face]?.projection === 'orthographic')
+            .slice(0, SHADOW_MESH_VIEWS);
         const casting = new Set<Geometry>();
         for (const group of ctx.bound.slots.casters.groups) {
             if (!drawsTriangles(group.key)) continue;

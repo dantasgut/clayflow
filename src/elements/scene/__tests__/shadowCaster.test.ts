@@ -5,6 +5,8 @@ import { NONE } from '../../../scene/shaders/engineConstants';
 import { World } from '../../../scene/world/World';
 import { DirectionalLight } from '../DirectionalLight';
 import { Light } from '../Light';
+import { PointLight } from '../PointLight';
+import { SpotLight } from '../SpotLight';
 import { lightVisibilityPoint } from '../points/lighting';
 import { ShadowAtlas } from '../ShadowAtlas';
 import { liveShadowViews, shadowViewsByEvent } from '../shadowCaster';
@@ -139,6 +141,49 @@ describe('vistas de sombra por evento (spec 013, R8)', () => {
         s.atlas()!.limit({ views: 4, atlasPagesMax: 48 });
         expect(lights.map(s.viewOf)).toEqual([0, 1, 2]);
         expect(s.unavailable).toHaveLength(2);
+    });
+
+    it('a luz de foco conta uma vista e a pontual seis, na mesma conta do teto e com o mesmo aviso (spec 013, T030)', () => {
+        // Arrange: o teto de oito vistas.
+        const s = scene(8);
+        const insert = <T extends SpotLight | PointLight>(light: T): T => {
+            s.world.insert(light);
+            return light;
+        };
+        // Act: uma de foco, uma pontual, e mais uma pontual (que não cabe: sobraria uma vista).
+        const spot = insert(new SpotLight({ castShadow: true }));
+        const point = insert(new PointLight({ castShadow: true }));
+        const second = insert(new PointLight({ castShadow: true }));
+        const after = insert(new SpotLight({ castShadow: true }));
+        // Assert: as vistas de cada mapa, as faixas seguidas da pontual e as faces delas.
+        expect(spot.shadowMap!.views).toHaveLength(1);
+        expect(point.shadowMap!.views).toHaveLength(6);
+        expect(spot.shadowMap!.views[0]).toEqual({ projection: 'perspective' });
+        expect([spot, point].map((l) => l.shadowMap!.data.view)).toEqual([0, 1]);
+        const live = liveShadowViews(s.world, s.atlas()!);
+        expect(live.map((v) => [v.view, v.face])).toEqual([
+            [0, 0],
+            [1, 0],
+            [2, 1],
+            [3, 2],
+            [4, 3],
+            [5, 4],
+            [6, 5],
+        ]);
+        // A segunda pontual não cabe e é avisada; a de foco que entrou depois dela também espera (a ordem de entrada).
+        expect(second.shadowMap!.data.view).toBe(NONE.value);
+        expect(after.shadowMap!.data.view).toBe(NONE.value);
+        expect(s.unavailable).toEqual([
+            { light: second, reason: 'limit' },
+            { light: after, reason: 'limit' },
+        ]);
+        // A primeira pontual sai: a segunda fica com as seis faixas e a de foco com a última.
+        s.world.remove(point);
+        expect(second.shadowMap!.data.view).toBe(1);
+        expect(after.shadowMap!.data.view).toBe(7);
+        // A luz local sem sombra não tem mapa.
+        expect(new SpotLight().shadowMap).toBeUndefined();
+        expect(new PointLight().shadowMap).toBeUndefined();
     });
 
     it('cancelado, deixa de acompanhar a cena', () => {

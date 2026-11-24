@@ -59,6 +59,22 @@ acima de 2 minutos ou Chrome travado: parar. Só o caso do que mudou durante a i
 
 **Checkpoint**: uma luz com sombra como antes, pelo atlas único — fechado em 2026-11-24.
 
+**Pendências da fase 7** (reais):
+
+- **A penumbra pelo raio da fonte não foi medida**: as luzes de foco e pontual ganharam a opção `radius` e a leitura em
+  perspectiva tem a busca de bloqueadores escalada pela distância, mas nenhum caso de smoke a confere (os casos usam
+  raio 0: a borda do texel). Falta um caso como o `penumbra` para a luz local.
+- **Os aglomerados e os sprites em perspectiva só passaram pelo validador de WGSL**: nenhum caso de smoke desta fase tem
+  malha grande nem sprites sob luz de foco ou pontual.
+- **O cone externo acima de 1,4 rad** (80°) é preso na vista da luz de foco: a sombra vale até aí.
+- **O plano próximo das vistas em perspectiva é o alcance/1000**: o que está mais perto da luz não projeta sombra.
+- **A malha por vista da superfície adaptativa só existe para as vistas ortográficas**: sob luz de foco ou pontual a
+  superfície projeta com a malha da câmera.
+- **O nível pela resolução na tela usa a altura do canvas**, não a do alvo do quadro (iguais nos estágios padrão).
+- **`sun-travel` de uma luz**: o caso de 0,002° por quadro na origem, 177 quadros, passou de 0,0018 % para 0,0019 % na
+  média (os pixels a mais de 25 %, 0,0020 %, iguais); os outros casos e o `penumbra` ficaram iguais ao `baseline.md`. A
+  leitura ortográfica não mudou de conta, só de forma (os mesmos produtos passam por `sv_metres` e `sv_cone`).
+
 **Pendências das fases 3 a 6** (reais; entram na T046 salvo indicação):
 
 - **O reservatório esgota com três vistas de 4096²**: medido no `sun-travel` de três luzes (640 × 400), cada vista pede
@@ -153,14 +169,14 @@ acima de 2 minutos ou Chrome travado: parar. Só o caso do que mudou durante a i
 
 **Independent Test**: `spot-shadow` e `point-shadow`.
 
-- [ ] T029 [P] [US3] Teste de unidade das matrizes em `src/elements/scene/__tests__/ShadowMap.test.ts`: a vista em perspectiva da luz de foco (o cone externo) e as seis faces da pontual; a face pela direção; o nível pela resolução na tela
-- [ ] T030 [US3] `SpotLight` e `PointLight` criam o `ShadowMap` com as suas vistas (`src/elements/scene/SpotLight.ts`, `PointLight.ts`)
-- [ ] T031 [US3] [GPU] `shadow_matrix*.wgsl`: o referencial em perspectiva e as faces do cubo; `shadow_virtual*.wgsl`: a vista em perspectiva (o nível pela resolução, a profundidade linear, o bias e a penumbra pela distância)
-- [ ] T032 [US3] [GPU] `shadow_pages.wgsl` e `shadow_request.wgsl`: o recorte das instâncias e os pedidos nas vistas em perspectiva
-- [ ] T033 [US3] [GPU] `shadowContribution.ts`: a contribuição da luz de foco e da pontual (a face pela direção do ponto à luz, sem emenda)
-- [ ] T034 [US3] [GPU] Casos `spot-shadow` e `point-shadow` em `src/__smokes__/lighting.ts`: a borda da sombra contra a posição geométrica; sem emenda entre faces; nada fora do cone
-- [ ] T035 [US3] [GPU] Casos `spot-travel` e `point-travel`: a luz andando, o último quadro contra o parado (SC-002)
-- [ ] T036 [US3] [GPU] A espessura atravessada nas vistas em perspectiva (o caso `subsurface-two-lights` com a contraluz pontual)
+- [x] T029 [P] [US3] Teste de unidade das matrizes em `src/elements/scene/__tests__/ShadowMap.test.ts`: a vista em perspectiva da luz de foco (o cone externo) e as seis faces da pontual; a face pela direção; o nível pela resolução na tela — feito; a referência f64 em `reference/shadowViews.ts` e o teste ao lado dela (`reference/__tests__/shadowViews.test.ts`), antes do WGSL; as vistas declaradas por tipo de luz em `ShadowMap.test.ts`
+- [x] T030 [US3] `SpotLight` e `PointLight` criam o `ShadowMap` com as suas vistas (`src/elements/scene/SpotLight.ts`, `PointLight.ts`) — feito; uma vista (foco) e seis (pontual), em faixas seguidas; contam no teto de vistas e geram o mesmo aviso; opção `radius` (o raio da fonte, em `cones.w`)
+- [x] T031 [US3] [GPU] `shadow_matrix*.wgsl`: o referencial em perspectiva e as faces do cubo; `shadow_virtual*.wgsl`: a vista em perspectiva (o nível pela resolução, a profundidade linear, o bias e a penumbra pela distância) — feito; `shadow_matrix_local` e `sv_frame`/`sv_face`/`sv_level_at`/`sv_metres`; forward 6 buffers de storage antes e depois (8 com função, GI e névoa), com foco e pontual na cena também
+- [x] T032 [US3] [GPU] `shadow_pages.wgsl` e `shadow_request.wgsl`: o recorte das instâncias e os pedidos nas vistas em perspectiva — feito; o recorte das instâncias por página serviu em perspectiva (o retângulo dos cantos no plano do tronco; a caixa que cruza o plano próximo cobre o tronco); os aglomerados usam o retângulo no lugar da forma exata; `sp_instances_main` 7, `sp_clusters_main` 8, `shadow_request` 3: iguais
+- [x] T033 [US3] [GPU] `shadowContribution.ts`: a contribuição da luz de foco e da pontual (a face pela direção do ponto à luz, sem emenda) — feito; a face pela direção da luz ao ponto afastado pela normal; `shadow_depth` 6: igual
+- [x] T034 [US3] [GPU] Casos `spot-shadow` e `point-shadow` em `src/__smokes__/lighting.ts`: a borda da sombra contra a posição geométrica; sem emenda entre faces; nada fora do cone — medido (tolerância da borda 2 cm: um texel do mapa no chão, entre um e dois pixels de 1 cm da câmera, mais meio pixel de leitura de cada lado): `spot-shadow` borda a 3,7 mm da posição geométrica, fração da luz na sombra −0,0001 e no chão aceso 1,0000, fora do cone 0,061 % de desvio do preenchimento e 0,000 % de diferença com e sem a sombra; `point-shadow` borda a no máximo 4,6 mm em 11 colunas que cruzam a aresta das faces, maior degrau entre colunas 1,6 mm, emenda 0,000 % no chão aceso e 0,037 % na sombra
+- [x] T035 [US3] [GPU] Casos `spot-travel` e `point-travel`: a luz andando, o último quadro contra o parado (SC-002) — medido: `spot-travel` e `point-travel` (a luz andando 1 cm por quadro), 180 e 177 quadros: 0,0000 % / 0,0000 % (SC-002), com 96 mil e 91 mil pixels do chão na sombra na imagem parada
+- [x] T036 [US3] [GPU] A espessura atravessada nas vistas em perspectiva (o caso `subsurface-two-lights` com a contraluz pontual) — medido: `subsurface-two-lights` com a contraluz pontual — vela 0,00 % e pele 0,00 % contra só a contraluz com sombra; a luz que atravessa a vela 0,436 (vermelho), 1,11 × a da direcional de mesma iluminância
 
 ---
 

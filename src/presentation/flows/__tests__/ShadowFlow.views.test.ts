@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BoxGeometry } from '../../../elements/geometry/BoxGeometry';
 import { DirectionalLight } from '../../../elements/scene/DirectionalLight';
+import { PointLight } from '../../../elements/scene/PointLight';
+import { SpotLight } from '../../../elements/scene/SpotLight';
 import { ShadowAtlas } from '../../../elements/scene/ShadowAtlas';
 import { Transform } from '../../../elements/scene/Transform';
 import { ShadowPagesParamsSchema } from '../renderSchemas';
@@ -111,6 +113,34 @@ describe('ShadowFlow — as vistas de sombra no atlas único (spec 013)', () => 
         expect(lastParams(s)).toMatchObject({ viewSpan: 2, liveMask: 3, resetMask: 1 });
         s.step();
         expect(lastParams(s).resetMask).toBe(0);
+    });
+
+    it('a luz de foco e a pontual: uma e seis vistas no mesmo passe, com o referencial e a face de cada uma (spec 013, T032)', async () => {
+        // Arrange
+        const s = await renderScene();
+        registerStages(s.scene, { shadow: true });
+        const spot = new SpotLight({ position: [0, 4, 0, 1], castShadow: true });
+        const point = new PointLight({ position: [1, 2, 0, 1], castShadow: true });
+        const spotId = s.scene.world.insert(spot);
+        const pointId = s.scene.world.insert(point);
+        s.scene.world.insert(new BoxGeometry().add(new Transform()));
+        // Act
+        s.step();
+        s.step();
+        // Assert: sete vistas vivas; as seis da pontual no mesmo referencial, cada uma com a sua face.
+        const rs = s.scene.resourceSystem;
+        const params = lastParams(s);
+        expect(params).toMatchObject({ viewSpan: 7, liveMask: 0x7f });
+        const slots = [...(params.views0 as number[]), ...(params.views1 as number[])].slice(0, 7);
+        expect(slots).toEqual([
+            rs.poolSlotOf('ShadowMatrix', spotId),
+            ...Array.from({ length: 6 }, () => rs.poolSlotOf('ShadowMatrix', pointId)),
+        ]);
+        // 4 bits por vista: a de foco 0; as da pontual 0 a 5.
+        expect(params.faces0).toBe(0x5432100);
+        expect(params.faces1).toBe(0);
+        expect(s.computes().filter((c) => c === 'ShadowFlow.pages')).toHaveLength(1);
+        expect(s.draws('ShadowFlow')).toHaveLength(1);
     });
 
     it('sem luz com sombra o atlas sai da cena e o estágio não grava nada', async () => {

@@ -8,7 +8,13 @@ import {
     shadowAtlasPagesFor,
     shadowViewBases,
 } from '../ShadowAtlas';
-import { SHADOW_MAX_LEVELS, SHADOW_PAGE_WORDS, ShadowMap } from '../ShadowMap';
+import {
+    POINT_SHADOW_VIEWS,
+    SHADOW_MAX_LEVELS,
+    SHADOW_PAGE_WORDS,
+    ShadowMap,
+    SPOT_SHADOW_VIEWS,
+} from '../ShadowMap';
 
 describe('ShadowAtlas — as faixas das vistas', () => {
     it('cada vista tem a sua faixa da tabela (4 palavras por página virtual) e dos pedidos (2), a partir de v · faixa', () => {
@@ -151,6 +157,52 @@ describe('ShadowAtlas — o Resource', () => {
         expect([a, c].map((m) => m.data.view)).toEqual([0, 2]);
         // A faixa reusada muda de geração (o cache dela recomeça); as demais não.
         expect(atlas.generationOf(1)).toBeGreaterThan(atlas.generationOf(0));
+    });
+
+    it('o mapa de várias vistas (a pontual: seis) ocupa faixas seguidas; espalhadas, as vistas vivas são reagrupadas', () => {
+        // Arrange: oito faixas; uma de foco, uma pontual e outra de foco.
+        const atlas = new ShadowAtlas({ views: 8 });
+        const spotA = new ShadowMap({}, SPOT_SHADOW_VIEWS);
+        const point = new ShadowMap({}, POINT_SHADOW_VIEWS);
+        const spotB = new ShadowMap({}, SPOT_SHADOW_VIEWS);
+        // Act + Assert: a pontual fica com as seis faixas a partir da 1; a outra de foco, com a 7.
+        expect(atlas.assign(spotA)).toBe(true);
+        expect(atlas.assign(point)).toBe(true);
+        expect(atlas.assign(spotB)).toBe(true);
+        expect([spotA, point, spotB].map((m) => m.data.view)).toEqual([0, 1, 7]);
+        expect(atlas.views).toEqual([spotA, point, point, point, point, point, point, spotB]);
+        expect(atlas.data.live).toBe(8);
+        // Sem faixa livre, nada entra.
+        const extra = new ShadowMap({}, SPOT_SHADOW_VIEWS);
+        expect(atlas.assign(extra)).toBe(false);
+        // A pontual sai: as seis ficam livres; as de foco não se movem.
+        atlas.release(point);
+        expect(atlas.views).toEqual([spotA, ...Array.from({ length: 6 }, () => undefined), spotB]);
+        expect(atlas.data.live).toBe(2);
+        // Três de foco entram nas livres; a que sai do meio deixa as livres espalhadas (2 e 5–6 não: 4 livres ao todo,
+        // nenhum trecho de seis) — uma pontual não cabe; cabe depois de sair mais gente, com as vivas reagrupadas.
+        const spots = Array.from({ length: 3 }, () => new ShadowMap({}, SPOT_SHADOW_VIEWS));
+        for (const m of spots) atlas.assign(m);
+        expect(spots.map((m) => m.data.view)).toEqual([1, 2, 3]);
+        expect(atlas.assign(point)).toBe(false);
+        atlas.release(spots[0]!);
+        atlas.release(spots[1]!);
+        atlas.release(spotA);
+        // Livres: 0, 1, 2, 4, 5, 6 — seis, em dois trechos. A pontual entra com as vivas juntas no começo.
+        const moved = atlas.generationOf(1);
+        expect(atlas.assign(point)).toBe(true);
+        expect([spots[2]!, spotB, point].map((m) => m.data.view)).toEqual([0, 1, 2]);
+        expect(atlas.views).toEqual([spots[2], spotB, point, point, point, point, point, point]);
+        // As faixas que mudaram de dono mudaram de geração (o cache delas recomeça).
+        expect(atlas.generationOf(1)).toBeGreaterThan(moved);
+    });
+
+    it('o reservatório cresce com os mapas vivos, não com as vistas: as seis faces da pontual repartem o de um mapa', () => {
+        const atlas = new ShadowAtlas({ maxBindingSize: 2 ** 32 });
+        atlas.assign(new ShadowMap({}, POINT_SHADOW_VIEWS));
+        expect(atlas.data).toMatchObject({ pagesPerLevel: 32, atlasPages: 32, live: 6 });
+        atlas.assign(new ShadowMap({}, SPOT_SHADOW_VIEWS));
+        expect(atlas.data).toMatchObject({ atlasPages: 46, live: 7 });
     });
 
     it('a faixa tem as páginas por nível do maior mapa vivo, e as páginas físicas seguem as vistas vivas', () => {

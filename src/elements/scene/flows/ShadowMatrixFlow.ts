@@ -19,7 +19,6 @@ import {
 } from '../../../scene/flows/slots';
 import type { World } from '../../../scene/world/World';
 import { Camera } from '../Camera';
-import { DirectionalLight } from '../DirectionalLight';
 import { Light } from '../Light';
 import { ShadowAtlas } from '../ShadowAtlas';
 import { ShadowMap } from '../ShadowMap';
@@ -96,6 +95,8 @@ export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
     private readonly work: ShadowMatrixWork;
     private readonly resources: ResourceDirectory;
     private readonly world: World;
+    /** O core só para consultas (o tamanho do canvas). */
+    private readonly core: FlowContext['core'];
     private count = 0;
     private written = '';
     /** Há câmera ativa no quadro (o pipeline com a câmera, quando pronto) e ele já foi pedido. */
@@ -110,6 +111,7 @@ export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
         this.work = work;
         this.resources = ctx.resources;
         this.world = ctx.world;
+        this.core = ctx.core;
         // Os parâmetros: escritos pela CPU quando mudam (`writeNow`, antes da gravação do quadro).
         work.use({
             descriptors: () => [
@@ -126,7 +128,7 @@ export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
             matrices: slot.poolChannel(ShadowMap.matrixSchema.name),
             maps: slot.pool(ShadowMap.schema.name),
             casters: slot.entities({
-                all: [DirectionalLight, ShadowMap],
+                all: [Light, ShadowMap],
                 record: shadowRecord,
                 groups: {
                     schema: ShadowMatrixInstanceSchema,
@@ -186,6 +188,17 @@ export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
         const id = camera === undefined ? undefined : this.world.entityIdOfResource(camera);
         const cameraSlot = id === undefined ? undefined : ctx.bound.slots.cameras?.slotOf(id);
         const far = camera?.data.far ?? 100;
+        // O pixel da câmera (o nível das vistas em perspectiva pela resolução na tela): o ângulo de um pixel na câmera
+        // em perspectiva, o tamanho dele na ortográfica; sem câmera, um milésimo de radiano.
+        const height = Math.max(1, this.core.canvasSize()?.height ?? 1);
+        const orthographic = camera?.data.projection === 1;
+        const pixelAngle =
+            camera === undefined
+                ? 1e-3
+                : orthographic
+                  ? 0
+                  : (2 * Math.tan(camera.data.fov / 2)) / height;
+        const pixelSize = orthographic ? (camera?.data.orthoHeight ?? 0) / height : 0;
         this.hasCamera = cameraSlot !== undefined;
         if (this.hasCamera && !this.cameraPrepared) {
             ctx.prepare({
@@ -207,6 +220,8 @@ export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
             hasCamera: cameraSlot === undefined ? 0 : 1,
             far,
             previousValid,
+            pixelAngle,
+            pixelSize,
         };
         const key = JSON.stringify(values);
         if (key === this.written) return;

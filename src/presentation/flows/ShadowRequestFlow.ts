@@ -151,10 +151,10 @@ export class ShadowRequestFlow extends Flow<ShadowRequestSlots, 'idle'> {
         const s = c.bound.slots;
         const sceneDepth = s.sceneDepth;
         const atlas = s.shadowAtlas.resource as ShadowAtlas;
-        const slots = new Map<number, number>();
+        const slots = new Map<number, { slot: number; face: number }>();
         for (const live of liveShadowViews(this.world, atlas)) {
             const matrix = s.matrices.slotOf(live.entity);
-            if (matrix !== undefined) slots.set(live.view, matrix);
+            if (matrix !== undefined) slots.set(live.view, { slot: matrix, face: live.face });
         }
         const camera = s.camera?.resource;
         const cameraId = camera === undefined ? undefined : this.world.entityIdOfResource(camera);

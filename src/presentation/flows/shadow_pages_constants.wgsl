@@ -67,6 +67,8 @@ const SP_DIRTY_PHYS_MASK: u32 = 0xFFFFu;
 const SP_DIRTY_LEVEL_SHIFT: u32 = 16u;
 const SP_DIRTY_VIEW_SHIFT: u32 = 20u;
 const SP_DIRTY_FIELD_MASK: u32 = 0xFu;
+/** O retângulo, no plano de uma vista em perspectiva, da caixa que cruza o plano próximo dela: o tronco inteiro e a borda. */
+const SP_FRUSTUM_REACH: f32 = 2.0;
 /** Rodadas da busca do rodízio entre as vistas (uma fila tem até 4096 páginas: 64² por nível). */
 const SP_ROUND_STEPS: u32 = 13u;
 const SP_ROUND_MAX: u32 = 4096u;

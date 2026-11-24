@@ -73,7 +73,15 @@ export function shadowViewsByEvent(
             const target = atlas ?? new ShadowAtlas(limits());
             atlas = target;
             target.watch(settle);
-            const chosen = casting.slice(0, target.data.views);
+            // As primeiras, na ordem de entrada, cujas vistas somadas cabem no teto (o mapa de uma luz de foco conta uma
+            // vista, o de uma pontual seis); a primeira que não cabe e as que vêm depois dela esperam.
+            let room = target.data.views;
+            let fit = 0;
+            while (fit < casting.length && casting[fit]!.map.views.length <= room) {
+                room -= casting[fit]!.map.views.length;
+                fit++;
+            }
+            const chosen = casting.slice(0, fit);
             // Primeiro saem as que não projetam mais ou passaram do teto; depois entram as escolhidas, em ordem.
             for (const map of maps) if (!chosen.some((c) => c.map === map)) target.release(map);
             for (const { map, light } of chosen) {
@@ -82,7 +90,7 @@ export function shadowViewsByEvent(
             }
             // Depois das vistas dadas: a C2 aloca o atlas já no tamanho delas.
             if (created) world.insert(target);
-            for (const { light } of casting.slice(target.data.views)) {
+            for (const { light } of casting.slice(fit)) {
                 if (warned.has(light)) continue;
                 warned.add(light);
                 events.emit('shadowUnavailable', { light, reason: 'limit' });
@@ -119,11 +127,15 @@ export function shadowViewsByEvent(
     };
 }
 
-/** Uma vista de sombra viva: o índice da faixa dela no atlas, o mapa e a entidade da luz que o tem. */
+/**
+ * Uma vista de sombra viva: o índice da faixa dela no atlas, o mapa, a entidade da luz que o tem e qual das vistas do
+ * mapa ela é (`face`: 0 no mapa de uma vista; 0 a 5 nas faces do cubo da pontual).
+ */
 export interface LiveShadowView {
     readonly view: number;
     readonly map: ShadowMap;
     readonly entity: EntityId;
+    readonly face: number;
 }
 
 /**
@@ -136,7 +148,7 @@ export function liveShadowViews(world: World, atlas: ShadowAtlas): readonly Live
     atlas.views.forEach((map, view) => {
         if (map === undefined) return;
         const entity = world.entityIdOfResource(map);
-        if (entity !== undefined) out.push({ view, map, entity });
+        if (entity !== undefined) out.push({ view, map, entity, face: view - map.data.view });
     });
     return out;
 }

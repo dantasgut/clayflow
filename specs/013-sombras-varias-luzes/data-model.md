@@ -53,6 +53,12 @@ Os campos de hoje (`lightView`, `viewProjection`, `camera`, `direction`, `cacheD
 | `origin`      | a posição da luz (vistas em perspectiva)                                  |
 | `near`, `far` | os planos da vista em perspectiva                                         |
 
+E, para as vistas em perspectiva (fase 7): a tangente do meio ângulo em `origin.w`; `eye` (a posição da câmera e, em
+`w`, o tamanho do pixel da câmera ortográfica) e `pixel` (o ângulo de um pixel da câmera em perspectiva), para o nível
+pela resolução na tela; `views` (as vistas do mapa: 6 na pontual) e `stripWords` (as palavras da tabela de uma faixa).
+Há um registro por mapa: o da pontual guarda a origem e a faixa da primeira face, e o de cada face sai dele (`sv_face`:
+o referencial da face e a faixa seguinte).
+
 Série 037 de profundidade 2, como hoje: o referencial anterior decide se o cache da vista vale (a direção, o primeiro
 nível, as páginas e as bases iguais). A luz com `castShadow` desligado e o mapa sem vista ficam com o referencial vazio
 (nenhum nível).
@@ -70,7 +76,9 @@ de sombra e dos pedidos as percorrem pelo índice da faixa (`liveShadowViews`), 
 
 ## Luzes
 
-- `DirectionalLight`, `SpotLight`, `PointLight`: `castShadow` cria o `ShadowMap` (hoje só a direcional).
+- `DirectionalLight`, `SpotLight`, `PointLight`: `castShadow` cria o `ShadowMap` com as vistas do tipo (1, 1 e 6). A de
+  foco e a pontual aceitam `radius` (o raio da fonte em metros, para a penumbra; em `cones.w`). No teto de vistas a
+  pontual conta seis; a primeira luz que não cabe e as que entraram depois dela esperam.
 - `RectLight`: passa a aceitar `castShadow`; não tem `ShadowMap` — tem um índice de luz de área com sombra.
 - Uma luz que desliga `castShadow` sai das vistas vivas e libera a faixa (pelo envio do pool das luzes); ligada de novo,
   volta a ter uma, na ordem de entrada.

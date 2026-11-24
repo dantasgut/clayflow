@@ -6,6 +6,7 @@ export { Parent } from './Parent';
 export { Light, type LightData, type LightValues } from './Light';
 export { DirectionalLight } from './DirectionalLight';
 export { PointLight } from './PointLight';
+export type { PointLightValues } from './PointLight';
 export { SpotLight } from './SpotLight';
 export type { SpotLightValues } from './SpotLight';
 export { RectLight } from './RectLight';
