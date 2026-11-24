@@ -96,7 +96,10 @@ const skinGrain = (scale: number, octaves: number, seed: number) =>
  * A penugem é um lobo de fibra fraco (`fuzz_color`): o brilho rasante no contorno. Três entradas por região, para
  * quem monta o rosto (sem ligação valem 1): `blood_mask` multiplica a vermelhidão (as bochechas, o nariz, as
  * orelhas), `oil_mask` o brilho do óleo (a testa, o nariz, os lábios) e `tint` a cor (os lábios).
- * Parâmetros: `melanin`, `blood`, `freckles`, `oil`, `fuzz_color`, `light_color`, `dark_color`, `flush_color`, `radius`,
+ * `relief` (sem ligação, zero) soma um relevo em milímetros ao dos poros: os vincos e as rugas, de
+ * `surface.solidRelief`.
+ * `sallow` em [0, 1] é o quanto o amarelado desigual entra (0,2).
+ * Parâmetros: `melanin`, `blood`, `freckles`, `oil`, `sallow`, `fuzz_color`, `light_color`, `dark_color`, `flush_color`, `radius`,
  * `roughness`, `oil_roughness`, `ior`, `pore_height`, `fold_height`, `scale`, `pattern_scale`.
  */
 export const skinDetailed = Subgraph.point(
@@ -107,6 +110,8 @@ export const skinDetailed = Subgraph.point(
             blood_mask: graphArgument('blood_mask'),
             oil_mask: graphArgument('oil_mask'),
             tint: graphArgument('tint'),
+            // O relevo a mais de quem monta o rosto (os vincos, as rugas: a saída de `surface.solidRelief`), somado.
+            relief: graphArgument('relief'),
             solid: surface.solidSpace,
             tile: math.value.with({ value: 1 }),
             world: math.value.with({ value: 1 }),
@@ -147,7 +152,7 @@ export const skinDetailed = Subgraph.point(
             toned: math.mix3,
             yellow: math.value3.with({ value: [1, 0.92, 0.74] }),
             yellowed: math.mul3,
-            yellow_amount: map.range.with({ in_min: -0.3, in_max: 0.4, out_min: 0, out_max: 0.4 }),
+            yellow_amount: map.range.with({ in_min: -0.3, in_max: 0.4, out_min: 0, out_max: 0.2 }),
             uneven_tone: math.mix3,
             tinted: math.mul3,
             body: bsdf.subsurface.with({ radius: [2.2, 1.1, 0.85] }),
@@ -169,6 +174,7 @@ export const skinDetailed = Subgraph.point(
             pore_relief: surface.solidRelief.with({ height: 0.12 }),
             fold_relief: surface.solidRelief.with({ height: 0.08 }),
             height: math.add3,
+            folded: math.add3,
             normal: surface.reliefNormal,
             out: closure.normal,
         },
@@ -255,7 +261,9 @@ export const skinDetailed = Subgraph.point(
             ['solid.dv', 'fold_relief.dv'],
             ['pore_relief.value', 'height.a'],
             ['fold_relief.value', 'height.b'],
-            ['height.value', 'normal.relief'],
+            ['height.value', 'folded.a'],
+            ['relief.value', 'folded.b'],
+            ['folded.value', 'normal.relief'],
             ['world.value', 'normal.scale'],
             ['sum.value', 'soft.a'],
             ['fuzz.value', 'soft.b'],
@@ -266,13 +274,26 @@ export const skinDetailed = Subgraph.point(
     }),
     {
         name: 'material.skinDetailed',
-        inputs: { s: 'SurfaceSample', blood_mask: 'f32', oil_mask: 'f32', tint: 'vec3f' },
-        defaults: { s: 's', blood_mask: '1.0', oil_mask: '1.0', tint: 'vec3f(1.0)' },
+        inputs: {
+            s: 'SurfaceSample',
+            blood_mask: 'f32',
+            oil_mask: 'f32',
+            tint: 'vec3f',
+            relief: 'vec3f',
+        },
+        defaults: {
+            s: 's',
+            blood_mask: '1.0',
+            oil_mask: '1.0',
+            tint: 'vec3f(1.0)',
+            relief: 'vec3f(0.0)',
+        },
         expose: [
             ['melanin.value', 'melanin'],
             ['blood.value', 'blood'],
             ['freckles.value', 'freckles'],
             ['oil.value', 'oil'],
+            ['yellow_amount.out_max', 'sallow'],
             ['light.value', 'light_color'],
             ['dark.value', 'dark_color'],
             ['flush.value', 'flush_color'],
@@ -393,7 +414,7 @@ export const lips = Subgraph.point(
  * `material.eye` — o globo ocular: a esclera branca, translúcida, com os vasos finos (`veins` em [0, 1],
  * `vein_color`), a íris — de `iris_color` junto da pupila a `iris_edge_color` na borda, riscada pelas fibras radiais do
  * estroma e fechada pelo anel escuro do limbo —, a pupila preta e, por cima de tudo, a córnea molhada: a interface lisa
- * (IOR 1,376, `roughness` 0,03), que dá o reflexo das luzes. A íris é sombreada como o disco fundo que é (`iris_depth`,
+ * (IOR 1,376, `roughness` 0,012: o filme de lágrima, liso como vidro), que dá o reflexo das luzes. A íris é sombreada como o disco fundo que é (`iris_depth`,
  * −1,6 mm no centro: a normal de uma tigela), e a esclera escurece e fica rosada dos cantos para trás. A geometria é uma esfera centrada na origem do
  * objeto, com o olhar ao longo de `axis` (+z); `iris_size` é o raio da íris na esfera unitária (0,49: 11,7 mm num
  * globo de 24 mm) e `pupil_size` o da pupila como fração do da íris. O corpo é subsuperfície (`radius`, (0,6; 0,45;
@@ -443,7 +464,7 @@ export const eye = Subgraph.point(
             bowl: surface.solidRelief.with({ height: -1.6 }),
             hollow: surface.reliefNormal,
             deep: closure.normal,
-            cornea: bsdf.dielectric.with({ ior: 1.376, roughness: 0.03 }),
+            cornea: bsdf.dielectric.with({ ior: 1.376, roughness: 0.012 }),
             out: closure.add,
         },
         links: [

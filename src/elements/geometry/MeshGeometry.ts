@@ -38,6 +38,18 @@ export interface ObjOptions {
     readonly scale?: number;
     /** Soma às posições, depois da escala ((0, 0, 0)). */
     readonly offset?: readonly [number, number, number];
+    /**
+     * Níveis de subdivisão de Catmull-Clark antes de triangular (0): cada nível troca cada face por um quadrilátero por
+     * canto e alisa as posições — a malha de poucas faces (a base de um modelador) fica lisa na silhueta e nas dobras.
+     * Cada nível multiplica as faces por cerca de quatro.
+     */
+    readonly subdivide?: number;
+}
+
+/** Um canto de face: os índices da posição e do uv. */
+interface ObjCorner {
+    readonly p: number;
+    readonly t: number;
 }
 
 /**
@@ -161,13 +173,9 @@ export class MeshGeometry extends Geometry<MeshGeometryData> {
         const scale = options.scale ?? 1;
         const [ox, oy, oz] = options.offset ?? [0, 0, 0];
         const groups = options.groups === undefined ? undefined : new Set(options.groups);
-        const points: number[] = [];
-        const coords: number[] = [];
-        const corners = new Map<string, number>();
-        const positions: number[] = [];
-        const uvs: number[] = [];
-        const owner: number[] = [];
-        const indices: number[] = [];
+        let points: number[] = [];
+        let coords: number[] = [];
+        let faces: ObjCorner[][] = [];
         let active = groups === undefined;
         for (const line of text.split('\n')) {
             const part = line.trim().split(/\s+/);
@@ -183,41 +191,52 @@ export class MeshGeometry extends Geometry<MeshGeometryData> {
             } else if (kind === 'g') {
                 active = groups === undefined || groups.has(part[1] ?? '');
             } else if (kind === 'f' && active) {
-                const face = part.slice(1).map((corner) => {
-                    const [p, t] = corner.split('/');
-                    const pi = Number(p);
-                    const ti = t === undefined || t === '' ? 0 : Number(t);
+                const face = part.slice(1).map((corner): ObjCorner => {
+                    const [pi, ti] = corner.split('/');
+                    const pn = Number(pi);
+                    const tn = ti === undefined || ti === '' ? 0 : Number(ti);
                     return {
-                        p: pi < 0 ? points.length / 3 + pi : pi - 1,
-                        t: ti < 0 ? coords.length / 2 + ti : ti - 1,
+                        p: pn < 0 ? points.length / 3 + pn : pn - 1,
+                        t: tn < 0 ? coords.length / 2 + tn : tn - 1,
                     };
                 });
                 if (face.length < 3) continue;
                 if (options.keep !== undefined) {
                     let [cx, cy, cz] = [0, 0, 0];
-                    for (const { p } of face) {
-                        cx += points[p * 3]!;
-                        cy += points[p * 3 + 1]!;
-                        cz += points[p * 3 + 2]!;
+                    for (const { p: at } of face) {
+                        cx += points[at * 3]!;
+                        cy += points[at * 3 + 1]!;
+                        cz += points[at * 3 + 2]!;
                     }
                     if (!options.keep(cx / face.length, cy / face.length, cz / face.length)) {
                         continue;
                     }
                 }
-                const at = face.map(({ p, t }) => {
-                    const key = `${p}/${t}`;
-                    let index = corners.get(key);
-                    if (index === undefined) {
-                        index = owner.length;
-                        corners.set(key, index);
-                        owner.push(p);
-                        positions.push(points[p * 3]!, points[p * 3 + 1]!, points[p * 3 + 2]!);
-                        uvs.push(coords[t * 2] ?? 0, coords[t * 2 + 1] ?? 0);
-                    }
-                    return index;
-                });
-                for (let k = 1; k + 1 < at.length; k++) indices.push(at[0]!, at[k]!, at[k + 1]!);
+                faces.push(face);
             }
+        }
+        for (let level = 0; level < (options.subdivide ?? 0); level++) {
+            ({ points, coords, faces } = MeshGeometry.catmullClark(points, coords, faces));
+        }
+        const corners = new Map<string, number>();
+        const positions: number[] = [];
+        const uvs: number[] = [];
+        const owner: number[] = [];
+        const indices: number[] = [];
+        for (const face of faces) {
+            const at = face.map(({ p: pi, t: ti }) => {
+                const key = `${pi}/${ti}`;
+                let index = corners.get(key);
+                if (index === undefined) {
+                    index = owner.length;
+                    corners.set(key, index);
+                    owner.push(pi);
+                    positions.push(points[pi * 3]!, points[pi * 3 + 1]!, points[pi * 3 + 2]!);
+                    uvs.push(coords[ti * 2] ?? 0, coords[ti * 2 + 1] ?? 0);
+                }
+                return index;
+            });
+            for (let k = 1; k + 1 < at.length; k++) indices.push(at[0]!, at[k]!, at[k + 1]!);
         }
         if (indices.length === 0) throw new RangeError('MeshGeometry.fromObj: nenhuma face lida.');
         // As normais por posição do arquivo: os vértices repetidos na costura do uv recebem a mesma.
@@ -228,6 +247,155 @@ export class MeshGeometry extends Geometry<MeshGeometryData> {
         const normals = new Float32Array(owner.length * 3);
         owner.forEach((p, i) => normals.set(shared.subarray(p * 3, p * 3 + 3), i * 3));
         return new MeshGeometry({ positions, indices, normals, uvs });
+    }
+
+    /**
+     * Um nível de Catmull-Clark (1978) sobre as faces `faces` (cantos de posição e uv): um ponto por face (a média dos
+     * cantos), um por aresta (a média das pontas e dos pontos das duas faces; na borda, o meio) e as posições
+     * antigas movidas para (F + 2R + (n − 3)P)/n — F a média dos pontos das faces vizinhas, R a dos meios das arestas, n
+     * a valência; na borda, ⅛ dos dois vizinhos de borda e ¾ da própria. Cada face vira um quadrilátero por canto. Os
+     * uvs são interpolados dentro de cada face (a costura do uv fica onde estava).
+     */
+    private static catmullClark(
+        points: number[],
+        coords: number[],
+        faces: ObjCorner[][],
+    ): { points: number[]; coords: number[]; faces: ObjCorner[][] } {
+        const count = points.length / 3;
+        const out = points.slice();
+        const uv = coords.slice();
+        const at = (i: number): [number, number, number] => [
+            points[i * 3]!,
+            points[i * 3 + 1]!,
+            points[i * 3 + 2]!,
+        ];
+        // Os pontos das faces.
+        const facePoint: number[] = [];
+        const faceUv: number[] = [];
+        for (const face of faces) {
+            const c = [0, 0, 0];
+            const w = [0, 0];
+            for (const { p, t } of face) {
+                const q = at(p);
+                c[0]! += q[0];
+                c[1]! += q[1];
+                c[2]! += q[2];
+                w[0]! += coords[t * 2] ?? 0;
+                w[1]! += coords[t * 2 + 1] ?? 0;
+            }
+            facePoint.push(out.length / 3);
+            out.push(c[0]! / face.length, c[1]! / face.length, c[2]! / face.length);
+            faceUv.push(uv.length / 2);
+            uv.push(w[0]! / face.length, w[1]! / face.length);
+        }
+        // As arestas: as pontas, as faces que as usam e o ponto novo.
+        interface Edge {
+            readonly a: number;
+            readonly b: number;
+            readonly faces: number[];
+            point: number;
+        }
+        const edges = new Map<number, Edge>();
+        const edgeKey = (a: number, b: number): number => Math.min(a, b) * count + Math.max(a, b);
+        faces.forEach((face, f) => {
+            face.forEach((corner, i) => {
+                const next = face[(i + 1) % face.length]!;
+                const key = edgeKey(corner.p, next.p);
+                const edge = edges.get(key);
+                if (edge === undefined)
+                    edges.set(key, { a: corner.p, b: next.p, faces: [f], point: -1 });
+                else edge.faces.push(f);
+            });
+        });
+        const sumFace = new Float64Array(count * 3);
+        const sumEdge = new Float64Array(count * 3);
+        const valence = new Uint32Array(count);
+        const faceCount = new Uint32Array(count);
+        const border = new Float64Array(count * 3);
+        const borderCount = new Uint32Array(count);
+        for (const edge of edges.values()) {
+            const [a, b] = [at(edge.a), at(edge.b)];
+            const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+            const inside = edge.faces.length === 2;
+            edge.point = out.length / 3;
+            if (inside) {
+                const [f0, f1] = [facePoint[edge.faces[0]!]! * 3, facePoint[edge.faces[1]!]! * 3];
+                out.push(
+                    (a[0] + b[0] + out[f0]! + out[f1]!) / 4,
+                    (a[1] + b[1] + out[f0 + 1]! + out[f1 + 1]!) / 4,
+                    (a[2] + b[2] + out[f0 + 2]! + out[f1 + 2]!) / 4,
+                );
+            } else out.push(mid[0]!, mid[1]!, mid[2]!);
+            for (const [v, other] of [
+                [edge.a, b],
+                [edge.b, a],
+            ] as const) {
+                for (let c = 0; c < 3; c++) sumEdge[v * 3 + c]! += mid[c]!;
+                valence[v]!++;
+                if (!inside) {
+                    for (let c = 0; c < 3; c++) border[v * 3 + c]! += other[c]!;
+                    borderCount[v]!++;
+                }
+            }
+        }
+        faces.forEach((face, f) => {
+            const fp = facePoint[f]! * 3;
+            for (const { p } of face) {
+                for (let c = 0; c < 3; c++) sumFace[p * 3 + c]! += out[fp + c]!;
+                faceCount[p]!++;
+            }
+        });
+        for (let v = 0; v < count; v++) {
+            const n = valence[v]!;
+            if (n === 0) continue;
+            const onBorder = borderCount[v] ?? 0;
+            const around = faceCount[v] ?? 0;
+            for (let c = 0; c < 3; c++) {
+                const p = points[v * 3 + c]!;
+                if (onBorder === 2) out[v * 3 + c] = 0.75 * p + 0.125 * border[v * 3 + c]!;
+                else if (onBorder === 0 && around > 0) {
+                    out[v * 3 + c] =
+                        (sumFace[v * 3 + c]! / around + (2 * sumEdge[v * 3 + c]!) / n + (n - 3) * p)
+                        / n;
+                }
+            }
+        }
+        // As faces novas: um quadrilátero por canto; o uv do meio de cada aresta, por par de uvs (a costura fica).
+        const edgeUv = new Map<string, number>();
+        const midUv = (t0: number, t1: number): number => {
+            const key = t0 < t1 ? `${t0}/${t1}` : `${t1}/${t0}`;
+            let index = edgeUv.get(key);
+            if (index === undefined) {
+                index = uv.length / 2;
+                edgeUv.set(key, index);
+                uv.push(
+                    ((coords[t0 * 2] ?? 0) + (coords[t1 * 2] ?? 0)) / 2,
+                    ((coords[t0 * 2 + 1] ?? 0) + (coords[t1 * 2 + 1] ?? 0)) / 2,
+                );
+            }
+            return index;
+        };
+        const next: ObjCorner[][] = [];
+        faces.forEach((face, f) => {
+            const k = face.length;
+            face.forEach((corner, i) => {
+                const after = face[(i + 1) % k]!;
+                const before = face[(i + k - 1) % k]!;
+                next.push([
+                    corner,
+                    {
+                        p: edges.get(edgeKey(corner.p, after.p))!.point,
+                        t: midUv(corner.t, after.t),
+                    },
+                    { p: facePoint[f]!, t: faceUv[f]! },
+                    {
+                        p: edges.get(edgeKey(before.p, corner.p))!.point,
+                        t: midUv(before.t, corner.t),
+                    },
+                ]);
+            });
+        });
+        return { points: out, coords: uv, faces: next };
     }
 
     /** Declara os vértices, os índices e as arestas de arame. */
