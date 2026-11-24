@@ -113,6 +113,10 @@ function check(ok: boolean, msg: string): void {
 }
 
 const lum = luminanceLinear;
+/** A saturação de uma cor linear: (máximo − mínimo) / máximo (0 no cinza). */
+const saturation = (c: readonly number[]): number =>
+    (Math.max(c[0]!, c[1]!, c[2]!) - Math.min(c[0]!, c[1]!, c[2]!))
+    / Math.max(c[0]!, c[1]!, c[2]!, 1e-6);
 
 /** Sem a luz ambiente: só as luzes da cena (e a emissão) iluminam. */
 function noAmbient(app: Application): void {
@@ -2467,6 +2471,10 @@ interface DisplacedFrame {
     readonly measure?: DisplacedMeasure;
     /** O painel principal do estúdio (`GALLERY_PANELS`) além das luzes do quadro, com essa luminância. */
     readonly panel?: number;
+    /** De onde vem a luz rasante com sombra (o padrão: `RELIEF_KEY`). */
+    readonly key?: Vec3;
+    /** O albedo do chão e da parede do fundo (o padrão: 0,12). */
+    readonly backdrop?: number;
 }
 type DisplacedName =
     | 'sandstone'
@@ -2780,6 +2788,93 @@ const measureWood: DisplacedMeasure = (img, at, radius, plain) => {
     );
 };
 
+/** As peças do quadro do pinho: com a subsuperfície e o deslocamento, e sem os dois. */
+const PINE_BOTH = 'woodPineFine';
+const PINE_PLAIN = 'sem SSS, sem deslocamento';
+/**
+ * A luz rasante do quadro do pinho (de onde vem): do alto e um pouco da esquerda, a uns 25° da face voltada para a
+ * câmera e atravessada ao veio (que corre na horizontal da esfera) — as cristas do lenho tardio fazem sombra fina nos
+ * sulcos; ao longo do veio a luz não faria sombra neles.
+ */
+const PINE_KEY: Vec3 = [-0.4, 0.9, -0.05];
+
+/**
+ * As medidas do quadro do pinho, sem meta apertada: o par difere na silhueta (o contorno dos dois lados, onde o veio
+ * chega à borda: serrilhado na esfera deslocada, liso na outra) e no fundo dos sulcos (a sombra deles na esfera
+ * deslocada, com a difusão da subsuperfície ligada e desligada no renderizador: ligada, o fundo clareia).
+ */
+const measurePine: DisplacedMeasure = (img, at, radius, plain) => {
+    if (plain === undefined) return;
+    const focal = img.height / 2 / Math.tan(GALLERY_FOV / 2);
+    const forward = unit3(sub3(GALLERY_TARGET, GALLERY_EYE));
+    const disc = (label: string): [number, number, number] => {
+        const c = at.get(label)!;
+        const [cx, cy] = galleryPixel(c, img.width, img.height);
+        return [cx, cy, (focal * radius) / dot3(sub3(c, GALLERY_EYE), forward)];
+    };
+    // O contorno dos dois lados (± 40° da horizontal, 60 direções de cada lado): o raio em que a saturação passa da
+    // do fundo neutro à da madeira, menos a média móvel de 9 direções.
+    const rim = (label: string): number => {
+        const [cx, cy, rp] = disc(label);
+        let sum = 0;
+        let count = 0;
+        for (const side of [0, Math.PI]) {
+            const radii: number[] = [];
+            for (let k = 0; k < 60; k++) {
+                const a = side + ((k / 59 - 0.5) * 80 * Math.PI) / 180;
+                for (let r = 1.15 * rp; r > 0.85 * rp; r -= 0.25)
+                    if (
+                        saturation(
+                            hdrAt(
+                                img,
+                                Math.round(cx + r * Math.cos(a)),
+                                Math.round(cy - r * Math.sin(a)),
+                            ),
+                        ) > 0.2
+                    ) {
+                        radii.push(r);
+                        break;
+                    }
+            }
+            for (let k = 4; k + 4 < radii.length; k++) {
+                let mean = 0;
+                for (let j = -4; j <= 4; j++) mean += radii[k + j]! / 9;
+                sum += (radii[k]! - mean) ** 2;
+                count++;
+            }
+        }
+        return Math.sqrt(sum / Math.max(count, 1));
+    };
+    // A sombra dos sulcos: o décimo percentil da luminância sobre a mediana, numa janela de 81 × 81 acima do meio da
+    // esfera (a face que a luz rasante varre).
+    const grooves = (from: HdrImage, label: string): number => {
+        const [cx, cy, rp] = disc(label);
+        const values: number[] = [];
+        for (let dy = -40; dy <= 40; dy++)
+            for (let dx = -40; dx <= 40; dx++)
+                values.push(lum(hdrAt(from, Math.round(cx) + dx, Math.round(cy - 0.2 * rp) + dy)));
+        values.sort((p, q) => p - q);
+        return values[Math.floor(0.1 * values.length)]! / values[values.length >> 1]!;
+    };
+    const edge = { moved: rim(PINE_BOTH), flat: rim(PINE_PLAIN) };
+    const shade = {
+        on: grooves(img, PINE_BOTH),
+        off: grooves(plain, PINE_BOTH),
+        flat: grooves(img, PINE_PLAIN),
+    };
+    log(
+        `gallery madeira-pinho: silhueta dos dois lados (desvio do raio da borda, px) — deslocada ${edge.moved.toFixed(2)}, sem deslocamento ${edge.flat.toFixed(2)}; sombra dos sulcos (décimo percentil / mediana da luminância) — deslocada com a difusão ${shade.on.toFixed(3)}, sem a difusão ${shade.off.toFixed(3)}; esfera sem SSS nem deslocamento ${shade.flat.toFixed(3)}`,
+    );
+    check(
+        edge.moved > edge.flat + 0.3,
+        `gallery madeira-pinho: a silhueta não mostra o relevo (${edge.moved} × ${edge.flat})`,
+    );
+    check(
+        shade.on > shade.off,
+        `gallery madeira-pinho: a subsuperfície não clareia o fundo dos sulcos (${shade.on} × ${shade.off})`,
+    );
+};
+
 /**
  * Os quadros do deslocamento: os materiais de relevo em milímetros e a madeira bruta (`deslocamento`), as cascas
  * (`cascas`), os telhados (`telhados`) e as folhas (`folhas`), estes em esferas grandes (spec 011, T118 e T119); as
@@ -2838,27 +2933,31 @@ const DISPLACED: readonly DisplacedFrame[] = [
         subsurface: true,
         measure: measureWood,
     },
-    // O pinho claro de veio fino numa bola de 20 cm (uma unidade do padrão: 22 cm — anéis de 2,1 mm), com a
-    // subsuperfície e o deslocamento, e a mesma bola sem os dois, sob o painel largo do alto à esquerda.
+    // O pinho claro de veio fino numa bola de 9,5 cm (uma unidade do padrão: 15,8 cm — anéis de 1,5 mm; o relevo de
+    // 1,1 mm é 2,3 % do raio), com a subsuperfície e o deslocamento, e a mesma bola sem os dois, sob o painel largo do
+    // alto à esquerda e a luz rasante atravessada ao veio, contra o fundo neutro médio.
     {
         name: 'madeira-pinho',
         rows: [[], []],
         pieces: [
-            { label: 'woodPineFine', name: 'woodPineFine' },
+            { label: PINE_BOTH, name: 'woodPineFine' },
             {
-                label: 'sem SSS, sem deslocamento',
+                label: PINE_PLAIN,
                 name: 'woodPineFine',
                 values: { radius: [0, 0, 0] },
                 displaced: false,
             },
         ],
         layout: GALLERY_BIG,
-        scale: 9.5,
-        pattern: [1.8, 1.8],
+        scale: 20,
+        pattern: [1.2, 1.2],
         front: true,
         rough: 0.05,
         subsurface: true,
         panel: 5,
+        key: PINE_KEY,
+        backdrop: 0.3,
+        measure: measurePine,
     },
 ];
 
@@ -2902,18 +3001,19 @@ async function galleryDisplaced(
     );
     app.world.insert(
         new DirectionalLight({
-            direction: [...RELIEF_KEY.map((c) => -c), 0],
+            direction: [...(frame.key ?? RELIEF_KEY).map((c) => -c), 0],
             intensity: 3.5,
             castShadow: true,
         }),
     );
+    const backdrop = frame.backdrop ?? 0.12;
     app.world.insert(
         new PlaneGeometry({ size: [40, 40] })
             .add(new StandardMaterial())
             .add(new Transform({ position: [0, -0.1, 0, 1] }))
-            .add(neutral(0.12)),
+            .add(neutral(backdrop)),
     );
-    galleryWall(app, [0, 5, -6], [40, 20], neutral(0.12));
+    galleryWall(app, [0, 5, -6], [40, 20], neutral(backdrop));
     const R = frame.layout.radius;
     const front = frame.front === true;
     const tilt = [Math.sin(-POLE_TILT / 2), 0, 0, Math.cos(-POLE_TILT / 2)];
@@ -3023,8 +3123,11 @@ async function galleryDisplaced(
             const a = ((20 + (140 * k) / 119) * Math.PI) / 180;
             const dx = Math.cos(a);
             const dy = -Math.sin(a);
+            // Contra o fundo claro a luminância não separa a peça: a saturação (o fundo é neutro).
             const value = (r: number): number =>
-                lum(hdrAt(img, Math.round(cx + r * dx), Math.round(cy + r * dy)));
+                (frame.backdrop === undefined ? lum : saturation)(
+                    hdrAt(img, Math.round(cx + r * dx), Math.round(cy + r * dy)),
+                );
             const inside = value(0.85 * rp);
             const outside = value(1.2 * rp);
             if (!(inside > 1.3 * outside)) continue;
