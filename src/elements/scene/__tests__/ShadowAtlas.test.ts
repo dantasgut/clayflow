@@ -155,7 +155,9 @@ describe('ShadowAtlas — o Resource', () => {
 
     it('a faixa tem as páginas por nível do maior mapa vivo, e as páginas físicas seguem as vistas vivas', () => {
         const atlas = new ShadowAtlas({ maxBindingSize: 2 ** 32 });
-        const small = new ShadowMap({ size: [1024, 1024] });
+        // O tamanho pelo perfil do renderizador (o que a autoria fixa não muda com ele).
+        const small = new ShadowMap();
+        small.fromRenderer(1024, 9);
         const large = new ShadowMap({ size: [4096, 4096] });
         atlas.assign(small);
         expect(atlas.data).toMatchObject({ pagesPerLevel: 8, atlasPages: 16, live: 1 });

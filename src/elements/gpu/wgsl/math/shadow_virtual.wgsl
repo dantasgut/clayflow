@@ -5,11 +5,16 @@
 // `g mod N`: a página global que ocupa a entrada, os estados, a idade e a página física, e a profundidade de referência
 // `z0` em que a página foi desenhada) e as páginas físicas depois, cada uma com 1 texel de borda (130² profundidades em
 // bits de `f32`, linha a linha): a filtragem da penumbra não atravessa para a vizinha.
+// O atlas é um só para todas as vistas de sombra da cena (spec 013): cada vista (um referencial, `ShadowMatrix`) tem a
+// sua faixa da tabela (a partir de `m.tableBase`) e dos pedidos (`m.requestBase`); as páginas físicas, comuns, começam
+// em `m.pagesBase`. Toda leitura do atlas passa por `sv_table_word` e `sv_page_word`, com a base da vista.
 // Requer: struct ShadowMatrix.
 
 const SV_PAGE: f32 = 128.0;
 const SV_STRIDE: u32 = 130u;
 const SV_MAX_LEVELS: u32 = 16u;
+/** Vistas de sombra no máximo: o teto dos laços que as percorrem (`SHADOW_MAX_VIEWS`). */
+const SV_MAX_VIEWS: u32 = 16u;
 /** Estados da página na tabela (palavra z): alocada (tem página física) e desenhada (pode ser lida). */
 const SV_ALLOCATED: u32 = 0x80000000u;
 const SV_RENDERED: u32 = 0x40000000u;
@@ -78,19 +83,19 @@ fn sv_level(m: ShadowMatrix, q: vec2f) -> u32 {
     return u32(clamp(k, 0.0, f32(max(sv_levels(m), 1u) - 1u)));
 }
 
-/** Primeira palavra da entrada `slot` (de `sv_slot`) da tabela, no começo do atlas. */
+/** Primeira palavra da entrada `slot` (de `sv_slot`) da tabela da vista, na faixa dela no atlas. */
 fn sv_table_word(m: ShadowMatrix, slot: vec2u) -> u32 {
-    return (slot.y * m.pagesPerLevel + slot.x) * 4u;
+    return m.tableBase + (slot.y * m.pagesPerLevel + slot.x) * 4u;
 }
 
 /**
- * Primeira palavra do pedido da entrada `slot` (de `sv_slot`) no buffer dos pedidos — duas por página virtual: a menor
+ * Primeira palavra do pedido da entrada `slot` (de `sv_slot`) na faixa da vista no buffer dos pedidos — duas por página virtual: a menor
  * e a maior profundidade (espaço da luz, na ordem de `sv_order`) dos pontos que a pediram; sem pedido, a maior é 0. Com
  * a faixa de profundidade, o pedido de um quadro vale no referencial de outro (a luz que mudou de direção): a página
  * pedida é um prisma do mundo, não só um retângulo do plano da luz.
  */
 fn sv_request_word(m: ShadowMatrix, slot: vec2u) -> u32 {
-    return (slot.y * m.pagesPerLevel + slot.x) * 2u;
+    return m.requestBase + (slot.y * m.pagesPerLevel + slot.x) * 2u;
 }
 
 /** O `f32` em `u32` na mesma ordem (o mínimo e o máximo atômicos dos inteiros valem para os reais); nunca 0 num finito. */
@@ -103,9 +108,9 @@ fn sv_unorder(u: u32) -> f32 {
     return bitcast<f32>(select(~u, u & 0x7FFFFFFFu, (u & 0x80000000u) != 0u));
 }
 
-/** Primeira palavra das páginas físicas no atlas, depois da tabela (todos os níveis reservados). */
+/** Primeira palavra das páginas físicas no atlas, depois das tabelas de todas as vistas (a mesma em toda vista). */
 fn sv_pages_base(m: ShadowMatrix) -> u32 {
-    return SV_MAX_LEVELS * m.pagesPerLevel * m.pagesPerLevel * 4u;
+    return m.pagesBase;
 }
 
 /** Palavra do texel `t` (0..129, com a borda) da página física `phys` no atlas. */

@@ -1,20 +1,35 @@
 // Constantes das páginas do mapa de sombra virtual (spec 034, T060): as seções do `sp_scratch`, os bits dos grupos,
 // das filas e dos pares — comuns aos kernels das páginas e ao desenho delas.
 
-/** Contadores na seção de estado do `sp_scratch`. */
+/** Contadores na seção de estado do `sp_scratch` (comuns a todas as vistas: o reservatório e as sujas). */
 const SP_FREE_COUNT: u32 = 0u;
 const SP_DIRTY_COUNT: u32 = 1u;
-const SP_DYNAMIC_COUNT: u32 = 2u;
-const SP_OVERFLOW: u32 = 4u;
-/** As filas por nível: 16 contadores a partir daqui. */
-const SP_LEVEL_WORK: u32 = 16u;
+/**
+ * O estado de cada vista de sombra (spec 013), no começo da seção dela no `sp_scratch` (`SPV_STATE` palavras): as
+ * dinâmicas (quantas, e se a lista transbordou) e as filas por nível (16 contadores a partir de `SPV_LEVEL_WORK`).
+ */
+const SPV_DYNAMIC_COUNT: u32 = 0u;
+const SPV_OVERFLOW: u32 = 1u;
+const SPV_LEVEL_WORK: u32 = 16u;
+const SPV_STATE: u32 = 32u;
 /** Quadros sem pedido em que a página ainda fica no atlas. */
 const SP_MAX_AGE: u32 = 30u;
 /** Bit do grupo na palavra da instância: grupo que não projeta (fora do desenho). */
 const SP_SKIP: u32 = 0x80000000u;
-/** Bit do grupo: geometria deformada pela GPU neste quadro. */
-const SP_DEFORMING: u32 = 0x40000000u;
-const SP_GROUP_MASK: u32 = 0x3FFFFFFFu;
+const SP_GROUP_MASK: u32 = 0x7FFFFFFFu;
+/**
+ * Palavras de um grupo de desenho em `sp_groups`: a primeira instância, quantas, a lista dos aglomerados (0: a malha
+ * inteira), o registro dos argumentos, as vistas de sombra em que o grupo é desenhado (um bit por vista) e os bits
+ * `SP_GROUP_*`. Um grupo de instâncias com malha própria por vista (a adaptativa) tem um grupo de desenho por malha, em
+ * sequência (`SP_GROUP_MORE`): a palavra da instância aponta o primeiro.
+ */
+const SP_GROUP_WORDS: u32 = 6u;
+/** Bit do grupo de desenho: geometria deformada pela GPU neste quadro. */
+const SP_GROUP_DEFORMING: u32 = 1u;
+/** Bit do grupo de desenho: o seguinte desenha as mesmas instâncias em outras vistas. */
+const SP_GROUP_MORE: u32 = 2u;
+/** Grupos de desenho de um grupo de instâncias, no máximo (um por vista e o das demais). */
+const SP_GROUP_VARIANTS: u32 = 17u;
 /** Bit da fila: redesenho (a página física já existe). */
 const SP_RERENDER: u32 = 0x80000000u;
 /** Bits do índice da instância no par (o resto é a página suja). */
@@ -47,6 +62,14 @@ const SP_CLUSTER_SHIFT: u32 = 20u;
 const SP_CLUSTER_MASK: u32 = 0xFFFFFu;
 /** A página suja na seção das necessidades depois da alocação (`sp_allocate_main`): a marca e a posição na lista. */
 const SP_DIRTY_MARK: u32 = 0x80000000u;
+/** A primeira palavra de uma página suja: a física (16 bits), o nível (4) e a vista (4). */
+const SP_DIRTY_PHYS_MASK: u32 = 0xFFFFu;
+const SP_DIRTY_LEVEL_SHIFT: u32 = 16u;
+const SP_DIRTY_VIEW_SHIFT: u32 = 20u;
+const SP_DIRTY_FIELD_MASK: u32 = 0xFu;
+/** Rodadas da busca do rodízio entre as vistas (uma fila tem até 4096 páginas: 64² por nível). */
+const SP_ROUND_STEPS: u32 = 13u;
+const SP_ROUND_MAX: u32 = 4096u;
 /** Sprites que projetam (esferas impostoras): palavras por entrada da lista (centro no espaço da luz, raio, página suja). */
 const SS_ENTRY_WORDS: u32 = 5u;
 /** Páginas por eixo que um sprite alcança num nível, no máximo (o laço da lista). */

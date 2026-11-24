@@ -2,7 +2,7 @@ import type { ConsumerResolver } from '../scene/consumers/ConsumerResolver';
 import { SingletonResolver } from '../scene/consumers/strategies/SingletonResolver';
 import { GravityField } from './physics/forcefields/GravityField';
 import { ParticlePhysics } from './physics/ParticlePhysics';
-import { ShadowCasterResolver } from './scene/shadowCaster';
+import { ShadowAtlas } from './scene/ShadowAtlas';
 import { PbrTablesResolver } from './material/pbr/PbrTablesResolver';
 import { HemisphereLightSchema } from './scene/HemisphereLightSchema';
 import { RaySceneSchema } from './raytrace/schemas';
@@ -20,15 +20,16 @@ import { VirtualTexturesResolver } from './material/virtual/VirtualTexturesResol
 
 /**
  * Resolvers (fornecedores `{ consumer }`) dos Resources únicos da Camada 3, registrados pela aplicação na cena (sem substituir os da
- * aplicação): `GravityField`, `ParticlePhysics` e o mapa de sombra que projeta (`ShadowCaster.atlas`: a
- * tabela e as páginas, spec 031 e T060h) as tabelas do sombreamento físico (`PbrTables.dfg`, `PbrTables.sampler`, spec 011), a estrutura de raios (`RayScene.info`), o céu físico (`Sky.*`), as nuvens (`CloudLayer.*`, spec 041) e a iluminação global (`GlobalIllumination.*`, spec 033). Os pools (`Camera`, `CameraMatrices`, `WorldTransform`,
+ * aplicação): `GravityField`, `ParticlePhysics` e o atlas único das sombras (`ShadowAtlas.atlas`: as
+ * tabelas das vistas e as páginas, spec 013) as tabelas do sombreamento físico (`PbrTables.dfg`, `PbrTables.sampler`, spec 011), a estrutura de raios (`RayScene.info`), o céu físico (`Sky.*`), as nuvens (`CloudLayer.*`, spec 041) e a iluminação global (`GlobalIllumination.*`, spec 033). Os pools (`Camera`, `CameraMatrices`, `WorldTransform`,
  * `Transform`, `Light`, `ShadowMap`, materiais, corpos, colliders, restrições) têm o `PoolResolver` registrado pela C2
  * ao serem criados; o `Time` é registrado pela cena.
  */
 export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
     new SingletonResolver(GravityField.schema, 'gravity'),
     new SingletonResolver(ParticlePhysics.schema, 'physics'),
-    new ShadowCasterResolver('atlas', 'array<u32>'),
+    // O atlas único dos mapas de sombra virtuais (spec 013): as tabelas das vistas e as páginas físicas.
+    new SingletonResolver(ShadowAtlas.schema, 'atlas', { name: 'ShadowAtlas.atlas' }),
     // Tabelas do sombreamento físico (spec 011): a DFG e o seu amostrador, lidos pelo avaliador do fechamento.
     new PbrTablesResolver('dfg', 'texture_2d<f32>'),
     new PbrTablesResolver('sampler', 'sampler'),

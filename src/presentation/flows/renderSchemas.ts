@@ -2,38 +2,66 @@ import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
 /**
- * Parâmetros das páginas do mapa de sombra virtual no quadro (spec 034, T060): o slot do mapa que projeta (no pool
- * `ShadowMap`), os grupos e as instâncias dos desenhos, o orçamento de páginas desenhadas por quadro, o recomeço do
- * cache (`reset`: a série da tabela ou dos retângulos interrompida, os grupos mudados), se os pedidos do quadro anterior
- * valem (senão, a reserva grossa no frustum da câmera do referencial) e as seções do espaço de trabalho (`sp_scratch`, em
- * palavras): as páginas físicas em uso e livres, as filas por nível, as sujas, as dinâmicas, as caixas e os retângulos;
- * os trechos dos pares por grupo (contagem, início, preenchimento, o que coube); as caixas dos aglomerados das malhas grandes e as necessidades das páginas virtuais; os pedidos do quadro anterior no referencial deste (`requestBase`); em `sp_groups`, a palavra de grupo de cada instância; nos argumentos, o registro do fundo das
- * páginas sujas (e, no seguinte, o do transporte das que seguem).
+ * Parâmetros das páginas do mapa de sombra virtual no quadro (spec 034, T060; spec 013: o atlas único e as vistas).
+ *
+ * As vistas de sombra, pelo índice da faixa de cada uma no atlas: `viewSpan` (o maior índice vivo mais um: o que os
+ * laços percorrem), `liveMask` (um bit por vista viva), `resetMask` (as vistas cuja faixa mudou de dono: o cache delas
+ * recomeça) e `views0`–`views3` (o slot do referencial de cada vista no pool `ShadowMatrix`, quatro por vetor).
+ *
+ * O estágio: os grupos de desenho e as instâncias, o orçamento de páginas desenhadas por quadro entre as vistas
+ * (`budget`), o recomeço de todas (`reset`: a série dos retângulos interrompida, os grupos mudados), se os pedidos do
+ * quadro anterior valem (senão, a reserva grossa no frustum), as páginas físicas do atlas (`physical`) e a primeira
+ * palavra delas (`pagesBase`), as páginas virtuais de uma faixa (`entries`) e os retângulos por vista na série deles
+ * (`rectStride`).
+ *
+ * As seções do espaço de trabalho (`sp_scratch`, em palavras). Comuns: as páginas físicas em uso (`keepBase`) e livres
+ * (`freeBase`), as sujas (`dirtyBase`), as caixas das geometrias (`boundsBase`) e das malhas em aglomerados
+ * (`groupBoxBase`), os trechos dos pares por grupo (`groupPairsBase`: contagem, início, preenchimento, o que coube). De
+ * cada vista, a partir de `viewBase + v · viewStride` (os deslocamentos são relativos ao começo da seção da vista): o
+ * estado, as filas por nível (`workBase`), as necessidades das páginas virtuais (`needBase`), os pedidos do quadro
+ * anterior no referencial deste (`requestBase`), as dinâmicas (`dynamicBase`, até `dynamicCap`) e os retângulos das
+ * instâncias no plano da vista (`rectsBase`). Em `sp_groups`, a palavra de grupo de cada instância a partir de
+ * `instanceGroupBase`; nos argumentos, o registro dos sprites (`spriteRecord`, até `spriteCap` entradas na lista).
  */
 export const ShadowPagesParamsSchema = new StructSchema(
     'ShadowPagesParams',
     {
-        casterSlot: FieldType.u32,
+        viewSpan: FieldType.u32,
+        liveMask: FieldType.u32,
+        resetMask: FieldType.u32,
         groupCount: FieldType.u32,
         instanceCount: FieldType.u32,
         budget: FieldType.u32,
         reset: FieldType.u32,
         requestsValid: FieldType.u32,
+        physical: FieldType.u32,
+        pagesBase: FieldType.u32,
+        entries: FieldType.u32,
+        rectStride: FieldType.u32,
         keepBase: FieldType.u32,
         freeBase: FieldType.u32,
-        workBase: FieldType.u32,
         dirtyBase: FieldType.u32,
+        boundsBase: FieldType.u32,
+        groupBoxBase: FieldType.u32,
+        groupPairsBase: FieldType.u32,
+        instanceGroupBase: FieldType.u32,
+        viewBase: FieldType.u32,
+        viewStride: FieldType.u32,
+        workBase: FieldType.u32,
+        needBase: FieldType.u32,
+        requestBase: FieldType.u32,
         dynamicBase: FieldType.u32,
         dynamicCap: FieldType.u32,
-        boundsBase: FieldType.u32,
         rectsBase: FieldType.u32,
-        instanceGroupBase: FieldType.u32,
-        groupPairsBase: FieldType.u32,
-        needBase: FieldType.u32,
-        groupBoxBase: FieldType.u32,
         spriteRecord: FieldType.u32,
         spriteCap: FieldType.u32,
-        requestBase: FieldType.u32,
+        _pad0: FieldType.u32,
+        _pad1: FieldType.u32,
+        _pad2: FieldType.u32,
+        views0: FieldType.vec4u,
+        views1: FieldType.vec4u,
+        views2: FieldType.vec4u,
+        views3: FieldType.vec4u,
     },
     { addressSpace: 'uniform' },
 );
@@ -93,14 +121,58 @@ export const ShadowSpriteSourceSchema = new StructSchema(
     { addressSpace: 'uniform' },
 );
 
-/** Pedidos de páginas: o slot do mapa que projeta e o da câmera no pool das matrizes. */
+/** As vistas de sombra vivas nos parâmetros de um estágio (`ShadowPagesParams`, `ShadowRequestParams`). */
+export interface ShadowViewSlots {
+    /** O maior índice de vista viva mais um. */
+    readonly viewSpan: number;
+    /** Um bit por vista viva. */
+    readonly liveMask: number;
+    /** O slot do referencial de cada vista no pool `ShadowMatrix` (0 nas que não estão vivas), quatro por vetor. */
+    readonly views0: readonly number[];
+    readonly views1: readonly number[];
+    readonly views2: readonly number[];
+    readonly views3: readonly number[];
+}
+
+/**
+ * Os campos das vistas de sombra de um estágio: `slots` leva o índice da vista (a faixa no atlas, menor que 16) ao slot
+ * do referencial dela.
+ */
+export function shadowViewSlots(slots: ReadonlyMap<number, number>): ShadowViewSlots {
+    const all = Array.from({ length: 16 }, (_, v) => slots.get(v) ?? 0);
+    let liveMask = 0;
+    let viewSpan = 0;
+    for (const v of slots.keys()) {
+        liveMask |= 1 << v;
+        viewSpan = Math.max(viewSpan, v + 1);
+    }
+    return {
+        viewSpan,
+        liveMask: liveMask >>> 0,
+        views0: all.slice(0, 4),
+        views1: all.slice(4, 8),
+        views2: all.slice(8, 12),
+        views3: all.slice(12, 16),
+    };
+}
+
+/**
+ * Pedidos de páginas (spec 013: todas as vistas vivas num passe): o slot da câmera no pool das matrizes; as vistas de
+ * sombra pelo índice da faixa — `viewSpan` (o maior índice vivo mais um), `liveMask` (um bit por vista viva) e
+ * `views0`–`views3` (o slot do referencial de cada uma no pool `ShadowMatrix`); e as palavras dos pedidos de uma faixa
+ * (`stripWords`: o que o esvaziamento percorre por vista).
+ */
 export const ShadowRequestParamsSchema = new StructSchema(
     'ShadowRequestParams',
     {
-        casterSlot: FieldType.u32,
         cameraSlot: FieldType.u32,
-        _pad0: FieldType.u32,
-        _pad1: FieldType.u32,
+        viewSpan: FieldType.u32,
+        liveMask: FieldType.u32,
+        stripWords: FieldType.u32,
+        views0: FieldType.vec4u,
+        views1: FieldType.vec4u,
+        views2: FieldType.vec4u,
+        views3: FieldType.vec4u,
     },
     { addressSpace: 'uniform' },
 );

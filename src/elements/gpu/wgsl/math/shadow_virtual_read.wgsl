@@ -1,10 +1,10 @@
-// A visibilidade da luz pelo mapa de sombra virtual (spec 034, T060), lida do atlas do mapa que projeta (`shadow_atlas`,
-// T060h: a tabela no começo e as páginas físicas depois). A penumbra pela comparação bilinear com a profundidade guardada
+// A visibilidade da luz pelo mapa de sombra virtual (spec 034, T060), lida do atlas único da cena (`shadow_atlas`, spec
+// 013: as tabelas das vistas, cada uma na sua faixa, e as páginas físicas depois; a vista pela `ShadowMatrix`). A penumbra pela comparação bilinear com a profundidade guardada
 // (a do amostrador de comparação `less` com filtragem linear: as quatro profundidades em volta do ponto, cada uma 0 ou 1,
 // pesadas pela posição).
 // Requer: constants, shadow_virtual, shadow_atlas (leitura).
 
-/** A entrada `slot` (de `sv_slot`) da tabela. */
+/** A entrada `slot` (de `sv_slot`) da tabela da vista `m`. */
 fn shadow_table_entry(m: ShadowMatrix, slot: vec2u) -> vec4u {
     let w = sv_table_word(m, slot);
     return vec4u(shadow_atlas[w], shadow_atlas[w + 1u], shadow_atlas[w + 2u], shadow_atlas[w + 3u]);

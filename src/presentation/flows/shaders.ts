@@ -28,6 +28,7 @@ import drawCullHzbSingleSource from './draw_cull_hzb_single.wgsl?raw';
 import drawCullHzbMsSource from './draw_cull_hzb_ms.wgsl?raw';
 import shadowPagesSource from './shadow_pages.wgsl?raw';
 import shadowPagesConstantsSource from './shadow_pages_constants.wgsl?raw';
+import shadowPagesViewsSource from './shadow_pages_views.wgsl?raw';
 import shadowRequestSource from './shadow_request.wgsl?raw';
 import shadowRequestSingleSource from './shadow_request_single.wgsl?raw';
 import shadowRequestMsSource from './shadow_request_ms.wgsl?raw';
@@ -264,6 +265,14 @@ const shadowPagesConstants = wgslModule({
     source: shadowPagesConstantsSource,
 });
 
+/** As vistas de sombra do quadro no estágio (spec 013): o referencial de cada uma e a palavra de uma página no atlas. */
+const shadowPagesViews = wgslModule({
+    name: 'shadow_pages_views',
+    source: shadowPagesViewsSource,
+    requires: [shadowVirtual, shadowMatricesResource, shadowResources.params],
+    structs: [ShadowMap.matrixSchema],
+});
+
 /** Os kernels das páginas (uma entrada por etapa; a caixa por geometria em `sp_bounds_main`). */
 export const shadowPages = wgslModule({
     name: 'shadow_pages',
@@ -271,6 +280,7 @@ export const shadowPages = wgslModule({
     requires: [
         shadowVirtual,
         shadowPagesConstants,
+        shadowPagesViews,
         pageAlloc,
         xformRigid,
         WORKGROUP_SIZE.module,
@@ -495,6 +505,7 @@ export const shadowDepth = wgslModule({
     requires: [
         shadowVirtual,
         shadowPagesConstants,
+        shadowPagesViews,
         viewSpace,
         shadowMatricesResource,
         worldsResource,

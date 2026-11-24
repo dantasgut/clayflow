@@ -60,6 +60,7 @@ import { SkyOverflowFlow } from './SkyOverflowFlow';
 import { SkyAmbientFlow } from '../../elements/scene/sky/SkyAmbientFlow';
 import { VirtualTextureFlow } from '../../elements/material/virtual/VirtualTextureFlow';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
+import { shadowViewsByEvent } from '../../elements/scene/shadowCaster';
 import type { AntialiasingMode } from '../../elements/scene/TemporalAntialiasing';
 
 /** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
@@ -68,13 +69,19 @@ export interface PresentationDefaultsOptions {
     readonly world: World;
     /**
      * Eventos da cena: com eles, a entrada de uma `GlobalIllumination` retira o hemisfério (e garante a `RayScene`) e a
-     * saída da última o devolve (spec 033, R7).
+     * saída da última o devolve (spec 033, R7), e as luzes com sombra ganham a sua vista no atlas único das sombras
+     * (spec 013: sem os eventos, nenhuma luz tem sombra).
      */
     readonly events?: EventBus;
     /** Amostras por pixel dos alvos da cena (MSAA; spec 008). Default 4. */
     readonly samples?: 1 | 4;
     /** Modo do antisserrilhado da cena (spec 034). Default `'temporal'`. */
     readonly antialiasing?: AntialiasingMode;
+    /**
+     * O `maxStorageBufferBindingSize` do adaptador (bytes): o teto do atlas único das sombras (spec 013). Sem ele, o
+     * mínimo do WebGPU.
+     */
+    readonly maxStorageBufferBindingSize?: number;
 }
 
 /**
@@ -190,6 +197,14 @@ export function registerPresentationDefaults(
                       subsurfaceForScattering(options.world, events, renderer),
                       warnRaySceneUnsupported(options.world, events, renderer),
                       followRenderer(options.world, events, renderer),
+                      // Depois do renderizador: o mapa entra nas vistas do atlas já com o tamanho do perfil.
+                      shadowViewsByEvent(
+                          options.world,
+                          events,
+                          options.maxStorageBufferBindingSize === undefined
+                              ? {}
+                              : { maxBindingSize: options.maxStorageBufferBindingSize },
+                      ),
                   ];
                   return () => {
                       for (const off of offs) off();

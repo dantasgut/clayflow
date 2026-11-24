@@ -19,21 +19,22 @@ import {
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import type { World } from '../../scene/world/World';
 import { Camera } from '../../elements/scene/Camera';
+import { ShadowAtlas } from '../../elements/scene/ShadowAtlas';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
-import { castingShadowMap } from '../../elements/scene/shadowCaster';
+import { liveShadowViews } from '../../elements/scene/shadowCaster';
 import { FrameTargets } from '../app/FrameTargets';
-import { ShadowRequestParamsSchema } from './renderSchemas';
+import { ShadowRequestParamsSchema, shadowViewSlots } from './renderSchemas';
 import { shadowRequest, shadowRequestResources } from './shaders';
 
 const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
 
 /** Slots dos pedidos de páginas. */
 export interface ShadowRequestSlots extends SlotMap {
-    /** O `ShadowMap` da luz que projeta. */
-    readonly caster: SingletonSlot<false>;
+    /** O atlas único da cena (spec 013): as vistas de sombra vivas. */
+    readonly shadowAtlas: SingletonSlot<false>;
     /** Pool `ShadowMatrix` (o referencial do quadro). */
     readonly matrices: PoolSlot<false>;
-    /** A série dos pedidos (a fatia de agora, escrita). */
+    /** A série dos pedidos do atlas (a fatia de agora, escrita; uma faixa por vista). */
     readonly requests: ChannelSlot<false>;
     /** A profundidade da cena deste quadro. */
     readonly sceneDepth: TextureSlot<true>;
@@ -66,7 +67,8 @@ type Ctx = TransitionContext<ShadowRequestSlots>;
  * ShadowRequestFlow — os pedidos de páginas do mapa de sombra virtual (spec 034, T060): depois do desenho principal, a
  * profundidade da cena deste quadro marca as páginas que a imagem usa (`shadow_request.wgsl`), na fatia de agora da
  * série dos pedidos; o `ShadowFlow` do quadro seguinte as lê pelo atraso 1. Sem câmera ou sem profundidade, nada é
- * gravado — a série para e o estágio de sombra recorre à reserva grossa no frustum.
+ * gravado — a série para e o estágio de sombra recorre à reserva grossa no frustum. Os pedidos de todas as vistas de
+ * sombra vivas num passe só (spec 013): cada pixel pede as páginas dele em cada vista, na faixa dela.
  */
 export class ShadowRequestFlow extends Flow<ShadowRequestSlots, 'idle'> {
     readonly type = 'ShadowRequestFlow';
@@ -84,17 +86,18 @@ export class ShadowRequestFlow extends Flow<ShadowRequestSlots, 'idle'> {
     private boundDepth: unknown;
     private written = '';
     private active = false;
+    /** Palavras esvaziadas por quadro: as faixas das vistas até a última viva. */
+    private clearWords = 0;
 
     constructor(ctx: FlowContext) {
         super();
         this.resources = ctx.resources;
         this.world = ctx.world;
-        const select = castingShadowMap(ctx.world);
         const work = this.work;
         this.slots = {
-            caster: slot.singleton(ShadowMap.schema, { select }),
+            shadowAtlas: slot.singleton(ShadowAtlas.schema),
             matrices: slot.pool(ShadowMap.matrixSchema.name),
-            requests: slot.channel(ShadowMap.schema, 'requests', { select }),
+            requests: slot.channel(ShadowAtlas.schema, 'requests'),
             sceneDepth: slot.texture(FrameTargets.schema, 'depth', { optional: true }),
             camera: slot.singleton(Camera.schema, { optional: true }),
             cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
@@ -132,7 +135,7 @@ export class ShadowRequestFlow extends Flow<ShadowRequestSlots, 'idle'> {
         frame.compute('ShadowRequestFlow', (pass) => {
             pass.bind.setPipeline(clear.spec);
             clear.bindTo(pass.bind);
-            pass.dispatch.invocations(requests.byteSize / 4, WORKGROUP_SIZE);
+            pass.dispatch.invocations(Math.max(1, this.clearWords), WORKGROUP_SIZE);
             pass.bind.setPipeline(mark.spec);
             mark.bindTo(pass.bind);
             pass.dispatch.workgroups(
@@ -147,22 +150,26 @@ export class ShadowRequestFlow extends Flow<ShadowRequestSlots, 'idle'> {
     private prepare(c: Ctx): void {
         const s = c.bound.slots;
         const sceneDepth = s.sceneDepth;
-        const map = s.caster.resource;
-        const mapId = this.world.entityIdOfResource(map);
-        const casterSlot = mapId === undefined ? undefined : s.matrices.slotOf(mapId);
+        const atlas = s.shadowAtlas.resource as ShadowAtlas;
+        const slots = new Map<number, number>();
+        for (const live of liveShadowViews(this.world, atlas)) {
+            const matrix = s.matrices.slotOf(live.entity);
+            if (matrix !== undefined) slots.set(live.view, matrix);
+        }
         const camera = s.camera?.resource;
         const cameraId = camera === undefined ? undefined : this.world.entityIdOfResource(camera);
         const cameraSlot = cameraId === undefined ? undefined : s.cameras?.slotOf(cameraId);
-        this.active =
-            sceneDepth !== undefined && casterSlot !== undefined && cameraSlot !== undefined;
+        this.active = sceneDepth !== undefined && slots.size > 0 && cameraSlot !== undefined;
         if (!this.active || sceneDepth === undefined) return;
-        const key = `${casterSlot}:${cameraSlot}`;
+        const values = {
+            cameraSlot,
+            stripWords: atlas.data.stripRequestWords,
+            ...shadowViewSlots(slots),
+        };
+        this.clearWords = values.viewSpan * values.stripWords;
+        const key = JSON.stringify(values);
         if (key !== this.written) {
-            this.resources.writeNow(
-                this.work,
-                PARAMS,
-                ShadowRequestParamsSchema.pack({ casterSlot, cameraSlot }),
-            );
+            this.resources.writeNow(this.work, PARAMS, ShadowRequestParamsSchema.pack(values));
             this.written = key;
         }
         const multisampled = (sceneDepth.texture.sampleCount ?? 1) > 1;

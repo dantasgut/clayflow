@@ -16,6 +16,13 @@ export type { EnvironmentMapData, EnvironmentMapValues } from './environment/Env
 export type { HemisphereLightData, HemisphereLightValues } from './HemisphereLight';
 export { ShadowMap, type ShadowMapData } from './ShadowMap';
 export {
+    ShadowAtlas,
+    SHADOW_MAX_VIEWS,
+    type ShadowAtlasData,
+    type ShadowAtlasOptions,
+} from './ShadowAtlas';
+export { shadowViewsByEvent } from './shadowCaster';
+export {
     TemporalAntialiasing,
     halton,
     pixelJitter,

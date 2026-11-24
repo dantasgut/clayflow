@@ -21,6 +21,7 @@ import type { World } from '../../../scene/world/World';
 import { Camera } from '../Camera';
 import { DirectionalLight } from '../DirectionalLight';
 import { Light } from '../Light';
+import { ShadowAtlas } from '../ShadowAtlas';
 import { ShadowMap } from '../ShadowMap';
 import { halton, TemporalAntialiasing } from '../TemporalAntialiasing';
 import {
@@ -40,8 +41,10 @@ export interface ShadowMatrixSlots extends SlotMap {
     readonly matrices: ChannelSlot<false>;
     /** Pool `ShadowMap` (o tamanho do mapa: o deslocamento da grade em texels). */
     readonly maps: PoolSlot<false>;
-    /** Luzes direcionais com mapa de sombra: registro `ShadowRecord` e a lista das vivas (grupo único). */
+    /** Luzes direcionais com mapa de sombra: registro `ShadowRecord` e a lista delas (grupo único). */
     readonly casters: EntitiesSlot;
+    /** O atlas único da cena (spec 013): as faixas das vistas, de onde sai a base de cada uma. */
+    readonly atlas: SingletonSlot<false>;
     /** O antisserrilhado da cena (spec 034): com o deslocamento da amostra, as amostras andam e a penumbra gira. */
     readonly antialiasing: SingletonSlot<true>;
     /** A câmera ativa (os níveis em volta dela; sem câmera, em volta da origem). */
@@ -63,7 +66,8 @@ type Ctx = TransitionContext<ShadowMatrixSlots>;
  * Estágio do referencial do mapa de sombra virtual (spec 007, research R11; spec 034, T060) — produz, na GPU, para cada
  * `DirectionalLight` que projeta sombra, a base do espaço da luz a partir da direção dela (pool `Light`), a câmera nesse
  * espaço e os níveis ativos, na série `ShadowMatrix` (segundo descritor do `ShadowMap`, mesmo slot), que o estágio de
- * sombra e o render principal leem. O referencial do quadro anterior (atraso 1) diz se o cache das páginas vale. A CPU
+ * sombra e o render principal leem — com a vista do mapa no atlas único (spec 013): a base da tabela e dos pedidos da
+ * faixa dele e a das páginas físicas. A luz com `castShadow` desligado e o mapa sem vista ficam com o referencial vazio. O referencial do quadro anterior (atraso 1) diz se o cache das páginas vale. A CPU
  * não acompanha a luz: a direção chega ao pool pelo envio da C2 e o kernel a lê.
  *
  * Com o deslocamento da amostra dentro do pixel (`TemporalAntialiasing` temporal ou acumulação; spec 034, R3/R6), a
@@ -130,6 +134,7 @@ export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
                     instance: 'record',
                 },
             }),
+            atlas: slot.singleton(ShadowAtlas.schema),
             antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
             camera: slot.singleton(Camera.schema, { optional: true }),
             cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
@@ -138,6 +143,7 @@ export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
         this.transitions = {
             '*': {
                 slotsResolved: 'ignore',
+                slotChanged: 'ignore',
                 slotLost: 'ignore',
                 pipelinesCompiled: 'ignore',
                 bindGroupReplaced: 'ignore',

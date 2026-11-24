@@ -1,4 +1,8 @@
-// Páginas do mapa de sombra virtual (spec 034, T060), no estágio de sombra, antes do desenho:
+// Páginas do mapa de sombra virtual (spec 034, T060), no estágio de sombra, antes do desenho. O atlas é um só para
+// todas as vistas de sombra da cena (spec 013): cada vista viva tem a sua faixa da tabela e dos pedidos e, no espaço de
+// trabalho, a sua seção (o estado, as filas por nível, as necessidades, os pedidos no referencial do quadro, as
+// dinâmicas e os retângulos das instâncias no plano dela); as páginas físicas, as livres e a lista das sujas são comuns
+// (cada página suja leva a vista). As etapas por vista percorrem as vistas vivas com teto constante (`SV_MAX_VIEWS`):
 //   1. `sp_bounds_main` (um despacho por geometria): a caixa dos vértices da geometria do grupo, no espaço do objeto;
 //   2. `sp_clear_main`: os contadores do quadro, as páginas físicas em uso e as instâncias dos desenhos zerados;
 //   3. `sp_instances_main` (uma invocação por instância): o retângulo da instância no plano da luz (a caixa pela matriz
@@ -16,7 +20,9 @@
 //   6. `sp_allocate_main` (um grupo): as filas por nível, do mais grosso ao mais fino (a reserva grossa primeiro), até o
 //      orçamento do quadro — a página nova recebe uma física livre — e a lista das sujas a desenhar. As filas, as livres
 //      e a alocação saem em ordem (somas de prefixos no grupo): a imagem não depende da ordem dos atômicos;
-//      `sp_fill_main` (um grupo por posição da lista) preenche as sujas com o fundo;
+//      `sp_fill_main` (um grupo por posição da lista) preenche as sujas com o fundo. O orçamento é um só para as
+//      vistas (spec 013, R7): a reserva grossa de cada vista primeiro, depois os níveis seguintes de todas em rodízio; a
+//      vista cujo cache recomeça leva o que pediu sem tirar o orçamento das outras (`sp_allocate_main`);
 //   7. os pares instância × página suja (a instância cujo retângulo toca a página): `sp_pairs_count_main` conta os de
 //      cada grupo, `sp_pairs_base_main` reparte a reserva dos pares (`sp_pairs`, de tamanho fixo) entre os grupos em
 //      ordem e escreve a contagem de instâncias de cada desenho indireto, `sp_pairs_main` escreve cada par no trecho do
@@ -30,7 +36,7 @@
 //      lista (sprite, página suja) pelas páginas que o disco de cada um alcança em cada nível.
 // O espaço de trabalho do quadro é um buffer só de palavras (`sp_scratch`), em seções; os contadores no início.
 // Laços com teto constante.
-// Requer: shadow_virtual, shadow_pages_constants, page_alloc (a soma de prefixos do grupo), vertex_bounds (a caixa dos
+// Requer: shadow_virtual, shadow_pages_constants, shadow_pages_views, page_alloc (a soma de prefixos do grupo), vertex_bounds (a caixa dos
 // vértices), WORKGROUP_SIZE e os recursos
 // de cada entrada.
 
@@ -42,7 +48,18 @@ fn sp_set_f(i: u32, v: f32) {
     atomicStore(&sp_scratch[i], bitcast<u32>(v));
 }
 
-/** A entrada `slot` (de `sv_slot`) da tabela, no começo do atlas. */
+/** A primeira palavra da seção da vista `v` no `sp_scratch`. */
+fn sp_vb(v: u32) -> u32 {
+    return sp.viewBase + v * sp.viewStride;
+}
+
+/** A vista e o índice dentro dela da invocação `i` de um despacho de `per` invocações por vista. */
+fn sp_split(i: u32, per: u32) -> vec2u {
+    let n = max(per, 1u);
+    return vec2u(i / n, i % n);
+}
+
+/** A entrada `slot` (de `sv_slot`) da tabela da vista, na faixa dela no atlas. */
 fn sp_table_load(m: ShadowMatrix, slot: vec2u) -> vec4u {
     let w = sv_table_word(m, slot);
     return vec4u(sp_atlas[w], sp_atlas[w + 1u], sp_atlas[w + 2u], sp_atlas[w + 3u]);
@@ -67,14 +84,18 @@ fn sp_overlap(a: vec4f, b: vec4f) -> bool {
     return a.x <= b.z && b.x <= a.z && a.y <= b.w && b.y <= a.w;
 }
 
-/** Põe o retângulo `u` (o de antes unido ao de agora, no plano da luz) na lista das dinâmicas; cheia, tudo é tocado. */
-fn sp_push_dynamic(u: vec4f) {
-    let d = atomicAdd(&sp_scratch[SP_DYNAMIC_COUNT], 1u);
+/**
+ * Põe o retângulo `u` (o de antes unido ao de agora, no plano da luz da vista `v`) na lista das dinâmicas da vista;
+ * cheia, tudo é tocado.
+ */
+fn sp_push_dynamic(v: u32, u: vec4f) {
+    let base = sp_vb(v);
+    let d = atomicAdd(&sp_scratch[base + SPV_DYNAMIC_COUNT], 1u);
     if (d >= sp.dynamicCap) {
-        atomicStore(&sp_scratch[SP_OVERFLOW], 1u);
+        atomicStore(&sp_scratch[base + SPV_OVERFLOW], 1u);
         return;
     }
-    let o = sp.dynamicBase + d * 4u;
+    let o = base + sp.dynamicBase + d * 4u;
     sp_set_f(o, u.x);
     sp_set_f(o + 1u, u.y);
     sp_set_f(o + 2u, u.z);
@@ -103,10 +124,14 @@ fn sp_bounds_main(@builtin(local_invocation_index) lid: u32) {
 fn sp_clear_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i < sp.keepBase) { atomicStore(&sp_scratch[i], 0u); }
-    let physical = sp_atlas_pages_total();
-    if (i < physical) { atomicStore(&sp_scratch[sp.keepBase + i], 0u); }
-    let n = shadow_matrices[sp.casterSlot].pagesPerLevel;
-    if (i < SV_MAX_LEVELS * n * n) { atomicStore(&sp_scratch[sp.requestBase + i], 0u); }
+    if (i < sp.physical) { atomicStore(&sp_scratch[sp.keepBase + i], 0u); }
+    // De cada vista: o estado (as dinâmicas, as filas) e os pedidos no referencial do quadro.
+    if (i < sp.viewSpan * sp.entries) {
+        let ve = sp_split(i, sp.entries);
+        let base = sp_vb(ve.x);
+        atomicStore(&sp_scratch[base + sp.requestBase + ve.y], 0u);
+        if (ve.y < SPV_STATE) { atomicStore(&sp_scratch[base + ve.y], 0u); }
+    }
     if (i < sp.groupCount) {
         // A caixa vazia até o kernel da geometria escrever a do quadro.
         let b = sp.boundsBase + i * 6u;
@@ -127,22 +152,36 @@ fn sp_clear_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgr
     if (i == 0u) { atomicStore(&sp_args[sp.spriteRecord * 5u + 1u], 0u); }
 }
 
-fn sp_atlas_pages_total() -> u32 {
-    let a = shadow_matrices[sp.casterSlot].atlasPages;
-    return a * a;
+/**
+ * O grupo de desenho das instâncias do grupo `base` na vista `v` (a malha que a vista desenha: a dela, na geometria com
+ * malha por vista, ou a de sempre); `SP_SKIP` se nenhum a desenha.
+ */
+fn sp_view_group(base: u32, v: u32) -> u32 {
+    var g = base;
+    for (var i = 0u; i < SP_GROUP_VARIANTS; i++) {
+        let o = g * SP_GROUP_WORDS;
+        if (((sp_groups[o + 4u] >> v) & 1u) != 0u) { return g; }
+        if ((sp_groups[o + 5u] & SP_GROUP_MORE) == 0u) { break; }
+        g++;
+    }
+    return SP_SKIP;
 }
 
 // ---- 3. os retângulos das instâncias ----
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn sp_instances_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let j = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    if (j >= sp.instanceCount) { return; }
-    let m = shadow_matrices[sp.casterSlot];
+    let vj = sp_split(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, sp.instanceCount);
+    let v = vj.x;
+    let j = vj.y;
+    if (v >= sp.viewSpan || !sp_view_live(v) || sp.instanceCount == 0u) { return; }
+    let m = sp_view_matrix(v);
     let word = sp_groups[sp.instanceGroupBase + j];
     var rect = vec4f(3.0e38, 3.0e38, -3.0e38, -3.0e38);
-    if ((word & SP_SKIP) == 0u) {
-        let b = sp.boundsBase + (word & SP_GROUP_MASK) * 6u;
+    var group = SP_SKIP;
+    if ((word & SP_SKIP) == 0u) { group = sp_view_group(word & SP_GROUP_MASK, v); }
+    if (group != SP_SKIP) {
+        let b = sp.boundsBase + group * 6u;
         let lo = vec3f(sp_f(b), sp_f(b + 1u), sp_f(b + 2u));
         let hi = vec3f(sp_f(b + 3u), sp_f(b + 4u), sp_f(b + 5u));
         if (all(lo <= hi)) {
@@ -154,25 +193,31 @@ fn sp_instances_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wo
             }
         }
     }
-    let r = sp.rectsBase + j * 4u;
+    let r = sp_vb(v) + sp.rectsBase + j * 4u;
     sp_set_f(r, rect.x);
     sp_set_f(r + 1u, rect.y);
     sp_set_f(r + 2u, rect.z);
     sp_set_f(r + 3u, rect.w);
-    sp_rects_out[j] = rect;
-    if (sp.reset != 0u || m.direction.w != 0.0) { return; }
-    let before = sp_rects_previous[j];
+    let series = v * sp.rectStride + j;
+    sp_rects_out[series] = rect;
+    if (group == SP_SKIP || sp_view_reset(v, m)) { return; }
+    let before = sp_rects_previous[series];
     // A geometria deformada neste quadro suja a instância inteira — salvo a em aglomerados (a lista do grupo, palavra
     // 2), cujos aglomerados que mudaram entram sozinhos (`sp_cluster_bounds_main`).
-    let clustered = sp_groups[(word & SP_GROUP_MASK) * 4u + 2u] != 0u;
-    let moved = any(abs(before - rect) > vec4f(1.0e-5 * (1.0 + abs(rect))))
-        || ((word & SP_DEFORMING) != 0u && !clustered);
+    let clustered = sp_groups[group * SP_GROUP_WORDS + 2u] != 0u;
+    let deforming = (sp_groups[group * SP_GROUP_WORDS + 5u] & SP_GROUP_DEFORMING) != 0u;
+    let moved = any(abs(before - rect) > vec4f(1.0e-5 * (1.0 + abs(rect)))) || (deforming && !clustered);
     if (!moved) { return; }
     // O de antes e o de agora: as páginas onde a instância estava e onde está.
-    sp_push_dynamic(vec4f(min(before.xy, rect.xy), max(before.zw, rect.zw)));
+    sp_push_dynamic(v, vec4f(min(before.xy, rect.xy), max(before.zw, rect.zw)));
 }
 
 // ---- 3b. os pedidos no referencial do quadro ----
+
+/** O referencial da vista `v` no quadro anterior (a série `ShadowMatrix`, atraso 1). */
+fn sp_view_matrix_previous(v: u32) -> ShadowMatrix {
+    return sp_matrices_previous[sp_view_slot(v)];
+}
 
 /**
  * Os pedidos do quadro anterior (a série dos pedidos, atraso 1) levados ao referencial deste quadro (uma invocação por
@@ -186,21 +231,27 @@ fn sp_instances_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wo
  */
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn sp_requests_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    let m = shadow_matrices[sp.casterSlot];
+    let ve = sp_split(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, sp.entries);
+    let v = ve.x;
+    let i = ve.y;
+    if (v >= sp.viewSpan || !sp_view_live(v)) { return; }
+    let m = sp_view_matrix(v);
     let n = m.pagesPerLevel;
     if (sp.requestsValid == 0u || i >= SV_MAX_LEVELS * n * n) { return; }
-    let before = sp_matrices_previous[sp.casterSlot];
-    if (before.pagesPerLevel != n || before.firstLevelRadius != m.firstLevelRadius) { return; }
+    let before = sp_view_matrix_previous(v);
+    // Os pedidos de antes são os da faixa desta vista só se ela já era a dona (a mesma faixa, o mesmo tamanho).
+    if (before.pagesPerLevel != n || before.firstLevelRadius != m.firstLevelRadius
+        || before.requestBase != m.requestBase) { return; }
+    let wanted = sp_vb(v) + sp.requestBase;
     let k = i / (n * n);
     if (k >= sv_levels(m) || k >= sv_levels(before)) { return; }
-    let hi = sp_requests_previous[i * 2u + 1u];
+    let hi = sp_requests_previous[before.requestBase + i * 2u + 1u];
     if (hi == 0u) { return; }
-    let lo = sp_requests_previous[i * 2u];
+    let lo = sp_requests_previous[before.requestBase + i * 2u];
     let same = all(before.lightView[0] == m.lightView[0]) && all(before.lightView[1] == m.lightView[1])
         && all(before.lightView[2] == m.lightView[2]);
     if (same) {
-        atomicStore(&sp_scratch[sp.requestBase + i], 1u);
+        atomicStore(&sp_scratch[wanted + i], 1u);
         return;
     }
     let s = vec2u((i % (n * n)) % n, (i % (n * n)) / n);
@@ -225,7 +276,7 @@ fn sp_requests_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
             let page = first + vec2i(dx, dy);
             if (any(page > last) || !sv_in_window(m, k, page)) { continue; }
             let slot = sv_slot(m, k, page);
-            atomicStore(&sp_scratch[sp.requestBase + slot.y * n + slot.x], 1u);
+            atomicStore(&sp_scratch[wanted + slot.y * n + slot.x], 1u);
         }
     }
 }
@@ -252,21 +303,25 @@ fn sp_in_frustum(m: ShadowMatrix, rect: vec4f) -> bool {
     return !(any(below.xyz == vec3u(8u)) || any(above.xyz == vec3u(8u)));
 }
 
-/** Alguma dinâmica tocou a página (ou a lista transbordou)? */
-fn sp_touched(rect: vec4f) -> bool {
-    if (atomicLoad(&sp_scratch[SP_OVERFLOW]) != 0u) { return true; }
-    let n = min(atomicLoad(&sp_scratch[SP_DYNAMIC_COUNT]), sp.dynamicCap);
+/** Alguma dinâmica da vista `v` tocou a página (ou a lista dela transbordou)? */
+fn sp_touched(v: u32, rect: vec4f) -> bool {
+    let base = sp_vb(v);
+    if (atomicLoad(&sp_scratch[base + SPV_OVERFLOW]) != 0u) { return true; }
+    let n = min(atomicLoad(&sp_scratch[base + SPV_DYNAMIC_COUNT]), sp.dynamicCap);
     for (var d = 0u; d < 65536u; d++) {
         if (d >= n) { break; }
-        let o = sp.dynamicBase + d * 4u;
+        let o = base + sp.dynamicBase + d * 4u;
         if (sp_overlap(rect, vec4f(sp_f(o), sp_f(o + 1u), sp_f(o + 2u), sp_f(o + 3u)))) { return true; }
     }
     return false;
 }
 
-/** A página virtual `entry` precisa de página física (`SP_NEED_ALLOC`) ou de redesenho na `phys` (`SP_NEED_RENDER`). */
-fn sp_need(entry: u32, need: u32, phys: u32) {
-    atomicStore(&sp_scratch[sp.needBase + entry], need | (phys << 2u));
+/**
+ * A página virtual `entry` da vista `v` precisa de página física (`SP_NEED_ALLOC`) ou de redesenho na `phys`
+ * (`SP_NEED_RENDER`).
+ */
+fn sp_need(v: u32, entry: u32, need: u32, phys: u32) {
+    atomicStore(&sp_scratch[sp_vb(v) + sp.needBase + entry], need | (phys << 2u));
 }
 
 /** Página global do texel `s` da janela do nível `k`. */
@@ -278,14 +333,19 @@ fn sp_global(m: ShadowMatrix, k: u32, s: vec2u) -> vec2i {
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn sp_update_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    let m = shadow_matrices[sp.casterSlot];
+    let ve = sp_split(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, sp.entries);
+    let v = ve.x;
+    let i = ve.y;
+    if (v >= sp.viewSpan) { return; }
+    let section = sp_vb(v);
+    atomicStore(&sp_scratch[section + sp.needBase + i], 0u);
+    if (!sp_view_live(v)) { return; }
+    let m = sp_view_matrix(v);
     let n = m.pagesPerLevel;
     if (i >= SV_MAX_LEVELS * n * n) { return; }
     let k = i / (n * n);
     let s = vec2u((i % (n * n)) % n, (i % (n * n)) / n);
     let texel = vec2u(s.x, s.y + k * n);
-    atomicStore(&sp_scratch[sp.needBase + i], 0u);
     if (k >= sv_levels(m)) {
         sp_table_store(m, texel, vec4u(0u));
         return;
@@ -293,12 +353,12 @@ fn sp_update_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workg
     let g = sp_global(m, k, s);
     let gx = bitcast<u32>(g.x);
     let gy = bitcast<u32>(g.y);
-    let reset = sp.reset != 0u || m.direction.w != 0.0;
+    let reset = sp_view_reset(v, m);
     // A entrada do quadro anterior, no lugar (esta invocação é a única que lê e escreve a entrada).
     let old = select(sp_table_load(m, texel), vec4u(0u), reset);
     let valid = (old.z & SV_ALLOCATED) != 0u && old.x == gx && old.y == gy;
     let rect = sp_page_rect(m, k, g);
-    var requested = atomicLoad(&sp_scratch[sp.requestBase + i]) != 0u;
+    var requested = atomicLoad(&sp_scratch[section + sp.requestBase + i]) != 0u;
     // O nível mais grosso no frustum, sempre: a reserva do que não está numa superfície vista no quadro anterior (os
     // pontos do volume da névoa, o primeiro quadro, um corte, a borda que aparece).
     if (k + 1u == sv_levels(m)) { requested = requested || sp_in_frustum(m, rect); }
@@ -308,35 +368,38 @@ fn sp_update_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workg
         atomicStore(&sp_scratch[sp.keepBase + phys], 1u);
         // A série do atlas diz se o conteúdo da página ainda vale (carimbada na época atual).
         let stamped = sp_atlas_stamps[phys] == sp_atlas_clock.x;
-        let rendered = (old.z & SV_RENDERED) != 0u && stamped && !sp_touched(rect);
+        let rendered = (old.z & SV_RENDERED) != 0u && stamped && !sp_touched(v, rect);
         sp_table_store(
             m,
             texel,
             vec4u(gx, gy, SV_ALLOCATED | select(0u, SV_RENDERED, rendered) | (age << SV_AGE_SHIFT) | phys, old.w),
         );
-        if (!rendered) { sp_need(i, SP_NEED_RENDER, phys); }
+        if (!rendered) { sp_need(v, i, SP_NEED_RENDER, phys); }
         return;
     }
     sp_table_store(m, texel, vec4u(gx, gy, 0u, 0u));
-    if (requested) { sp_need(i, SP_NEED_ALLOC, 0u); }
+    if (requested) { sp_need(v, i, SP_NEED_ALLOC, 0u); }
 }
 
 // ---- 4b. as filas por nível, na ordem do índice ----
 
 /**
- * As filas de um nível (um grupo de trabalho por nível): as páginas que precisam de página física ou de redesenho, na
- * ordem do índice (a soma de prefixos no grupo) — o que entra no orçamento do quadro não depende da ordem dos atômicos.
+ * As filas de um nível de uma vista (um grupo de trabalho por vista e nível): as páginas que precisam de página física
+ * ou de redesenho, na ordem do índice (a soma de prefixos no grupo) — o que entra no orçamento do quadro não depende da
+ * ordem dos atômicos. A vista sem mapa fica com as filas vazias.
  */
 @compute @workgroup_size(256)
 fn sp_rank_main(@builtin(workgroup_id) wid: vec3u, @builtin(local_invocation_index) lid: u32) {
-    let k = wid.x;
-    let n = shadow_matrices[sp.casterSlot].pagesPerLevel;
+    let v = wid.x / SV_MAX_LEVELS;
+    let k = wid.x % SV_MAX_LEVELS;
+    let section = sp_vb(v);
+    let n = select(0u, sp_view_matrix(v).pagesPerLevel, sp_view_live(v));
     let per = (n * n + 255u) / 256u;
     let first = k * n * n + lid * per;
     var count = 0u;
     for (var c = 0u; c < SP_RANK_CHUNK; c++) {
         if (c >= per || lid * per + c >= n * n) { break; }
-        if ((atomicLoad(&sp_scratch[sp.needBase + first + c]) & 3u) != 0u) { count++; }
+        if ((atomicLoad(&sp_scratch[section + sp.needBase + first + c]) & 3u) != 0u) { count++; }
     }
     pa_rank[lid] = count;
     pa_scan(lid);
@@ -344,14 +407,14 @@ fn sp_rank_main(@builtin(workgroup_id) wid: vec3u, @builtin(local_invocation_ind
     for (var c = 0u; c < SP_RANK_CHUNK; c++) {
         if (c >= per || lid * per + c >= n * n) { break; }
         let i = first + c;
-        let need = atomicLoad(&sp_scratch[sp.needBase + i]);
+        let need = atomicLoad(&sp_scratch[section + sp.needBase + i]);
         if ((need & 3u) == 0u) { continue; }
-        let o = sp.workBase + (k * n * n + rank) * 2u;
+        let o = section + sp.workBase + (k * n * n + rank) * 2u;
         atomicStore(&sp_scratch[o], i | select(0u, SP_RERENDER, (need & 3u) == SP_NEED_RENDER));
         atomicStore(&sp_scratch[o + 1u], need >> 2u);
         rank++;
     }
-    if (lid == 255u) { atomicStore(&sp_scratch[SP_LEVEL_WORK + k], pa_rank[255]); }
+    if (lid == 255u) { atomicStore(&sp_scratch[section + SPV_LEVEL_WORK + k], pa_rank[255]); }
 }
 
 // ---- 5. as livres ----
@@ -359,7 +422,7 @@ fn sp_rank_main(@builtin(workgroup_id) wid: vec3u, @builtin(local_invocation_ind
 /** As páginas físicas que nenhuma página virtual segura, em ordem (um grupo de trabalho). */
 @compute @workgroup_size(256)
 fn sp_free_main(@builtin(local_invocation_index) lid: u32) {
-    let total = sp_atlas_pages_total();
+    let total = sp.physical;
     let per = (total + 255u) / 256u;
     var count = 0u;
     for (var c = 0u; c < SP_FREE_CHUNK; c++) {
@@ -382,53 +445,142 @@ fn sp_free_main(@builtin(local_invocation_index) lid: u32) {
 
 // ---- 6. a alocação e as sujas ----
 
-/**
- * Páginas que entram no quadro, no máximo: o orçamento (`sp.budget`) enquanto o cache segue — o que não entra fica para
- * os quadros seguintes, e a imagem lê o que já está desenhado. No quadro em que o cache recomeça (a luz mudou de
- * direção, os grupos mudaram, a série foi interrompida) não há o que ler de antes: entram todas as páginas pedidas, até
- * o atlas inteiro — a luz que gira a cada quadro (o sol ao longo do dia) recomeça a cada quadro, e o que ficasse para
- * depois nunca seria desenhado.
- */
-fn sp_budget(m: ShadowMatrix) -> u32 {
-    let all = min(sp_atlas_pages_total(), 256u * SP_ALLOCATE_CHUNK);
-    return select(min(sp.budget, all), all, sp.reset != 0u || m.direction.w != 0.0);
+// O orçamento de páginas do quadro é um só para todas as vistas (spec 013, R7). A ordem em que as filas são atendidas:
+//   1. a reserva grossa (o nível mais grosso) das vistas cujo cache recomeça;
+//   2. a reserva grossa das vistas cujo cache segue;
+//   3. os níveis seguintes das que recomeçam, do mais grosso ao mais fino;
+//   4. os níveis seguintes das que seguem, do mais grosso ao mais fino.
+// Em cada passo (um nível a contar do mais grosso de cada vista) as vistas se revezam página a página: nenhuma espera
+// outra esvaziar a fila. As páginas das vistas cujo cache segue contam no orçamento (`sp.budget`): o que não entra fica
+// para os quadros seguintes, e a imagem lê o que já está desenhado (o nível mais grosso). A vista que recomeça (a luz
+// mudou de direção, os grupos mudaram, a faixa mudou de dono) não tem o que ler de antes: entram todas as que pediu,
+// até o atlas inteiro, sem gastar o orçamento das outras — a luz que gira a cada quadro (o sol ao longo do dia) recomeça
+// a cada quadro, e o que ficasse para depois nunca seria desenhado. As páginas físicas são as livres: nenhuma vista toma
+// as que outra segura.
+
+/** As filas de cada vista por passo (0 = o nível mais grosso da vista), lidas uma vez por invocação: `[v · 16 + passo]`. */
+var<private> sp_queue: array<u32, 256>;
+/** Os níveis ativos de cada vista. */
+var<private> sp_queue_levels: array<u32, 16>;
+
+/** Lê as filas das vistas vivas e devolve as vistas cujo cache recomeça neste quadro (um bit por vista). */
+fn sp_queues_load() -> u32 {
+    var resetting = 0u;
+    for (var v = 0u; v < SV_MAX_VIEWS; v++) {
+        if (v >= sp.viewSpan) { break; }
+        if (!sp_view_live(v)) { continue; }
+        let m = sp_view_matrix(v);
+        let levels = min(sv_levels(m), SV_MAX_LEVELS);
+        sp_queue_levels[v] = levels;
+        if (sp_view_reset(v, m)) { resetting |= 1u << v; }
+        let section = sp_vb(v);
+        for (var step = 0u; step < SV_MAX_LEVELS; step++) {
+            if (step >= levels) { break; }
+            sp_queue[v * SV_MAX_LEVELS + step] = atomicLoad(&sp_scratch[section + SPV_LEVEL_WORK + levels - 1u - step]);
+        }
+    }
+    return resetting;
+}
+
+/** Páginas das vistas de `mask` com fila no passo `step`, cada fila contada até `cap`. */
+fn sp_step_count(mask: u32, step: u32, cap: u32) -> u32 {
+    var total = 0u;
+    for (var v = 0u; v < SV_MAX_VIEWS; v++) {
+        if (((mask >> v) & 1u) != 0u) { total += min(sp_queue[v * SV_MAX_LEVELS + step], cap); }
+    }
+    return total;
 }
 
 /**
- * As filas na ordem do mais grosso ao mais fino até o orçamento do quadro (`sp_budget`; um grupo de trabalho, cada
- * invocação com um trecho seguido das posições na ordem): a página nova recebe a física livre da sua posição entre as
- * novas, e as que entram formam a lista das sujas na mesma ordem — tudo determinístico.
+ * A posição `t` do rodízio das vistas de `mask` no passo `step` (`t` menor que o total do passo): a rodada `r` (cada
+ * vista com fila entra uma vez por rodada, na ordem do índice) é a maior com `sp_step_count(…, r) ≤ t`, por bisseção; x
+ * = a vista, y = a posição na fila dela (a rodada).
+ */
+fn sp_step_pick(mask: u32, step: u32, t: u32) -> vec2u {
+    var lo = 0u;
+    var hi = SP_ROUND_MAX;
+    for (var i = 0u; i < SP_ROUND_STEPS; i++) {
+        if (lo >= hi) { break; }
+        let mid = (lo + hi + 1u) / 2u;
+        if (sp_step_count(mask, step, mid) <= t) { lo = mid; } else { hi = mid - 1u; }
+    }
+    var rest = t - sp_step_count(mask, step, lo);
+    for (var v = 0u; v < SV_MAX_VIEWS; v++) {
+        if (((mask >> v) & 1u) == 0u || sp_queue[v * SV_MAX_LEVELS + step] <= lo) { continue; }
+        if (rest == 0u) { return vec2u(v, lo); }
+        rest--;
+    }
+    return vec2u(SV_MAX_VIEWS, 0u);
+}
+
+/**
+ * A posição `t0` da ordem das vistas de `mask` nos passos de `first` a `last` (exclusivo): x = a vista (`SV_MAX_VIEWS`
+ * se a ordem acabou antes), y = o nível, z = a posição na fila do nível.
+ */
+fn sp_order_pick(mask: u32, first: u32, last: u32, t0: u32) -> vec3u {
+    var t = t0;
+    for (var step = first; step < SV_MAX_LEVELS; step++) {
+        if (step >= last) { break; }
+        let total = sp_step_count(mask, step, SP_ROUND_MAX);
+        if (t < total) {
+            let pick = sp_step_pick(mask, step, t);
+            if (pick.x >= SV_MAX_VIEWS) { break; }
+            return vec3u(pick.x, sp_queue_levels[pick.x] - 1u - step, pick.y);
+        }
+        t -= total;
+    }
+    return vec3u(SV_MAX_VIEWS, 0u, 0u);
+}
+
+/**
+ * As filas na ordem acima até o orçamento do quadro (um grupo de trabalho, cada invocação com um trecho seguido das
+ * posições na ordem): a página nova recebe a física livre da sua posição entre as novas, e as que entram formam a lista
+ * das sujas na mesma ordem — tudo determinístico.
  */
 @compute @workgroup_size(256)
 fn sp_allocate_main(@builtin(local_invocation_index) lid: u32) {
-    let m = shadow_matrices[sp.casterSlot];
-    let n = m.pagesPerLevel;
-    let budget = sp_budget(m);
+    let resetting = sp_queues_load();
+    let following = sp.liveMask & ~resetting;
+    // Os trechos da ordem: a reserva grossa das que recomeçam e das que seguem, e os níveis seguintes das que recomeçam.
+    let coarse_reset = sp_step_count(resetting, 0u, SP_ROUND_MAX);
+    let coarse_follow = sp_step_count(following, 0u, SP_ROUND_MAX);
+    var fine_reset = 0u;
+    for (var step = 1u; step < SV_MAX_LEVELS; step++) { fine_reset += sp_step_count(resetting, step, SP_ROUND_MAX); }
+    // Posições percorridas: o orçamento enquanto todos os caches seguem; com um recomeço, até o atlas inteiro.
+    let all = min(sp.physical, 256u * SP_ALLOCATE_CHUNK);
+    let budget = select(min(sp.budget, all), all, resetting != 0u);
     let per = (budget + 255u) / 256u;
     var words: array<u32, SP_ALLOCATE_CHUNK>;
     var physes: array<u32, SP_ALLOCATE_CHUNK>;
     var levels: array<u32, SP_ALLOCATE_CHUNK>;
+    var views: array<u32, SP_ALLOCATE_CHUNK>;
     // Por posição do trecho: achada na fila (bit 0), nova (bit 1), entra no quadro (bit 2).
     var states: array<u32, SP_ALLOCATE_CHUNK>;
     var fresh = 0u;
     for (var c = 0u; c < SP_ALLOCATE_CHUNK; c++) {
         states[c] = 0u;
-        var t = lid * per + c;
+        let t = lid * per + c;
         if (c >= per || t >= budget) { continue; }
-        for (var step = 0u; step < SV_MAX_LEVELS; step++) {
-            if (step >= sv_levels(m)) { break; }
-            let level = sv_levels(m) - 1u - step;
-            let count = atomicLoad(&sp_scratch[SP_LEVEL_WORK + level]);
-            if (t < count) {
-                let o = sp.workBase + (level * n * n + t) * 2u;
-                words[c] = atomicLoad(&sp_scratch[o]);
-                physes[c] = atomicLoad(&sp_scratch[o + 1u]);
-                levels[c] = level;
-                states[c] = select(1u, 3u, (words[c] & SP_RERENDER) == 0u);
-                break;
-            }
-            t -= count;
+        var pick = vec3u(SV_MAX_VIEWS, 0u, 0u);
+        if (t < coarse_reset) {
+            pick = sp_order_pick(resetting, 0u, 1u, t);
+        } else if (t < coarse_reset + coarse_follow) {
+            // As das vistas cujo cache segue contam no orçamento.
+            if (t - coarse_reset < sp.budget) { pick = sp_order_pick(following, 0u, 1u, t - coarse_reset); }
+        } else if (t < coarse_reset + coarse_follow + fine_reset) {
+            pick = sp_order_pick(resetting, 1u, SV_MAX_LEVELS, t - coarse_reset - coarse_follow);
+        } else {
+            let u = t - coarse_reset - coarse_follow - fine_reset;
+            if (coarse_follow + u < sp.budget) { pick = sp_order_pick(following, 1u, SV_MAX_LEVELS, u); }
         }
+        if (pick.x >= SV_MAX_VIEWS) { continue; }
+        let n = sp_view_matrix(pick.x).pagesPerLevel;
+        let o = sp_vb(pick.x) + sp.workBase + (pick.y * n * n + pick.z) * 2u;
+        words[c] = atomicLoad(&sp_scratch[o]);
+        physes[c] = atomicLoad(&sp_scratch[o + 1u]);
+        levels[c] = pick.y;
+        views[c] = pick.x;
+        states[c] = select(1u, 3u, (words[c] & SP_RERENDER) == 0u);
         if ((states[c] & 2u) != 0u) { fresh++; }
     }
     // A posição entre as novas: a física livre dessa posição.
@@ -464,9 +616,12 @@ fn sp_allocate_main(@builtin(local_invocation_index) lid: u32) {
         sp_dispatch[5] = (groups + max(row, 1u) - 1u) / max(row, 1u);
         sp_dispatch[6] = 1u;
     }
-    let z0 = bitcast<u32>(m.camera.z);
     for (var c = 0u; c < SP_ALLOCATE_CHUNK; c++) {
         if ((states[c] & 4u) == 0u) { continue; }
+        let v = views[c];
+        let m = sp_view_matrix(v);
+        let n = m.pagesPerLevel;
+        let z0 = bitcast<u32>(m.camera.z);
         let k = levels[c];
         let phys = physes[c];
         let i = words[c] & ~SP_RERENDER;
@@ -480,9 +635,9 @@ fn sp_allocate_main(@builtin(local_invocation_index) lid: u32) {
         // O carimbo da série do atlas: a página escrita na época atual.
         sp_atlas_stamps[phys] = sp_atlas_clock.x;
         // A página virtual aponta a posição na lista das sujas (os sprites acham as páginas sujas que alcançam por ela).
-        atomicStore(&sp_scratch[sp.needBase + i], SP_DIRTY_MARK | d);
+        atomicStore(&sp_scratch[sp_vb(v) + sp.needBase + i], SP_DIRTY_MARK | d);
         let r = sp.dirtyBase + d * 4u;
-        atomicStore(&sp_scratch[r], phys | (k << 16u));
+        atomicStore(&sp_scratch[r], phys | (k << SP_DIRTY_LEVEL_SHIFT) | (v << SP_DIRTY_VIEW_SHIFT));
         atomicStore(&sp_scratch[r + 1u], bitcast<u32>(g.x));
         atomicStore(&sp_scratch[r + 2u], bitcast<u32>(g.y));
         atomicStore(&sp_scratch[r + 3u], z0);
@@ -497,9 +652,8 @@ fn sp_allocate_main(@builtin(local_invocation_index) lid: u32) {
 fn sp_fill_main(@builtin(workgroup_id) wid: vec3u, @builtin(local_invocation_index) lid: u32) {
     let d = wid.x;
     if (d >= atomicLoad(&sp_scratch[SP_DIRTY_COUNT])) { return; }
-    let m = shadow_matrices[sp.casterSlot];
-    let phys = atomicLoad(&sp_scratch[sp.dirtyBase + d * 4u]) & 0xFFFFu;
-    let first = sv_page_word(m, phys, vec2u(0u));
+    let phys = atomicLoad(&sp_scratch[sp.dirtyBase + d * 4u]) & SP_DIRTY_PHYS_MASK;
+    let first = sp_atlas_word(phys, vec2u(0u));
     for (var t = lid; t < SV_STRIDE * SV_STRIDE; t += 256u) {
         sp_atlas[first + t] = 0x3f800000u;
     }
@@ -507,19 +661,29 @@ fn sp_fill_main(@builtin(workgroup_id) wid: vec3u, @builtin(local_invocation_ind
 
 // ---- 7. os pares instância × página suja ----
 
-/** O grupo da instância `j` se o retângulo dela toca a página suja `d`; senão, `SP_SKIP`. */
+/** O nível (x) e a vista (y) da página suja de primeira palavra `w`. */
+fn sp_dirty_place(w: u32) -> vec2u {
+    return vec2u((w >> SP_DIRTY_LEVEL_SHIFT) & SP_DIRTY_FIELD_MASK, (w >> SP_DIRTY_VIEW_SHIFT) & SP_DIRTY_FIELD_MASK);
+}
+
+/**
+ * O grupo de desenho da instância `j` na vista da página suja `d`, se o retângulo dela no plano dessa vista toca a
+ * página; senão, `SP_SKIP`.
+ */
 fn sp_pair_group(d: u32, j: u32) -> u32 {
     if (d >= atomicLoad(&sp_scratch[SP_DIRTY_COUNT])) { return SP_SKIP; }
     let word = sp_groups[sp.instanceGroupBase + j];
     if ((word & SP_SKIP) != 0u) { return SP_SKIP; }
-    let m = shadow_matrices[sp.casterSlot];
     let r = sp.dirtyBase + d * 4u;
-    let k = atomicLoad(&sp_scratch[r]) >> 16u;
+    let place = sp_dirty_place(atomicLoad(&sp_scratch[r]));
+    let group = sp_view_group(word & SP_GROUP_MASK, place.y);
+    if (group == SP_SKIP) { return SP_SKIP; }
+    let m = sp_view_matrix(place.y);
     let g = vec2i(bitcast<i32>(atomicLoad(&sp_scratch[r + 1u])), bitcast<i32>(atomicLoad(&sp_scratch[r + 2u])));
-    let o = sp.rectsBase + j * 4u;
+    let o = sp_vb(place.y) + sp.rectsBase + j * 4u;
     let rect = vec4f(sp_f(o), sp_f(o + 1u), sp_f(o + 2u), sp_f(o + 3u));
-    if (!sp_overlap(rect, sp_page_rect(m, k, g))) { return SP_SKIP; }
-    return word & SP_GROUP_MASK;
+    if (!sp_overlap(rect, sp_page_rect(m, place.x, g))) { return SP_SKIP; }
+    return group;
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -543,7 +707,8 @@ fn sp_pairs_base_main() {
         atomicStore(&sp_scratch[o + 1u], running);
         atomicStore(&sp_scratch[o + 3u], n);
         // O grupo em aglomerados conta as instâncias do desenho na lista dele (`sp_clusters_main`).
-        atomicStore(&sp_args[sp_groups[g * 4u + 3u] * 5u + 1u], select(n, 0u, sp_groups[g * 4u + 2u] != 0u));
+        let record = sp_groups[g * SP_GROUP_WORDS + 3u];
+        atomicStore(&sp_args[record * 5u + 1u], select(n, 0u, sp_groups[g * SP_GROUP_WORDS + 2u] != 0u));
         running += n;
     }
 }
@@ -618,7 +783,7 @@ fn sp_cluster_bounds_main(
     let c = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     let inside = c < sp_geometry.clusterCount;
     let g = sp_geometry.clusterFirst + c;
-    let deforming = (sp_groups[sp.instanceGroupBase + sp_groups[sp_geometry.group * 4u]] & SP_DEFORMING) != 0u;
+    let deforming = (sp_groups[sp_geometry.group * SP_GROUP_WORDS + 5u] & SP_GROUP_DEFORMING) != 0u;
     var lo = vec3f(3.0e38);
     var hi = vec3f(-3.0e38);
     if (inside) {
@@ -672,27 +837,34 @@ fn sp_cluster_bounds_main(
 }
 
 /**
- * Na deformação, o aglomerado cuja caixa mudou entra nas dinâmicas (a caixa de antes unida à de agora, em cada
- * instância do grupo); sem a caixa de antes (a série interrompida), tudo é tocado. No recomeço, nada (tudo é refeito).
+ * Na deformação, o aglomerado cuja caixa mudou entra nas dinâmicas de cada vista em que o grupo é desenhado (a caixa de
+ * antes unida à de agora, em cada instância do grupo, no plano da vista); sem a caixa de antes (a série interrompida),
+ * tudo é tocado. Na vista cujo cache recomeça, nada (tudo é refeito).
  */
 fn sp_cluster_moved(deforming: bool, stamped: bool, old: array<vec3f, 2>, lo: vec3f, hi: vec3f) {
-    let m = shadow_matrices[sp.casterSlot];
-    if (!deforming || sp.reset != 0u || m.direction.w != 0.0) { return; }
-    if (!stamped) {
-        atomicStore(&sp_scratch[SP_OVERFLOW], 1u);
-        return;
-    }
+    if (!deforming || sp.reset != 0u) { return; }
     let empty = any(lo > hi) && any(old[0] > old[1]);
-    if (empty || (all(old[0] == lo) && all(old[1] == hi))) { return; }
+    if (stamped && (empty || (all(old[0] == lo) && all(old[1] == hi)))) { return; }
     let group = sp_geometry.group;
-    let firstInstance = sp_groups[group * 4u];
-    let instancesN = min(sp_groups[group * 4u + 1u], SP_CLUSTER_MAX_INSTANCES);
-    for (var j = 0u; j < SP_CLUSTER_MAX_INSTANCES; j++) {
-        if (j >= instancesN) { break; }
-        let world = worlds[instances[firstInstance + j].world].world;
-        let a = sp_box_rect(m, world, old[0], old[1]);
-        let r = sp_box_rect(m, world, lo, hi);
-        sp_push_dynamic(vec4f(min(a.xy, r.xy), max(a.zw, r.zw)));
+    let mask = sp_groups[group * SP_GROUP_WORDS + 4u];
+    let firstInstance = sp_groups[group * SP_GROUP_WORDS];
+    let instancesN = min(sp_groups[group * SP_GROUP_WORDS + 1u], SP_CLUSTER_MAX_INSTANCES);
+    for (var v = 0u; v < SV_MAX_VIEWS; v++) {
+        if (v >= sp.viewSpan) { break; }
+        if (((mask >> v) & 1u) == 0u || !sp_view_live(v)) { continue; }
+        let m = sp_view_matrix(v);
+        if (sp_view_reset(v, m)) { continue; }
+        if (!stamped) {
+            atomicStore(&sp_scratch[sp_vb(v) + SPV_OVERFLOW], 1u);
+            continue;
+        }
+        for (var j = 0u; j < SP_CLUSTER_MAX_INSTANCES; j++) {
+            if (j >= instancesN) { break; }
+            let world = worlds[instances[firstInstance + j].world].world;
+            let a = sp_box_rect(m, world, old[0], old[1]);
+            let r = sp_box_rect(m, world, lo, hi);
+            sp_push_dynamic(v, vec4f(min(a.xy, r.xy), max(a.zw, r.zw)));
+        }
     }
 }
 
@@ -758,45 +930,53 @@ fn sp_clusters_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
     let c = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (c >= sp_geometry.clusterCount) { return; }
     let group = sp_geometry.group;
-    let list = sp_groups[group * 4u + 2u];
-    let record = sp_groups[group * 4u + 3u];
-    let firstInstance = sp_groups[group * 4u];
-    let instancesN = min(sp_groups[group * 4u + 1u], SP_CLUSTER_MAX_INSTANCES);
+    let list = sp_groups[group * SP_GROUP_WORDS + 2u];
+    let record = sp_groups[group * SP_GROUP_WORDS + 3u];
+    let mask = sp_groups[group * SP_GROUP_WORDS + 4u];
+    let firstInstance = sp_groups[group * SP_GROUP_WORDS];
+    let instancesN = min(sp_groups[group * SP_GROUP_WORDS + 1u], SP_CLUSTER_MAX_INSTANCES);
     let cap = sp_geometry.clusterCount * SP_CLUSTER_SLOTS;
     let o = sp.groupPairsBase + group * 4u;
     let n = min(atomicLoad(&sp_scratch[o + 3u]), SP_CLUSTER_PAIR_LIMIT);
     // Sem páginas sujas no grupo, nada a listar.
     if (n == 0u) { return; }
-    let m = shadow_matrices[sp.casterSlot];
     let box = sp_cluster_box(sp_geometry.clusterFirst + c);
     let lo = box[0];
     let hi = box[1];
     if (any(lo > hi)) { return; }
     let h = 0.5 * (hi - lo);
-    var shapes: array<SpClusterShape, SP_CLUSTER_MAX_INSTANCES>;
-    for (var j = 0u; j < SP_CLUSTER_MAX_INSTANCES; j++) {
-        if (j >= instancesN) { break; }
-        let world = worlds[instances[firstInstance + j].world].world;
-        let to_light = m.lightView * world;
-        shapes[j] = SpClusterShape(
-            sv_light(m, (world * vec4f(0.5 * (lo + hi), 1.0)).xyz).xy,
-            (to_light * vec4f(h.x, 0.0, 0.0, 0.0)).xy,
-            (to_light * vec4f(0.0, h.y, 0.0, 0.0)).xy,
-            (to_light * vec4f(0.0, 0.0, h.z, 0.0)).xy,
-        );
-    }
     let base = atomicLoad(&sp_scratch[o + 1u]);
-    for (var p = 0u; p < SP_CLUSTER_PAIR_LIMIT; p++) {
-        if (p >= n) { break; }
-        let pair = sp_pairs[base + p];
-        let local = (pair & SP_PAIR_MASK) - firstInstance;
-        if (local >= instancesN) { continue; }
-        let w = sp.dirtyBase + (pair >> SP_PAIR_SHIFT) * 4u;
-        let k = atomicLoad(&sp_scratch[w]) >> 16u;
-        let g = vec2i(bitcast<i32>(atomicLoad(&sp_scratch[w + 1u])), bitcast<i32>(atomicLoad(&sp_scratch[w + 2u])));
-        if (!sp_shape_touches(shapes[local], sp_page_rect(m, k, g))) { continue; }
-        let idx = atomicAdd(&sp_args[record * 5u + 1u], 1u);
-        if (idx < cap) { atomicStore(&sp_scratch[list + idx], (p << SP_CLUSTER_SHIFT) | c); }
+    // Vista a vista (as em que o grupo é desenhado): a forma do aglomerado no plano dela, em cada instância, contra as
+    // páginas sujas dela entre os pares do grupo.
+    for (var v = 0u; v < SV_MAX_VIEWS; v++) {
+        if (v >= sp.viewSpan) { break; }
+        if (((mask >> v) & 1u) == 0u || !sp_view_live(v)) { continue; }
+        let m = sp_view_matrix(v);
+        var shapes: array<SpClusterShape, SP_CLUSTER_MAX_INSTANCES>;
+        for (var j = 0u; j < SP_CLUSTER_MAX_INSTANCES; j++) {
+            if (j >= instancesN) { break; }
+            let world = worlds[instances[firstInstance + j].world].world;
+            let to_light = m.lightView * world;
+            shapes[j] = SpClusterShape(
+                sv_light(m, (world * vec4f(0.5 * (lo + hi), 1.0)).xyz).xy,
+                (to_light * vec4f(h.x, 0.0, 0.0, 0.0)).xy,
+                (to_light * vec4f(0.0, h.y, 0.0, 0.0)).xy,
+                (to_light * vec4f(0.0, 0.0, h.z, 0.0)).xy,
+            );
+        }
+        for (var p = 0u; p < SP_CLUSTER_PAIR_LIMIT; p++) {
+            if (p >= n) { break; }
+            let pair = sp_pairs[base + p];
+            let local = (pair & SP_PAIR_MASK) - firstInstance;
+            if (local >= instancesN) { continue; }
+            let w = sp.dirtyBase + (pair >> SP_PAIR_SHIFT) * 4u;
+            let place = sp_dirty_place(atomicLoad(&sp_scratch[w]));
+            if (place.y != v) { continue; }
+            let g = vec2i(bitcast<i32>(atomicLoad(&sp_scratch[w + 1u])), bitcast<i32>(atomicLoad(&sp_scratch[w + 2u])));
+            if (!sp_shape_touches(shapes[local], sp_page_rect(m, place.x, g))) { continue; }
+            let idx = atomicAdd(&sp_args[record * 5u + 1u], 1u);
+            if (idx < cap) { atomicStore(&sp_scratch[list + idx], (p << SP_CLUSTER_SHIFT) | c); }
+        }
     }
 }
 
@@ -808,7 +988,8 @@ fn sp_clusters_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
 // depois das instâncias e, se mudou ou a fonte se move sozinha (`dynamic`), na lista das dinâmicas — as páginas onde ela
 // estava e onde está são redesenhadas. Depois das sujas, cada ponto acha, em cada nível, as páginas que o disco alcança
 // (com a borda de 1 texel) pela marca da alocação, e cada par entra na lista dos sprites (um desenho só, seis vértices
-// por par). A lista tem teto (`sp.spriteCap`): o que passa não é desenhado.
+// por par). A lista tem teto (`sp.spriteCap`): o que passa não é desenhado. Tudo por vista de sombra: o retângulo da
+// fonte no plano de cada vista (um grupo de trabalho por vista) e os pares nas páginas sujas de cada uma.
 
 /** O centro do ponto `i` da fonte no mundo. */
 fn ss_center(i: u32) -> vec3f {
@@ -822,11 +1003,16 @@ fn ss_center(i: u32) -> vec3f {
 var<workgroup> ss_lo: array<vec2f, 256>;
 var<workgroup> ss_hi: array<vec2f, 256>;
 
-/** O retângulo da fonte no plano da luz (um grupo de trabalho por fonte) e, se mudou ou se move, a dinâmica dela. */
+/**
+ * O retângulo da fonte no plano da luz de uma vista (um grupo de trabalho por vista) e, se mudou ou se move, a dinâmica
+ * dela nessa vista.
+ */
 @compute @workgroup_size(256)
-fn ss_rect_main(@builtin(local_invocation_index) lid: u32) {
-    let m = shadow_matrices[sp.casterSlot];
-    let count = ss_source.count;
+fn ss_rect_main(@builtin(workgroup_id) wid: vec3u, @builtin(local_invocation_index) lid: u32) {
+    let v = wid.x;
+    let live = v < sp.viewSpan && sp_view_live(v);
+    let m = sp_view_matrix(v);
+    let count = select(0u, ss_source.count, live);
     let per = (count + 255u) / 256u;
     var lo = vec2f(3.0e38);
     var hi = vec2f(-3.0e38);
@@ -846,55 +1032,62 @@ fn ss_rect_main(@builtin(local_invocation_index) lid: u32) {
             ss_hi[lid] = max(ss_hi[lid], ss_hi[lid + s]);
         }
     }
-    if (lid != 0u) { return; }
+    if (lid != 0u || !live) { return; }
     let r = ss_source.radius;
     var rect = vec4f(3.0e38, 3.0e38, -3.0e38, -3.0e38);
     if (all(ss_lo[0] <= ss_hi[0])) { rect = vec4f(ss_lo[0] - vec2f(r), ss_hi[0] + vec2f(r)); }
-    let slot = ss_source.rectSlot;
+    let slot = v * sp.rectStride + ss_source.rectSlot;
     sp_rects_out[slot] = rect;
-    if (sp.reset != 0u || m.direction.w != 0.0) { return; }
+    if (sp_view_reset(v, m)) { return; }
     let before = sp_rects_previous[slot];
     let moved = ss_source.dynamic != 0u || any(abs(before - rect) > vec4f(1.0e-5 * (1.0 + abs(rect))));
     if (!moved) { return; }
-    sp_push_dynamic(vec4f(min(before.xy, rect.xy), max(before.zw, rect.zw)));
+    sp_push_dynamic(v, vec4f(min(before.xy, rect.xy), max(before.zw, rect.zw)));
 }
 
 /**
- * Os pares (sprite, página suja) de uma fonte (uma invocação por ponto): em cada nível, as páginas globais que o
- * quadrado do disco (com a borda de 1 texel) alcança, na janela do nível, marcadas como sujas pela alocação.
+ * Os pares (sprite, página suja) de uma fonte (uma invocação por ponto): em cada vista e em cada nível dela, as páginas
+ * globais que o quadrado do disco (com a borda de 1 texel) alcança, na janela do nível, marcadas como sujas pela
+ * alocação.
  */
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn ss_pairs_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i >= ss_source.count) { return; }
     if (atomicLoad(&sp_scratch[SP_DIRTY_COUNT]) == 0u) { return; }
-    let m = shadow_matrices[sp.casterSlot];
-    let l = sv_light(m, ss_center(i));
+    let center = ss_center(i);
     let r = ss_source.radius;
-    let n = m.pagesPerLevel;
-    for (var k = 0u; k < SV_MAX_LEVELS; k++) {
-        if (k >= sv_levels(m)) { break; }
-        let p = sv_page_size(m, k);
-        let reach = vec2f(r + sv_texel(m, k));
-        let g0 = vec2i(floor((l.xy - reach) / p));
-        let g1 = vec2i(floor((l.xy + reach) / p));
-        for (var y = 0; y < SS_PAGE_SPAN; y++) {
-            if (g0.y + y > g1.y) { break; }
-            for (var x = 0; x < SS_PAGE_SPAN; x++) {
-                if (g0.x + x > g1.x) { break; }
-                let g = g0 + vec2i(x, y);
-                if (!sv_in_window(m, k, g)) { continue; }
-                let s = sv_slot(m, k, g);
-                let mark = atomicLoad(&sp_scratch[sp.needBase + s.y * n + s.x]);
-                if ((mark & SP_DIRTY_MARK) == 0u) { continue; }
-                let idx = atomicAdd(&sp_args[sp.spriteRecord * 5u + 1u], 1u);
-                if (idx >= sp.spriteCap) { return; }
-                let e = idx * SS_ENTRY_WORDS;
-                ss_list[e] = bitcast<u32>(l.x);
-                ss_list[e + 1u] = bitcast<u32>(l.y);
-                ss_list[e + 2u] = bitcast<u32>(l.z);
-                ss_list[e + 3u] = bitcast<u32>(r);
-                ss_list[e + 4u] = mark & ~SP_DIRTY_MARK;
+    for (var v = 0u; v < SV_MAX_VIEWS; v++) {
+        if (v >= sp.viewSpan) { break; }
+        if (!sp_view_live(v)) { continue; }
+        let m = sp_view_matrix(v);
+        let l = sv_light(m, center);
+        let n = m.pagesPerLevel;
+        let marks = sp_vb(v) + sp.needBase;
+        for (var k = 0u; k < SV_MAX_LEVELS; k++) {
+            if (k >= sv_levels(m)) { break; }
+            let p = sv_page_size(m, k);
+            let reach = vec2f(r + sv_texel(m, k));
+            let g0 = vec2i(floor((l.xy - reach) / p));
+            let g1 = vec2i(floor((l.xy + reach) / p));
+            for (var y = 0; y < SS_PAGE_SPAN; y++) {
+                if (g0.y + y > g1.y) { break; }
+                for (var x = 0; x < SS_PAGE_SPAN; x++) {
+                    if (g0.x + x > g1.x) { break; }
+                    let g = g0 + vec2i(x, y);
+                    if (!sv_in_window(m, k, g)) { continue; }
+                    let s = sv_slot(m, k, g);
+                    let mark = atomicLoad(&sp_scratch[marks + s.y * n + s.x]);
+                    if ((mark & SP_DIRTY_MARK) == 0u) { continue; }
+                    let idx = atomicAdd(&sp_args[sp.spriteRecord * 5u + 1u], 1u);
+                    if (idx >= sp.spriteCap) { return; }
+                    let e = idx * SS_ENTRY_WORDS;
+                    ss_list[e] = bitcast<u32>(l.x);
+                    ss_list[e + 1u] = bitcast<u32>(l.y);
+                    ss_list[e + 2u] = bitcast<u32>(l.z);
+                    ss_list[e + 3u] = bitcast<u32>(r);
+                    ss_list[e + 4u] = mark & ~SP_DIRTY_MARK;
+                }
             }
         }
     }

@@ -1,48 +1,82 @@
-import type { ConsumerResolver, ResolveContext } from '../../scene/consumers/ConsumerResolver';
-import type { ResolvedSource } from '../../scene/consumers/ResolvedSource';
-import { sourceOfDescriptor } from '../../scene/consumers/strategies/sourceOfDescriptor';
 import type { Resource } from '../../scene/contracts/Resource';
+import type { EventBus } from '../../scene/events/EventBus';
+import type { EntityId } from '../../scene/world/EntityId';
 import type { World } from '../../scene/world/World';
-import { DirectionalLight } from './DirectionalLight';
+import { ShadowAtlas, type ShadowAtlasOptions } from './ShadowAtlas';
 import { ShadowMap } from './ShadowMap';
 
 /**
- * O `ShadowMap` de uma `DirectionalLight` que projeta sombra (`castShadow = 1`) — o mapa que a cena usa para a sombra
- * (o primeiro, como até aqui). Seletor dos slots e resolvers que leem o mapa que projeta.
+ * As vistas de sombra da cena por evento (spec 013, R2/R3): cada `ShadowMap` que entra — e os já na cena — vai para as
+ * vistas vivas do atlas único na ordem de entrada, até o teto de vistas (`options.views`); o primeiro insere o
+ * `ShadowAtlas` da cena e a saída do último o retira. O mapa que não coube espera: a faixa que outro libera é dele, na
+ * mesma ordem. As luzes não chamam nada: anexam o seu mapa e o evento de mudança dos recursos faz o resto. Devolve o
+ * cancelamento.
+ *
+ * A luz com `castShadow` desligado continua com a sua vista (o mapa segue anexado); o estágio do referencial não
+ * escreve a vista dela e nenhuma página fica alocada.
  */
-export function castingShadowMap(world: World): (resource: Resource) => boolean {
-    return (resource) => {
-        const id = world.entityIdOfResource(resource);
-        if (id === undefined) return false;
-        const light = world.resourcesOf(id).find((r) => r instanceof DirectionalLight);
-        return light?.data.castShadow === 1;
+export function shadowViewsByEvent(
+    world: World,
+    events: EventBus,
+    options: ShadowAtlasOptions = {},
+): () => void {
+    /** Os mapas da cena, na ordem de entrada. */
+    const maps: ShadowMap[] = [];
+    let atlas: ShadowAtlas | undefined;
+    for (const record of world.allRecords())
+        for (const r of record.resources) {
+            if (r instanceof ShadowAtlas) atlas = r;
+            else if (r instanceof ShadowMap) maps.push(r);
+        }
+    /** Dá vista aos mapas sem ela, na ordem de entrada; o atlas entra com o primeiro e sai sem nenhum. */
+    const settle = (): void => {
+        if (maps.length === 0) {
+            if (atlas !== undefined && world.entityIdOfResource(atlas) !== undefined)
+                world.remove(atlas);
+            atlas = undefined;
+            return;
+        }
+        const created = atlas === undefined;
+        const target = atlas ?? new ShadowAtlas(options);
+        atlas = target;
+        for (const map of maps) if (!target.assign(map)) break;
+        // Depois das vistas dadas: a C2 aloca o atlas já no tamanho delas.
+        if (created) world.insert(target);
     };
+    const isMap = (r: Resource): r is ShadowMap => r instanceof ShadowMap;
+    settle();
+    return events.on('resourcesChanged', (e) => {
+        const removed = e.removed.filter(isMap);
+        const added = e.added.filter(isMap);
+        if (removed.length === 0 && added.length === 0) return;
+        for (const map of removed) {
+            const i = maps.indexOf(map);
+            if (i >= 0) maps.splice(i, 1);
+            atlas?.release(map);
+        }
+        maps.push(...added.filter((m) => !maps.includes(m)));
+        settle();
+    });
+}
+
+/** Uma vista de sombra viva: o índice da faixa dela no atlas, o mapa e a entidade da luz que o tem. */
+export interface LiveShadowView {
+    readonly view: number;
+    readonly map: ShadowMap;
+    readonly entity: EntityId;
 }
 
 /**
- * Fonte de um descritor do mapa de sombra que projeta (spec 031): o atlas (`ShadowCaster.atlas`: a tabela de páginas e
- * as páginas físicas, T060h), para a contribuição de sombra dos pontos de cena.
+ * As vistas de sombra vivas da cena, pela ordem das faixas no atlas (a de entrada das luzes, enquanto nenhuma sai): o que
+ * os estágios de sombra e dos pedidos percorrem, no lugar de "o primeiro mapa que projeta". O mapa fora da cena (a luz
+ * retirada neste quadro) não entra.
  */
-export class ShadowCasterResolver implements ConsumerResolver {
-    readonly name: string;
-
-    constructor(
-        /** Descritor do `ShadowMap` (`atlas`). */
-        private readonly descId: string,
-        /** Tipo WGSL do binding. */
-        readonly typeName: string,
-    ) {
-        this.name = `ShadowCaster.${descId}`;
-    }
-
-    resolve(ctx: ResolveContext): ResolvedSource | undefined {
-        const casting = castingShadowMap(ctx.world);
-        for (const id of ctx.world.queryBySchemaName(ShadowMap.schema.name)) {
-            const map = ctx.world
-                .resourcesOf(id)
-                .find((r): r is ShadowMap => r instanceof ShadowMap && casting(r));
-            if (map !== undefined) return sourceOfDescriptor(ctx.resources, map, this.descId);
-        }
-        return undefined;
-    }
+export function liveShadowViews(world: World, atlas: ShadowAtlas): readonly LiveShadowView[] {
+    const out: LiveShadowView[] = [];
+    atlas.views.forEach((map, view) => {
+        if (map === undefined) return;
+        const entity = world.entityIdOfResource(map);
+        if (entity !== undefined) out.push({ view, map, entity });
+    });
+    return out;
 }

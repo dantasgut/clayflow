@@ -6,16 +6,19 @@
 // inteiros). A profundidade é a distância ao longo da luz em torno da referência da página (`z0`), presa em 0 do lado da
 // luz (quem está antes da faixa ainda faz sombra). Antes, `sp_fill_main` (as etapas das páginas) preenche cada página
 // suja com o fundo (1); as demais seguem no atlas (a série por páginas).
+// Um passe para todas as vistas de sombra (spec 013): a página suja leva a vista dela (o referencial do vértice), e o
+// atlas é um só.
 // Recursos declarados no módulo (`shadow_matrices`, `worlds`, `instances`, `sp_scratch_read`, `sp_pairs_read`,
-// `shadow_group`, `sp`, `sp_atlas_depth`; na malha grande, `shadow_cluster_vertices` e `shadow_cluster_indices`; nos
+// `shadow_group`, `sp`, `sp_atlas_depth`; requer shadow_pages_views; na malha grande, `shadow_cluster_vertices` e `shadow_cluster_indices`; nos
 // sprites, `ss_list_read`).
 
 struct VsIn {
     @location(0) position: vec3<f32>,
 }
 
-/** A página suja `d`: o nível, a página global, a física e a referência de profundidade. */
+/** A página suja `d`: a vista, o nível, a página global, a física e a referência de profundidade. */
 struct ShadowDirtyPage {
+    view: u32,
     level: u32,
     global: vec2i,
     phys: u32,
@@ -26,9 +29,10 @@ fn shadow_dirty(d: u32) -> ShadowDirtyPage {
     let r = sp.dirtyBase + d * 4u;
     let w = sp_scratch_read[r];
     return ShadowDirtyPage(
-        w >> 16u,
+        (w >> SP_DIRTY_VIEW_SHIFT) & SP_DIRTY_FIELD_MASK,
+        (w >> SP_DIRTY_LEVEL_SHIFT) & SP_DIRTY_FIELD_MASK,
         vec2i(bitcast<i32>(sp_scratch_read[r + 1u]), bitcast<i32>(sp_scratch_read[r + 2u])),
-        w & 0xFFFFu,
+        w & SP_DIRTY_PHYS_MASK,
         bitcast<f32>(sp_scratch_read[r + 3u]),
     );
 }
@@ -46,8 +50,8 @@ struct ShadowVsOut {
 
 /** O ponto `p` (espaço do objeto) do par `pair` (instância × página suja) na página do desenho. */
 fn shadow_depth_place(p: vec3f, pair: u32) -> ShadowVsOut {
-    let m = shadow_matrices[sp.casterSlot];
     let page = shadow_dirty(pair >> SP_PAIR_SHIFT);
+    let m = sp_view_matrix(page.view);
     let world = worlds[instances[pair & SP_PAIR_MASK].world].world * vec4f(p, 1.0);
     let l = sv_light(m, world.xyz);
     let t = sv_texel(m, page.level);
@@ -91,8 +95,7 @@ fn shadow_cluster_vs(@builtin(vertex_index) v: u32, @builtin(instance_index) ins
 
 @fragment
 fn shadow_depth_fs(in: ShadowVsOut) {
-    let m = shadow_matrices[sp.casterSlot];
-    let w = sv_page_word(m, in.phys, vec2u(in.position.xy));
+    let w = sp_atlas_word(in.phys, vec2u(in.position.xy));
     atomicMin(&sp_atlas_depth[w], bitcast<u32>(clamp(in.position.z, 0.0, 1.0)));
 }
 
@@ -101,7 +104,8 @@ fn shadow_depth_fs(in: ShadowVsOut) {
 struct ShadowSpriteOut {
     @builtin(position) position: vec4f,
     @location(0) @interpolate(flat) phys: u32,
-    @location(1) @interpolate(flat) level: u32,
+    /** O lado de um texel do nível da página (m) e a meia faixa de profundidade da vista (m). */
+    @location(1) @interpolate(flat) scale: vec2f,
     /** O centro do disco na página (texels) e o raio (texels). */
     @location(2) @interpolate(flat) disk: vec3f,
     /** A profundidade do centro (espaço da luz) e a referência da página. */
@@ -117,7 +121,7 @@ fn shadow_sprite_vs(@builtin(vertex_index) v: u32, @builtin(instance_index) inst
     var out: ShadowSpriteOut;
     out.position = vec4f(0.0, 0.0, 2.0, 1.0);
     out.phys = 0u;
-    out.level = 0u;
+    out.scale = vec2f(1.0);
     out.disk = vec3f(0.0);
     out.depth = vec2f(0.0);
     if (instance >= sp.spriteCap) { return out; }
@@ -128,8 +132,8 @@ fn shadow_sprite_vs(@builtin(vertex_index) v: u32, @builtin(instance_index) inst
         bitcast<f32>(ss_list_read[e + 2u]),
     );
     let r = bitcast<f32>(ss_list_read[e + 3u]);
-    let m = shadow_matrices[sp.casterSlot];
     let page = shadow_dirty(ss_list_read[e + 4u]);
+    let m = sp_view_matrix(page.view);
     let t = sv_texel(m, page.level);
     let origin = vec2f(page.global) * sv_page_size(m, page.level) - t;
     let center = (l.xy - origin) / t;
@@ -140,7 +144,7 @@ fn shadow_sprite_vs(@builtin(vertex_index) v: u32, @builtin(instance_index) inst
     let radius = r / t;
     out.position = vec4f(shadow_page_clip(center + corners[v % 6u] * (radius + 1.0)), 0.5, 1.0);
     out.phys = page.phys;
-    out.level = page.level;
+    out.scale = vec2f(t, m.depthRange);
     out.disk = vec3f(center, radius);
     out.depth = vec2f(l.z, page.z0);
     return out;
@@ -151,9 +155,9 @@ fn shadow_sprite_vs(@builtin(vertex_index) v: u32, @builtin(instance_index) inst
 fn shadow_sprite_fs(in: ShadowSpriteOut) {
     let rho = length(in.position.xy - in.disk.xy);
     if (rho > in.disk.z) { discard; }
-    let m = shadow_matrices[sp.casterSlot];
-    let h = sqrt(max(in.disk.z * in.disk.z - rho * rho, 0.0)) * sv_texel(m, in.level);
-    let depth = clamp(sv_depth(m, in.depth.x - h, in.depth.y), 0.0, 1.0);
-    let w = sv_page_word(m, in.phys, vec2u(in.position.xy));
+    let h = sqrt(max(in.disk.z * in.disk.z - rho * rho, 0.0)) * in.scale.x;
+    // A profundidade guardada (`sv_depth`) pela meia faixa da vista.
+    let depth = clamp((in.depth.x - h - in.depth.y) / (2.0 * in.scale.y) + 0.5, 0.0, 1.0);
+    let w = sp_atlas_word(in.phys, vec2u(in.position.xy));
     atomicMin(&sp_atlas_depth[w], bitcast<u32>(depth));
 }

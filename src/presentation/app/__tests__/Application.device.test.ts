@@ -41,7 +41,8 @@ describe('Application — dispositivo', () => {
             scene: createScene({ core }),
             autoResize: false,
         });
-        expect(app.capabilities).toBe(vi.mocked(core.capabilities).mock.results[0]?.value);
+        // O último relatório pedido ao core (a criação da aplicação também o consulta: o teto do atlas das sombras).
+        expect(app.capabilities).toBe(vi.mocked(core.capabilities).mock.results.at(-1)?.value);
         expect(app.capabilities.limits.minUniformBufferOffsetAlignment).toBe(256);
     });
 

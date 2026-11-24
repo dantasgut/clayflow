@@ -134,14 +134,15 @@ export const instancesResource = poolArenaReader({
 });
 
 /**
- * O atlas do mapa de sombra virtual da luz que projeta (resolver `ShadowCaster.atlas`, registrado pelos elementos; T060h):
- * a tabela de páginas no começo e as páginas físicas depois (as profundidades em bits de `f32`). Lido só pela
- * contribuição de sombra (`light_visibility`).
+ * O atlas único dos mapas de sombra virtuais da cena (resolver `ShadowAtlas.atlas`, registrado pelos elementos; spec
+ * 013): as tabelas de páginas das vistas (uma faixa por vista, a partir de `ShadowMatrix.tableBase`) e as páginas
+ * físicas depois (as profundidades em bits de `f32`, a partir de `ShadowMatrix.pagesBase`). Uma ligação só, qualquer que
+ * seja o número de luzes com sombra. Lido pelas contribuições de sombra (`light_visibility`, `light_thickness`).
  */
-export const shadowCasterAtlasResource = wgslResource({
+export const shadowAtlasResource = wgslResource({
     name: 'shadow_atlas',
     binding: { storage: 'read' },
     type: { wgsl: 'u32', array: true },
     frequency: 'frame',
-    provider: { consumer: 'ShadowCaster.atlas' },
+    provider: { consumer: 'ShadowAtlas.atlas' },
 });

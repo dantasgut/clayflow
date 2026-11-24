@@ -8,7 +8,9 @@ import { World } from '../../../scene/world/World';
 import { GI_QUALITY, GlobalIllumination } from '../../lighting/GlobalIllumination';
 import { Froxels } from '../../media/Froxels';
 import { FROXEL_GRID } from '../../media/schemas';
+import { SHADOW_MAX_VIEWS, ShadowAtlas } from '../../scene/ShadowAtlas';
 import { SHADOW_MAX_LEVELS, ShadowMap, shadowTableWords } from '../../scene/ShadowMap';
+import { shadowViewsByEvent } from '../../scene/shadowCaster';
 
 describe('Renderer (spec 039, FR-010)', () => {
     it('padrão: perfil alto com os valores de hoje (16 interfaces, 65 536 fótons, cáusticas ligadas)', () => {
@@ -154,8 +156,10 @@ describe('Renderer (spec 039, FR-010)', () => {
         expect(() => new ShadowMap({ penumbraSamples: 2 })).toThrow(RangeError);
     });
 
-    it('na cena: o mapa de sombra e os froxels realocam pela C2 quando o perfil muda o tamanho', () => {
-        const world = new World(new DefaultEventBus());
+    it('na cena: o atlas das sombras e os froxels realocam pela C2 quando o perfil muda o tamanho', () => {
+        const events = new DefaultEventBus();
+        const world = new World(events);
+        shadowViewsByEvent(world, events);
         const r = new Renderer();
         const map = new ShadowMap();
         const froxels = new Froxels();
@@ -164,12 +168,17 @@ describe('Renderer (spec 039, FR-010)', () => {
         r.adopt(map);
         r.adopt(froxels);
         r.profile = 'low';
-        // O perfil baixo: 8 páginas por nível; os pedidos e a tabela no atlas acompanham (no mínimo 16 × 16 páginas físicas).
-        const requests = map.getDescriptors().find((d) => d.id === 'requests');
-        // Duas palavras por página: a menor e a maior profundidade de quem pediu.
-        expect(requests?.count).toBe(8 * 8 * SHADOW_MAX_LEVELS * 2);
-        const atlas = map.getDescriptors().find((d) => d.id === 'atlas');
-        expect(atlas?.history?.pages?.offset).toBe(shadowTableWords(8) * 4);
+        // O perfil baixo: 8 páginas por nível; as faixas dos pedidos e das tabelas no atlas único acompanham o mapa (no
+        // mínimo 16 × 16 páginas físicas).
+        const shadows = world
+            .resourcesOf(world.queryBySchemaName(ShadowAtlas.schema.name)[0]!)
+            .find((x): x is ShadowAtlas => x instanceof ShadowAtlas)!;
+        expect(shadows.data).toMatchObject({ pagesPerLevel: 8, atlasPages: 16, live: 1 });
+        const requests = shadows.getDescriptors().find((d) => d.id === 'requests');
+        // Duas palavras por página: a menor e a maior profundidade de quem pediu; uma faixa por vista.
+        expect(requests?.count).toBe(SHADOW_MAX_VIEWS * 8 * 8 * SHADOW_MAX_LEVELS * 2);
+        const atlas = shadows.getDescriptors().find((d) => d.id === 'atlas');
+        expect(atlas?.history?.pages?.offset).toBe(SHADOW_MAX_VIEWS * shadowTableWords(8) * 4);
         const scatter = froxels.getDescriptors().find((d) => d.id === 'scatter');
         expect(scatter?.textureShape).toMatchObject({
             width: 96,

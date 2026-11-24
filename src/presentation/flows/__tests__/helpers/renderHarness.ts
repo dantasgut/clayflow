@@ -13,6 +13,7 @@ import { ELEMENT_CONSUMERS } from '../../../../elements/consumers';
 import { TransformFlow } from '../../../../elements/scene/flows/TransformFlow';
 import { CameraFlow } from '../../../../elements/scene/flows/CameraFlow';
 import { ShadowMatrixFlow } from '../../../../elements/scene/flows/ShadowMatrixFlow';
+import { shadowViewsByEvent } from '../../../../elements/scene/shadowCaster';
 import { FrameTargets } from '../../../app/FrameTargets';
 import { ForwardFlow, type ForwardOutput } from '../../ForwardFlow';
 import { ParticleFlow } from '../../ParticleFlow';
@@ -116,8 +117,9 @@ export async function renderScene(
             .filter(([spec]) => discOf(spec).startsWith('shadow_pages_groups'))
             .at(-1)?.[1];
         const record = offset / 20;
-        const count = groups?.[record * 4 + 1] ?? 0;
-        const own = groups?.[record * 4 + 3] === record;
+        // Seis palavras por grupo de desenho (`SP_GROUP_WORDS`): a contagem na 1, o registro na 3.
+        const count = groups?.[record * 6 + 1] ?? 0;
+        const own = groups?.[record * 6 + 3] === record;
         return { indexCount: args?.[record * 5] ?? -1, instanceCount: own ? count : 0 };
     };
     let recording = false;
@@ -402,12 +404,15 @@ export function registerStages(
         phase: 'transform',
         priority: -10,
     });
-    if (options.shadow === true)
+    if (options.shadow === true) {
+        // As vistas de sombra no atlas único por evento, como nos estágios padrão (spec 013).
+        shadowViewsByEvent(scene.world, scene.events);
         scene.flows.register((ctx) => new ShadowMatrixFlow(ctx), {
             type: 'shadowMatrix',
             phase: 'transform',
             priority: -20,
         });
+    }
     const shadow =
         options.shadow === true
             ? scene.flows.register((ctx) => new ShadowFlow(ctx), {

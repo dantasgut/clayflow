@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BoxGeometry } from '../../geometry/BoxGeometry';
 import { DirectionalLight } from '../DirectionalLight';
-import { GpuWordSchema } from '../../gpu/compute/schemas';
-import { SHADOW_MAX_LEVELS, SHADOW_PAGE_WORDS, ShadowMap, shadowTableWords } from '../ShadowMap';
+import { NONE } from '../../../scene/shaders/engineConstants';
+import { SHADOW_MAX_VIEWS, ShadowAtlas, shadowAtlasLayout } from '../ShadowAtlas';
+import { SHADOW_MAX_LEVELS, ShadowMap, shadowTableWords } from '../ShadowMap';
 import { halton, TemporalAntialiasing, type AntialiasingMode } from '../TemporalAntialiasing';
 import { Transform } from '../Transform';
 import { ShadowMatrixParamsSchema } from '../flows/ShadowMatrixSchemas';
@@ -19,19 +20,21 @@ describe('ShadowMap', () => {
         expect(map.data.normalBias).toBe(1.5);
         expect(map.data.size).toEqual([4096, 4096]);
         expect(map.data.pagesPerLevel).toBe(32);
-        expect(map.data.atlasPages).toBe(32);
+        // Fora de uma cena, sem vista no atlas único; a luz direcional declara uma vista, ortográfica.
+        expect(map.data.view).toBe(NONE.value);
+        expect(map.views).toEqual([{ projection: 'orthographic' }]);
         expect(map.data.firstLevelRadius).toBe(1);
         expect(() => new ShadowMap({ firstLevelRadius: 0 })).toThrow(RangeError);
     });
 
-    it('descritores: parâmetros em pool, o referencial só na GPU (mesmo slot), o atlas em buffer como série por páginas (a tabela no começo) e os pedidos como série temporal, sem textura (T060h)', () => {
-        // O maior lado vale: 512 → 4 páginas por nível; o atlas com o mínimo de 16 × 16 páginas físicas.
+    it('descritores: parâmetros em pool e o referencial só na GPU (mesmo slot); o atlas e os pedidos são do ShadowAtlas (spec 013)', () => {
+        // O maior lado vale: 512 → 4 páginas por nível.
         const map = new ShadowMap({ size: [512, 256] });
         expect(map.data).not.toHaveProperty('lightViewProj');
+        expect(map.data).not.toHaveProperty('atlasPages');
         expect(map.data.pagesPerLevel).toBe(4);
-        // A tabela: 4 palavras por página virtual, os 16 níveis reservados.
-        const table = shadowTableWords(4);
-        expect(table).toBe(SHADOW_MAX_LEVELS * 4 * 4 * 4);
+        // A tabela da vista: 4 palavras por página virtual, os 16 níveis reservados.
+        expect(shadowTableWords(4)).toBe(SHADOW_MAX_LEVELS * 4 * 4 * 4);
         expect(map.getDescriptors()).toEqual([
             { id: 'shadowmap', role: 'storage-ro', schema: ShadowMap.schema, storage: 'pool' },
             {
@@ -42,24 +45,23 @@ describe('ShadowMap', () => {
                 upload: 'never',
                 history: { depth: 2 },
             },
-            {
-                id: 'atlas',
-                role: 'storage-rw',
-                schema: GpuWordSchema,
-                count: table + 16 * 16 * SHADOW_PAGE_WORDS,
-                upload: 'never',
-                history: { depth: 1, pages: { record: SHADOW_PAGE_WORDS * 4, offset: table * 4 } },
-            },
-            {
-                id: 'requests',
-                role: 'storage-rw',
-                schema: GpuWordSchema,
-                // Duas palavras por página virtual: a faixa de profundidade de quem a pediu.
-                count: SHADOW_MAX_LEVELS * 4 * 4 * 2,
-                upload: 'never',
-                history: { depth: 2 },
-            },
         ]);
+    });
+
+    it('o referencial da vista leva as bases dela no atlas único e a projeção (spec 013)', () => {
+        const fields = [...ShadowMap.matrixSchema.fields.keys()];
+        expect(fields).toEqual(
+            expect.arrayContaining([
+                'tableBase',
+                'requestBase',
+                'pagesBase',
+                'kind',
+                'origin',
+                'near',
+                'far',
+            ]),
+        );
+        expect([...ShadowMap.schema.fields.keys()]).toContain('view');
     });
 
     it('a DirectionalLight que projeta sombra anexa o seu ShadowMap; sem sombra, nenhum', () => {
@@ -70,7 +72,7 @@ describe('ShadowMap', () => {
         expect(new DirectionalLight({ castShadow: false }).shadowMap).toBeUndefined();
     });
 
-    it('a C2 aloca os pools e o atlas; parâmetros e matriz no mesmo slot; o estágio da matriz despacha a luz', async () => {
+    it('a C2 aloca os pools e o atlas único da cena; parâmetros e matriz no mesmo slot; o estágio da matriz despacha a luz', async () => {
         const s = await renderScene();
         registerStages(s.scene, { shadow: true });
         const light = new DirectionalLight({
@@ -82,11 +84,19 @@ describe('ShadowMap', () => {
         s.scene.world.insert(new BoxGeometry().add(new Transform()));
         s.step();
         const rs = s.scene.resourceSystem;
-        // 256² → 4 páginas por nível (o mínimo); o atlas com 16 × 16 páginas físicas depois da tabela, em séries por página.
-        const atlas = rs.bufferOf(light.shadowMap!, 'atlas')!;
-        expect(atlas.byteSize).toBe((shadowTableWords(4) + 16 * 16 * SHADOW_PAGE_WORDS) * 4);
-        expect(rs.channelOf(light.shadowMap!, 'atlas')?.paged?.tiles[0]).toBe(16 * 16);
-        expect(rs.textureOf(light.shadowMap!, 'atlas')).toBeUndefined();
+        // A luz com sombra pôs o atlas único na cena, por evento, e o mapa dela tem a primeira vista.
+        const resource = s.scene.world
+            .resourcesOf(s.scene.world.queryBySchemaName(ShadowAtlas.schema.name)[0]!)
+            .find((r): r is ShadowAtlas => r instanceof ShadowAtlas)!;
+        expect(resource.views[0]).toBe(light.shadowMap);
+        expect(light.shadowMap!.data.view).toBe(0);
+        // 256² → 4 páginas por nível (o mínimo); o atlas com as tabelas das faixas e 16 × 16 páginas físicas depois, em
+        // série por página.
+        const atlas = rs.bufferOf(resource, 'atlas')!;
+        expect(atlas.byteSize).toBe(shadowAtlasLayout(SHADOW_MAX_VIEWS, 4, 16).atlasWords * 4);
+        expect(rs.channelOf(resource, 'atlas')?.paged?.tiles[0]).toBe(16 * 16);
+        expect(rs.textureOf(resource, 'atlas')).toBeUndefined();
+        expect(rs.bufferOf(light.shadowMap!, 'atlas')).toBeUndefined();
         expect(rs.poolSlotOf('ShadowMap', id)).toBe(rs.poolSlotOf('ShadowMatrix', id));
         const params = vi
             .mocked(s.core.write)

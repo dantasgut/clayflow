@@ -5,7 +5,7 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
-import { GpuWordSchema } from '../gpu/compute/schemas';
+import { NONE } from '../../scene/shaders/engineConstants';
 
 /** Opções de `ShadowMap`. */
 export interface ShadowMapOptions {
@@ -53,8 +53,34 @@ export interface ShadowMapData {
     firstLevelRadius: number;
     /** Páginas por lado de um nível (par, 4–64): `size` / 128. */
     pagesPerLevel: number;
-    /** Páginas físicas por lado do atlas. */
-    atlasPages: number;
+    /**
+     * A vista de sombra do mapa no atlas único da cena (spec 013): o índice da faixa dele (`ShadowAtlas`); `NONE` fora
+     * das vistas vivas (sem atlas, ou acima do teto de vistas) — a luz não tem sombra.
+     */
+    view: number;
+}
+
+/** Projeção de uma vista de sombra (spec 013, R3). */
+export type ShadowViewProjection = 'orthographic' | 'perspective';
+
+/**
+ * Uma vista de sombra declarada pelo mapa (spec 013, R3): um referencial com a sua faixa da tabela e dos pedidos no
+ * atlas único. A luz direcional declara uma, ortográfica (os níveis em volta da câmera).
+ */
+export interface ShadowViewDeclaration {
+    /** A projeção da vista. */
+    readonly projection: ShadowViewProjection;
+}
+
+/** As vistas de uma luz direcional: uma, ortográfica. */
+export const DIRECTIONAL_SHADOW_VIEWS: readonly ShadowViewDeclaration[] = Object.freeze([
+    Object.freeze({ projection: 'orthographic' as const }),
+]);
+
+/** O que o mapa avisa ao atlas onde está (o `ShadowAtlas`): o tamanho dele mudou. */
+export interface ShadowMapHost {
+    /** Ajusta as faixas e o reservatório aos mapas vivos. */
+    fit(): void;
 }
 
 /** Texels por lado de uma página do mapa virtual. */
@@ -71,14 +97,15 @@ export function shadowPagesPerLevel(size: readonly [number, number]): number {
 }
 
 /**
- * Páginas físicas por lado do atlas (o atlas tem o quadrado delas): tantas quanto as de um nível (o que a tela pede por
- * nível cabe com folga; os níveis seguintes pedem uma fração), no mínimo 16 e no máximo 48 por lado.
+ * Páginas físicas por lado que uma vista pede ao atlas (o atlas tem o quadrado delas): tantas quanto as de um nível (o
+ * que a tela pede por nível cabe com folga; os níveis seguintes pedem uma fração), no mínimo 16 e no máximo 48 por lado.
+ * Com mais vistas vivas, `shadowAtlasPagesFor` (`ShadowAtlas`).
  */
 export function shadowAtlasPages(pagesPerLevel: number): number {
     return Math.min(48, Math.max(16, pagesPerLevel));
 }
 
-/** Palavras da tabela de páginas no começo do atlas: 4 por página virtual (`vec4u`), os níveis todos reservados. */
+/** Palavras da tabela de páginas de uma vista (a faixa dela no atlas): 4 por página virtual (`vec4u`), os níveis todos reservados. */
 export function shadowTableWords(pagesPerLevel: number): number {
     return SHADOW_MAX_LEVELS * pagesPerLevel * pagesPerLevel * 4;
 }
@@ -90,17 +117,16 @@ export const SHADOW_PAGE_WORDS = SHADOW_PAGE_STRIDE * SHADOW_PAGE_STRIDE;
  * Mapa de sombra virtual de uma luz (Camada 3; spec 034, T060 — o padrão dos mapas de sombra virtuais): níveis em volta
  * da câmera, cada um com o dobro do lado do anterior e a mesma resolução virtual (`size`), divididos em páginas de 128²
  * ancoradas no espaço da luz. Só as páginas que a imagem usa existem: a profundidade da cena de um quadro marca as
- * páginas pedidas (`requests`), o estágio de sombra do quadro seguinte as aloca no atlas, guarda-as na tabela de
- * páginas e desenha só as novas e as tocadas por quem se moveu ou se deformou — as demais seguem do quadro anterior. Sem
- * texturas (T060h): o atlas é um buffer só (`atlas`) com a tabela no começo (`shadowTableWords`, 4 palavras por página
- * virtual, refeita no lugar a cada quadro) e as páginas físicas depois, uma por registro de `SHADOW_PAGE_WORDS`
- * profundidades (os bits do `f32`); os pedidos, um buffer de uma palavra por página virtual. Séries temporais (spec 037):
- * os pedidos do quadro anterior pelo atraso 1; o atlas, série por páginas (o alvo só, com o carimbo de cada página física
- * e a época da C2).
+ * páginas pedidas, o estágio de sombra do quadro seguinte as aloca no atlas, guarda-as na tabela de páginas e desenha só
+ * as novas e as tocadas por quem se moveu ou se deformou — as demais seguem do quadro anterior.
  *
- * Os vieses, o tamanho e o primeiro nível em pool (`array<ShadowMap>`); o referencial do quadro (a base da luz, a
- * câmera no espaço dela, a faixa de profundidade) num segundo descritor do mesmo slot (pool `ShadowMatrix`, produzido
- * só na GPU pelo `ShadowMatrixFlow`). Anexado pela `DirectionalLight` que projeta sombra.
+ * O mapa guarda os parâmetros da sombra da luz e a **vista** dela (spec 013, R3); as páginas, a tabela e os pedidos são
+ * do atlas único da cena (`ShadowAtlas`), onde cada vista tem a sua faixa. Uma luz direcional tem uma vista
+ * (ortográfica, os níveis em volta da câmera).
+ *
+ * Os vieses, o tamanho, o primeiro nível e a vista em pool (`array<ShadowMap>`); o referencial do quadro (a base da luz,
+ * a câmera no espaço dela, a faixa de profundidade, as bases da faixa) num segundo descritor do mesmo slot (pool
+ * `ShadowMatrix`, produzido só na GPU pelo `ShadowMatrixFlow`). Anexado pela `DirectionalLight` que projeta sombra.
  *
  * Mudança incompatível: `lightViewProj` não é mais dado nem opção do `ShadowMap` — ver o guia de migração.
  */
@@ -113,7 +139,7 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
         penumbraSamples: FieldType.u32,
         firstLevelRadius: FieldType.f32,
         pagesPerLevel: FieldType.u32,
-        atlasPages: FieldType.u32,
+        view: FieldType.u32,
     });
 
     /**
@@ -125,6 +151,11 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
      * `direction.w` = 1 quando o cache não vale neste quadro: luz, nível ou série mudados), o meio
      * lado do primeiro nível, a meia faixa de profundidade de uma página (m) e a rotação do padrão da penumbra e o
      * deslocamento das amostras dentro do texel (spec 034: pela sequência do antisserrilhado; sem ele, (1, 0) e 0).
+     *
+     * A vista no atlas único (spec 013): `tableBase` e `requestBase`, a primeira palavra da tabela da vista no atlas e a
+     * dos pedidos dela; `pagesBase`, a primeira palavra das páginas físicas (a mesma em todas as vistas); `kind`, a
+     * projeção (0 ortográfica, 1 perspectiva); `origin`, a posição da luz, e `near` e `far`, os planos, nas vistas em
+     * perspectiva (zero na ortográfica).
      */
     static readonly matrixSchema = new StructSchema('ShadowMatrix', {
         lightView: FieldType.mat4x4f,
@@ -132,17 +163,28 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
         camera: FieldType.vec4f,
         direction: FieldType.vec4f,
         cacheDirection: FieldType.vec4f,
+        origin: FieldType.vec4f,
         kernelRotation: FieldType.vec2f,
         texelJitter: FieldType.vec2f,
         firstLevelRadius: FieldType.f32,
         depthRange: FieldType.f32,
         pagesPerLevel: FieldType.u32,
         atlasPages: FieldType.u32,
+        tableBase: FieldType.u32,
+        requestBase: FieldType.u32,
+        pagesBase: FieldType.u32,
+        kind: FieldType.u32,
+        near: FieldType.f32,
+        far: FieldType.f32,
     });
 
     state: ResourceState = ResourceState.Uninitialized;
     /** Os valores fixados pela autoria (nas opções): o perfil do `Renderer` não os muda (spec 034, T079). */
     readonly authored: ReadonlySet<ShadowMapProfileField>;
+    /** As vistas de sombra da luz do mapa (a direcional: uma, ortográfica). */
+    readonly views: readonly ShadowViewDeclaration[] = DIRECTIONAL_SHADOW_VIEWS;
+    /** O atlas onde o mapa tem a vista (posto por ele; `undefined` fora das vistas vivas). */
+    private host: ShadowMapHost | undefined;
 
     constructor(options: ShadowMapOptions = {}) {
         super();
@@ -165,13 +207,23 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
             penumbraSamples: samples,
             firstLevelRadius: radius,
             pagesPerLevel: pages,
-            atlasPages: shadowAtlasPages(pages),
+            view: NONE.value,
         };
     }
 
     /**
-     * Os valores do `Renderer` (spec 034, T079): os que a autoria não fixou. A resolução nova realoca a textura de
-     * profundidade pela C2.
+     * A vista do mapa no atlas único: `host` com a faixa `view` ao entrar nas vistas vivas; `undefined` ao sair. Chamado
+     * pelo `ShadowAtlas`.
+     */
+    place(host: ShadowMapHost | undefined, view: number): void {
+        this.host = host;
+        const next = host === undefined ? NONE.value : view;
+        if (this.rawData.view !== next) this.data.view = next;
+    }
+
+    /**
+     * Os valores do `Renderer` (spec 034, T079): os que a autoria não fixou. A resolução nova muda as páginas por nível;
+     * o atlas onde o mapa está ajusta as faixas (e a C2 o realoca).
      */
     fromRenderer(resolution: number, penumbraSamples: number): void {
         const d = this.rawData;
@@ -181,24 +233,17 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
         }
         if (!this.authored.has('size') && (d.size[0] !== resolution || d.size[1] !== resolution)) {
             checkSize([resolution, resolution]);
-            const pages = shadowPagesPerLevel([resolution, resolution]);
-            this.redescribe(this.getDescriptors(), {
+            this.data = {
                 ...this.rawData,
                 size: [resolution, resolution],
-                pagesPerLevel: pages,
-                atlasPages: shadowAtlasPages(pages),
-            });
+                pagesPerLevel: shadowPagesPerLevel([resolution, resolution]),
+            };
+            this.host?.fit();
         }
     }
 
-    /**
-     * Parâmetros (CPU envia a cada mutação) + referencial do quadro (produzido só pela GPU) + o atlas das páginas, a
-     * tabela de páginas e os pedidos (séries temporais) + o amostrador de comparação.
-     */
+    /** Parâmetros (a CPU envia a cada mutação) e o referencial do quadro (produzido só pela GPU). */
     getDescriptors(): readonly GPUDescriptor[] {
-        const { pagesPerLevel, atlasPages } = this.rawData;
-        const atlas = atlasPages;
-        const table = shadowTableWords(pagesPerLevel);
         return [
             { id: 'shadowmap', role: 'storage-ro', schema: ShadowMap.schema, storage: 'pool' },
             {
@@ -208,25 +253,6 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
                 schema: ShadowMap.matrixSchema,
                 upload: 'never',
                 // A luz e o primeiro nível do quadro anterior: mudados, o cache recomeça.
-                history: { depth: 2 },
-            },
-            {
-                id: 'atlas',
-                role: 'storage-rw',
-                schema: GpuWordSchema,
-                count: table + atlas * atlas * SHADOW_PAGE_WORDS,
-                upload: 'never',
-                // Série por páginas (T060a): o alvo só, o tempo guardado por página física (o carimbo e a época da C2);
-                // só as páginas sujas são redesenhadas, as demais seguem onde estão. A tabela, antes delas.
-                history: { depth: 1, pages: { record: SHADOW_PAGE_WORDS * 4, offset: table * 4 } },
-            },
-            {
-                id: 'requests',
-                role: 'storage-rw',
-                schema: GpuWordSchema,
-                // Duas palavras por página virtual: a faixa de profundidade dos pontos que a pediram.
-                count: SHADOW_MAX_LEVELS * pagesPerLevel * pagesPerLevel * 2,
-                upload: 'never',
                 history: { depth: 2 },
             },
         ];
