@@ -20,8 +20,9 @@ import { StructSchema } from '../../scene/descriptors/StructSchema';
  * (`groupBoxBase`), os trechos dos pares por grupo (`groupPairsBase`: contagem, início, preenchimento, o que coube). De
  * cada vista, a partir de `viewBase + v · viewStride` (os deslocamentos são relativos ao começo da seção da vista): o
  * estado, as filas por nível (`workBase`), as necessidades das páginas virtuais (`needBase`), os pedidos do quadro
- * anterior no referencial deste (`requestBase`), as dinâmicas (`dynamicBase`, até `dynamicCap`) e os retângulos das
- * instâncias no plano da vista (`rectsBase`). Em `sp_groups`, a palavra de grupo de cada instância a partir de
+ * anterior no referencial deste (`requestBase`), as dinâmicas (`dynamicBase`, até `dynamicCap`), os retângulos das
+ * instâncias no plano da vista (`rectsBase`) e o que cada instância que se moveu ou se deformou no quadro tocou
+ * (`movedBase`: o retângulo de antes unido ao de agora; vazio na parada). Em `sp_groups`, a palavra de grupo de cada instância a partir de
  * `instanceGroupBase`; nos argumentos, o registro dos sprites (`spriteRecord`, até `spriteCap` entradas na lista).
  */
 export const ShadowPagesParamsSchema = new StructSchema(
@@ -58,7 +59,7 @@ export const ShadowPagesParamsSchema = new StructSchema(
         spriteCap: FieldType.u32,
         faces0: FieldType.u32,
         faces1: FieldType.u32,
-        _pad0: FieldType.u32,
+        movedBase: FieldType.u32,
         views0: FieldType.vec4u,
         views1: FieldType.vec4u,
         views2: FieldType.vec4u,

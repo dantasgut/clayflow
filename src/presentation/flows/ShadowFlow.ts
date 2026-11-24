@@ -233,8 +233,8 @@ interface Capacity {
 
 /**
  * Seções do `sp_scratch` (em palavras) para as capacidades: as comuns a todas as vistas e, de `viewBase` em diante, uma
- * seção de `viewStride` palavras por vista (os deslocamentos `workBase`, `needBase`, `requestBase`, `dynamicBase` e
- * `rectsBase` são relativos ao começo dela).
+ * seção de `viewStride` palavras por vista (os deslocamentos `workBase`, `needBase`, `requestBase`, `dynamicBase`,
+ * `rectsBase` e `movedBase` são relativos ao começo dela).
  */
 function layoutOf(c: Capacity): {
     keepBase: number;
@@ -252,6 +252,7 @@ function layoutOf(c: Capacity): {
     requestBase: number;
     dynamicBase: number;
     rectsBase: number;
+    movedBase: number;
     entries: number;
     words: number;
 } {
@@ -270,13 +271,14 @@ function layoutOf(c: Capacity): {
     const countBase = clusterListBase + c.clusterList;
     const viewBase = countBase + c.groups;
     // De cada vista: o estado, as filas por nível, as necessidades e os pedidos do quadro anterior no referencial deste
-    // (uma palavra por página virtual), as dinâmicas e os retângulos das instâncias.
+    // (uma palavra por página virtual), as dinâmicas, os retângulos das instâncias e o que cada uma tocou ao mudar.
     const workBase = VIEW_STATE_WORDS;
     const needBase = workBase + entries * 2;
     const requestBase = needBase + entries;
     const dynamicBase = requestBase + entries;
     const rectsBase = dynamicBase + DYNAMIC_CAP * 4;
-    const viewStride = rectsBase + c.instances * 4;
+    const movedBase = rectsBase + c.instances * 4;
+    const viewStride = movedBase + c.instances * 4;
     return {
         keepBase,
         freeBase,
@@ -293,6 +295,7 @@ function layoutOf(c: Capacity): {
         requestBase,
         dynamicBase,
         rectsBase,
+        movedBase,
         entries,
         words: viewBase + c.views * viewStride,
     };
@@ -1736,6 +1739,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             dynamicBase: layout.dynamicBase,
             dynamicCap: DYNAMIC_CAP,
             rectsBase: layout.rectsBase,
+            movedBase: layout.movedBase,
             spriteRecord: c.groups,
             spriteCap: c.spriteList,
         };
