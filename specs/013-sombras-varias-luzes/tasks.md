@@ -35,7 +35,7 @@ acima de 2 minutos ou Chrome travado: parar. Só o caso do que mudou durante a i
 **Purpose**: o estado antes de mexer, que o #54 deixou por medir.
 
 - [ ] T001 Registrar o estado de partida em `specs/013-sombras-varias-luzes/baseline.md`: `npm run ci`; os smokes `lighting` (todos os casos), `materials` (`subsuperficie`, `subsurface-terminator`), `sky`, `clouds`, `fog`, `globalIllumination`, `refraction`, `parametricSurfaces`, `antialiasing`, `render` e `rayScene`, um por vez — o resultado de cada um (os que não foram rodados depois do #54) e o tempo de GPU da sombra numa cena de uma luz (`sun-travel` parado e girando)
-- [ ] T002 [P] Registrar em `baseline.md` a contagem de buffers de storage por estágio do forward com uma luz com sombra, com material por função, com GI e com névoa (`src/__tests__/zz/zzForwardBindings.test.ts` como diagnóstico, sem registrar o arquivo `zz`)
+- [x] T002 [P] Registrar em `baseline.md` a contagem de buffers de storage por estágio do forward com uma luz com sombra, com material por função, com GI e com névoa (`src/__tests__/zz/zzForwardBindings.test.ts` como diagnóstico, sem registrar o arquivo `zz`) — medido: forward 6 (só a luz), 7 (função), 6 (GI), 7 (névoa), 8 (os três); a sombra ocupa 2 (`shadow_atlas`, `shadow_matrices`)
 
 ---
 

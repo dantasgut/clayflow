@@ -20,4 +20,26 @@ sem resultado depois do #54. Ficam para a bateria de fechamento (T049), com auto
 
 - O tempo de GPU da sombra numa cena de uma luz, parada e girando (o `sun-travel` não imprime o tempo): entra com o
   caso `shadow-timing` (T045), medido antes de a fase 2 mudar o caminho.
-- A contagem de buffers de storage por estágio do forward (T002).
+
+## Buffers de storage por estágio (T002)
+
+Medido pela composição real da C2 (o layout conferido em `flowBinding/limits.ts`, o mesmo do teste
+`bindingCounts.test.ts`), com o núcleo de teste, uma `DirectionalLight` com `castShadow`, os estágios padrão e uma
+caixa com `StandardMaterial`; 2026-11-24, antes da fase 2. O teto do piso de referência é 10 por estágio.
+
+| Cena                              | forward (desenho de cor) | forward (profundidade) |
+| --------------------------------- | ------------------------ | ---------------------- |
+| só a luz com sombra               | 6                        | 4                      |
+| + material por função (vidro)     | 7                        | 4                      |
+| + `GlobalIllumination`            | 6                        | 4                      |
+| + `FogVolume`                     | 7                        | 4                      |
+| + material por função, GI e névoa | 8                        | 4                      |
+
+Os seis da cena só com a luz: `pool_arena`, `pool_arena_gpu`, `shadow_atlas`, `shadow_matrices`, `draw_visible`,
+`surface_diff`. A sombra ocupa dois (`shadow_atlas`, `shadow_matrices`), qualquer que seja o número de luzes.
+
+Os estágios da sombra, na mesma cena (iguais nas cinco): `shadow_matrix` 5 (com a câmera, 6); `sp_clear_main` 3;
+`sp_instances_main` 7; `sp_requests_main` 4; `sp_update_main` 4; `sp_rank_main` 2; `sp_free_main` 2;
+`sp_allocate_main` 5; `sp_fill_main` 3; `sp_pairs_count_main` 3; `sp_pairs_base_main` 4; `sp_pairs_main` 4;
+`sp_clusters_main` 8; `sp_cluster_box_main` 1; `shadow_bounds` 2; `shadow_depth` 6; `shadow_request` 3;
+`shadow_request_clear` 1. O `forward_cull` (seleção dos desenhos, não lê a sombra) chega a 10 em `dc_phase1_main`.
