@@ -171,6 +171,20 @@ export interface RefractionUnsupportedPayload {
 }
 
 /**
+ * Payload do evento `shadowUnavailable` (spec 013, R8): a luz pede sombra e fica sem ela — ilumina sem sombra, nunca com
+ * uma sombra errada. Anunciado uma vez por luz enquanto ela espera (de novo se voltar a ficar sem depois de ter tido).
+ */
+export interface ShadowUnavailablePayload {
+    /** A luz que ficou sem sombra. */
+    readonly light: Resource;
+    /**
+     * Motivo: `'limit'` — passou do teto de luzes com sombra do perfil (a ordem de quem fica com sombra é a de entrada na
+     * cena); `'kind'` — o motor não faz sombra para esse tipo de luz.
+     */
+    readonly reason: 'limit' | 'kind';
+}
+
+/**
  * Payload do evento `globalIlluminationReady` (spec 033): os kernels da iluminação global da composição atual das
  * funções `material` da cena compilaram e o estágio passou a acumular luz (emitido a cada composição nova que fica
  * pronta). Antes dele, a cena não tem luz rebatida — quem mede espera por ele.
@@ -453,6 +467,8 @@ export interface EventMap {
      * ligada no renderizador (spec 034, T046).
      */
     refractionUnsupported: RefractionUnsupportedPayload;
+    /** Uma luz pede sombra e fica sem ela: acima do teto do perfil, ou de um tipo sem sombra (spec 013). */
+    shadowUnavailable: ShadowUnavailablePayload;
     /** As sondas da iluminação global emitem quando os kernels da composição atual ficam prontos (spec 033). */
     globalIlluminationReady: GlobalIlluminationReadyPayload;
     /** A C2 emite quando o motor passa a ter trabalho pendente (compilação, conferência, troca, fonte ausente). */

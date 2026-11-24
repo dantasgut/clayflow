@@ -11,6 +11,8 @@ import { FROXEL_GRID } from '../../media/schemas';
 import { SHADOW_MAX_VIEWS, ShadowAtlas } from '../../scene/ShadowAtlas';
 import { SHADOW_MAX_LEVELS, ShadowMap, shadowTableWords } from '../../scene/ShadowMap';
 import { shadowViewsByEvent } from '../../scene/shadowCaster';
+import { DirectionalLight } from '../../scene/DirectionalLight';
+import { NONE } from '../../../scene/shaders/engineConstants';
 
 describe('Renderer (spec 039, FR-010)', () => {
     it('padrão: perfil alto com os valores de hoje (16 interfaces, 65 536 fótons, cáusticas ligadas)', () => {
@@ -156,14 +158,70 @@ describe('Renderer (spec 039, FR-010)', () => {
         expect(() => new ShadowMap({ penumbraSamples: 2 })).toThrow(RangeError);
     });
 
+    it('os tetos das sombras por perfil (spec 013, R9): vistas 16/8/4, luzes de área 4/2/1, páginas 48/32/16', () => {
+        expect(RENDER_PROFILES.high.shadows).toEqual({ views: 16, areaLights: 4, atlasPages: 48 });
+        expect(RENDER_PROFILES.medium.shadows).toEqual({ views: 8, areaLights: 2, atlasPages: 32 });
+        expect(RENDER_PROFILES.low.shadows).toEqual({ views: 4, areaLights: 1, atlasPages: 16 });
+        const r = new Renderer();
+        expect(r.shadows).toMatchObject({ views: 16, areaLights: 4, atlasPages: 48 });
+        r.profile = 'low';
+        expect(r.shadows).toMatchObject({ views: 4, areaLights: 1, atlasPages: 16 });
+        // Ajustes por cima do perfil; fora da faixa, recusados sem mudar o anterior.
+        r.shadows.views = 6;
+        r.shadows.areaLights = 0;
+        expect(r.shadows).toMatchObject({ views: 6, areaLights: 0 });
+        for (const set of [
+            () => (r.shadows.views = 0),
+            () => (r.shadows.views = 17),
+            () => (r.shadows.atlasPages = 49),
+            () => (r.shadows.areaLights = -1),
+        ])
+            expect(set).toThrow(RangeError);
+        expect(r.shadows).toMatchObject({ views: 6, areaLights: 0, atlasPages: 16 });
+    });
+
+    it('a troca de perfil tira as vistas de sombra além do teto novo, com o evento (spec 013, T022)', () => {
+        // Arrange: cinco luzes com sombra no perfil alto, o atlas seguindo o renderizador.
+        const events = new DefaultEventBus();
+        const world = new World(events);
+        const r = new Renderer();
+        const unavailable: unknown[] = [];
+        events.on('shadowUnavailable', (e) => unavailable.push(e.light));
+        events.on('resourcesChanged', (e) => {
+            for (const x of e.added) if (x instanceof ShadowAtlas) r.adopt(x);
+        });
+        shadowViewsByEvent(world, events, () => ({
+            views: r.shadows.views,
+            atlasPagesMax: r.shadows.atlasPages,
+        }));
+        const lights = Array.from({ length: 5 }, () => new DirectionalLight({ castShadow: true }));
+        for (const light of lights) world.insert(light);
+        expect(lights.map((l) => l.shadowMap!.data.view)).toEqual([0, 1, 2, 3, 4]);
+        // Act: o perfil baixo tem 4 vistas.
+        r.profile = 'low';
+        // Assert: a quinta luz, a última a entrar, fica sem sombra e é avisada.
+        expect(lights.map((l) => l.shadowMap!.data.view)).toEqual([0, 1, 2, 3, NONE.value]);
+        expect(unavailable).toEqual([lights[4]]);
+        const atlas = world
+            .resourcesOf(world.queryBySchemaName(ShadowAtlas.schema.name)[0]!)
+            .find((x): x is ShadowAtlas => x instanceof ShadowAtlas)!;
+        expect(atlas.data).toMatchObject({ views: 4, live: 4 });
+        expect(atlas.data.atlasPages).toBeLessThanOrEqual(16);
+        // De volta ao alto, ela recupera a sombra.
+        r.profile = 'high';
+        expect(lights[4]!.shadowMap!.data.view).toBe(4);
+    });
+
     it('na cena: o atlas das sombras e os froxels realocam pela C2 quando o perfil muda o tamanho', () => {
         const events = new DefaultEventBus();
         const world = new World(events);
         shadowViewsByEvent(world, events);
         const r = new Renderer();
-        const map = new ShadowMap();
+        // O mapa de uma luz que projeta (a vista dele no atlas vem da luz).
+        const light = new DirectionalLight({ castShadow: true });
+        const map = light.shadowMap!;
         const froxels = new Froxels();
-        world.insert(map);
+        world.insert(light);
         world.insert(froxels);
         r.adopt(map);
         r.adopt(froxels);

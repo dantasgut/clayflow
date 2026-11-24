@@ -180,23 +180,24 @@ export class ShadowAtlas extends Entity<ShadowAtlasData> implements Resource {
 
     state: ResourceState = ResourceState.Uninitialized;
 
-    private readonly ceiling: number;
+    private ceiling: number;
     private readonly maxBindingSize: number;
     /** O mapa de cada faixa (`undefined`: livre). */
-    private readonly placed: (ShadowMap | undefined)[];
-    /** Quantas vezes cada faixa mudou de dono ou de lugar no buffer (o cache dela recomeça). */
-    private readonly generations: number[];
+    private placed: (ShadowMap | undefined)[];
+    /**
+     * Quantas vezes cada faixa mudou de dono ou de lugar no buffer (o cache dela recomeça); `epoch`: a parte comum a
+     * todas, que cresce quando o atlas é refeito (as faixas de um atlas refeito nunca repetem uma geração de antes).
+     */
+    private generations: number[];
+    private epoch = 0;
+    /** Quem acompanha os tetos (as vistas vivas da cena: `shadowViewsByEvent`). */
+    private limitsListener: (() => void) | undefined;
 
     constructor(options: ShadowAtlasOptions = {}) {
         super();
         const views = options.views ?? SHADOW_MAX_VIEWS;
-        if (!(Number.isInteger(views) && views >= 1 && views <= SHADOW_MAX_VIEWS))
-            throw new RangeError(`ShadowAtlas: views ${views} fora de 1–${SHADOW_MAX_VIEWS}.`);
         const ceiling = options.atlasPagesMax ?? SHADOW_ATLAS_PAGES_MAX;
-        if (!(Number.isInteger(ceiling) && ceiling >= 1 && ceiling <= SHADOW_ATLAS_PAGES_MAX))
-            throw new RangeError(
-                `ShadowAtlas: atlasPagesMax ${ceiling} fora de 1–${SHADOW_ATLAS_PAGES_MAX}.`,
-            );
+        checkLimits(views, ceiling);
         const budget = options.budget ?? SHADOW_PAGE_BUDGET;
         if (!(Number.isInteger(budget) && budget >= 1))
             throw new RangeError(`ShadowAtlas: budget ${budget} precisa ser um inteiro positivo.`);
@@ -214,7 +215,43 @@ export class ShadowAtlas extends Entity<ShadowAtlasData> implements Resource {
 
     /** Geração da faixa `view`: muda quando ela ganha outro dono ou o atlas é refeito — o cache dela recomeça. */
     generationOf(view: number): number {
-        return this.generations[view] ?? 0;
+        return this.epoch + (this.generations[view] ?? 0);
+    }
+
+    /** Passa a avisar `listener` quando os tetos mudam (`limit`); um só ouvinte, o que mantém as vistas vivas da cena. */
+    watch(listener: (() => void) | undefined): void {
+        this.limitsListener = listener;
+    }
+
+    /**
+     * Os tetos do atlas (spec 013, R9): as faixas (vistas no máximo) e as páginas físicas por lado. Com outro número de
+     * faixas, todas as vistas saem (as bases mudam e o atlas é refeito) e quem mantém as vistas vivas as repõe na ordem
+     * de entrada, até o teto novo; com outro teto de páginas, o reservatório é ajustado.
+     * @throws RangeError com um teto fora da faixa.
+     */
+    limit(limits: { readonly views: number; readonly atlasPagesMax: number }): void {
+        const now = this.rawData;
+        if (limits.views === now.views && limits.atlasPagesMax === this.ceiling) return;
+        checkLimits(limits.views, limits.atlasPagesMax);
+        this.ceiling = limits.atlasPagesMax;
+        if (limits.views !== now.views) {
+            for (const map of this.placed) map?.place(undefined, 0);
+            this.placed = Array.from({ length: limits.views }, () => undefined);
+            this.generations = Array.from({ length: limits.views }, () => 0);
+            this.epoch += 1 << 20;
+            this.redescribe(this.getDescriptors(), {
+                ...this.shape(limits.views, now.pagesPerLevel, 0),
+                budget: now.budget,
+            });
+        } else {
+            this.fit(true);
+        }
+        this.limitsListener?.();
+    }
+
+    /** Os tetos do `Renderer` (o perfil e os ajustes dele): `limit`. */
+    fromRenderer(views: number, atlasPages: number): void {
+        this.limit({ views, atlasPagesMax: atlasPages });
     }
 
     /**
@@ -226,7 +263,7 @@ export class ShadowAtlas extends Entity<ShadowAtlasData> implements Resource {
         const view = this.placed.indexOf(undefined);
         if (view < 0) return false;
         this.placed[view] = map;
-        this.generations[view] = this.generationOf(view) + 1;
+        this.generations[view] = (this.generations[view] ?? 0) + 1;
         map.place(this, view);
         this.fit();
         return true;
@@ -245,9 +282,9 @@ export class ShadowAtlas extends Entity<ShadowAtlasData> implements Resource {
      * Ajusta as faixas (as páginas por nível do maior mapa vivo) e o reservatório (pelas vistas vivas, o teto e o
      * adaptador; com as mesmas faixas, ele não encolhe quando uma vista sai). Mudados, a C2 realoca o atlas e os pedidos,
      * e o cache de todas as vistas recomeça. Chamado na entrada e
-     * na saída de uma vista e pelo mapa que muda de tamanho.
+     * na saída de uma vista e pelo mapa que muda de tamanho; `shrink`: o teto de páginas baixou (o reservatório encolhe).
      */
-    fit(): void {
+    fit(shrink = false): void {
         const maps = this.placed.filter((m): m is ShadowMap => m !== undefined);
         const now = this.rawData;
         const pagesPerLevel =
@@ -256,7 +293,8 @@ export class ShadowAtlas extends Entity<ShadowAtlasData> implements Resource {
                 : Math.max(...maps.map((m) => m.data.pagesPerLevel));
         const shaped = this.shape(now.views, pagesPerLevel, maps.length);
         // Com as mesmas faixas o reservatório só cresce: a vista que sai não realoca o atlas (o cache das outras segue).
-        const keep = pagesPerLevel === now.pagesPerLevel && shaped.atlasPages < now.atlasPages;
+        const keep =
+            !shrink && pagesPerLevel === now.pagesPerLevel && shaped.atlasPages < now.atlasPages;
         const next = {
             ...(keep ? { ...shaped, atlasPages: now.atlasPages } : shaped),
             budget: now.budget,
@@ -265,8 +303,7 @@ export class ShadowAtlas extends Entity<ShadowAtlasData> implements Resource {
             if (next.live !== now.live) this.data.live = next.live;
             return;
         }
-        for (let v = 0; v < this.generations.length; v++)
-            this.generations[v] = this.generationOf(v) + 1;
+        this.epoch += 1 << 20;
         this.redescribe(this.getDescriptors(), next);
     }
 
@@ -329,4 +366,20 @@ export class ShadowAtlas extends Entity<ShadowAtlasData> implements Resource {
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
         return [];
     }
+}
+
+/** @throws RangeError com as faixas ou o teto de páginas fora da faixa. */
+function checkLimits(views: number, atlasPagesMax: number): void {
+    if (!(Number.isInteger(views) && views >= 1 && views <= SHADOW_MAX_VIEWS))
+        throw new RangeError(`ShadowAtlas: views ${views} fora de 1–${SHADOW_MAX_VIEWS}.`);
+    if (
+        !(
+            Number.isInteger(atlasPagesMax)
+            && atlasPagesMax >= 1
+            && atlasPagesMax <= SHADOW_ATLAS_PAGES_MAX
+        )
+    )
+        throw new RangeError(
+            `ShadowAtlas: atlasPagesMax ${atlasPagesMax} fora de 1–${SHADOW_ATLAS_PAGES_MAX}.`,
+        );
 }

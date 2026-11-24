@@ -12,6 +12,7 @@ import {
 import { Froxels } from '../media/Froxels';
 import { CloudLayer } from '../media/clouds/CloudLayer';
 import type { CloudQuality } from '../media/clouds/schemas';
+import { SHADOW_ATLAS_PAGES_MAX, SHADOW_MAX_VIEWS, ShadowAtlas } from '../scene/ShadowAtlas';
 import { SHADOW_PENUMBRA_SAMPLES, type ShadowMap } from '../scene/ShadowMap';
 import { Refraction } from '../lighting/refraction/Refraction';
 import { Subsurface } from '../lighting/subsurface/Subsurface';
@@ -41,10 +42,26 @@ interface ProfileValues {
     readonly shadowResolution: number;
     /** Amostras da penumbra. */
     readonly penumbraSamples: number;
+    /** Os tetos das sombras (spec 013, R9). */
+    readonly shadows: ShadowLimits;
     /** A qualidade das nuvens (spec 041, R15). */
     readonly clouds: CloudQuality;
     /** Amostras por pixel do perfil de difusão da subsuperfície (spec 011, T113; cada pixel recebe 16 vezes isso). */
     readonly subsurfaceSamples: number;
+}
+
+/**
+ * Os tetos das sombras de um perfil (spec 013, R9): as vistas de sombra por páginas (uma por luz direcional), as luzes
+ * de área com sombra e as páginas físicas por lado do atlas único. As luzes além do teto iluminam sem sombra e geram o
+ * evento `shadowUnavailable`.
+ */
+export interface ShadowLimits {
+    /** Vistas de sombra por páginas, no máximo (1 a 16). */
+    readonly views: number;
+    /** Luzes de área com sombra, no máximo. */
+    readonly areaLights: number;
+    /** Páginas físicas por lado do atlas, no máximo (1 a 48). */
+    readonly atlasPages: number;
 }
 
 const giOf = (q: keyof typeof GI_QUALITY): ProfileValues['globalIllumination'] => {
@@ -76,6 +93,7 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
         froxels: [160, 90, 128],
         shadowResolution: 4096,
         penumbraSamples: 9,
+        shadows: { views: 16, areaLights: 4, atlasPages: 48 },
         clouds: {
             steps: 128,
             lightSteps: 6,
@@ -102,6 +120,7 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
         froxels: [128, 72, 96],
         shadowResolution: 2048,
         penumbraSamples: 4,
+        shadows: { views: 8, areaLights: 2, atlasPages: 32 },
         clouds: {
             steps: 64,
             lightSteps: 5,
@@ -128,6 +147,7 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
         froxels: [96, 54, 64],
         shadowResolution: 1024,
         penumbraSamples: 4,
+        shadows: { views: 4, areaLights: 1, atlasPages: 16 },
         clouds: {
             steps: 48,
             lightSteps: 4,
@@ -200,6 +220,15 @@ export interface ShadowSettings {
     resolution: number;
     /** Amostras da penumbra: 1, 4 ou 9. */
     penumbraSamples: number;
+    /**
+     * Luzes com sombra por páginas ao mesmo tempo, no máximo (as vistas de sombra: uma por luz direcional), inteiro em
+     * 1–16 (spec 013). As luzes além dele, na ordem de entrada na cena, iluminam sem sombra e geram `shadowUnavailable`.
+     */
+    views: number;
+    /** Luzes de área com sombra ao mesmo tempo, no máximo (inteiro ≥ 0; spec 013). */
+    areaLights: number;
+    /** Páginas físicas por lado do atlas único das sombras, no máximo, inteiro em 1–48 (spec 013). */
+    atlasPages: number;
 }
 
 /** O traçado: como o trabalho dos caminhos se distribui pelos quadros (spec 039, Opção B). */
@@ -274,9 +303,12 @@ export class Renderer extends Entity {
     #froxels: readonly [number, number, number] = RENDER_PROFILES.high.froxels;
     #shadowResolution = RENDER_PROFILES.high.shadowResolution;
     #penumbraSamples = RENDER_PROFILES.high.penumbraSamples;
+    #shadowLimits: ShadowLimits = RENDER_PROFILES.high.shadows;
     #clouds: CloudQuality = RENDER_PROFILES.high.clouds;
     /** Os recursos da cena que seguem o renderizador (os estágios padrão adotam os que entram). */
-    readonly #adopted = new Set<GlobalIllumination | Froxels | ShadowMap | CloudLayer>();
+    readonly #adopted = new Set<
+        GlobalIllumination | Froxels | ShadowMap | ShadowAtlas | CloudLayer
+    >();
 
     constructor(options: RendererOptions = {}) {
         super();
@@ -378,6 +410,37 @@ export class Renderer extends Entity {
                 self.#penumbraSamples = n;
                 self.push();
             },
+            get views() {
+                return self.#shadowLimits.views;
+            },
+            set views(n: number) {
+                if (!Number.isInteger(n) || n < 1 || n > SHADOW_MAX_VIEWS)
+                    throw new RangeError(
+                        `Renderer: shadows.views ${n} fora de 1–${SHADOW_MAX_VIEWS}`,
+                    );
+                self.#shadowLimits = { ...self.#shadowLimits, views: n };
+                self.push();
+            },
+            get areaLights() {
+                return self.#shadowLimits.areaLights;
+            },
+            set areaLights(n: number) {
+                if (!Number.isInteger(n) || n < 0)
+                    throw new RangeError(`Renderer: shadows.areaLights ${n} precisa ser ≥ 0`);
+                self.#shadowLimits = { ...self.#shadowLimits, areaLights: n };
+                self.push();
+            },
+            get atlasPages() {
+                return self.#shadowLimits.atlasPages;
+            },
+            set atlasPages(n: number) {
+                if (!Number.isInteger(n) || n < 1 || n > SHADOW_ATLAS_PAGES_MAX)
+                    throw new RangeError(
+                        `Renderer: shadows.atlasPages ${n} fora de 1–${SHADOW_ATLAS_PAGES_MAX}`,
+                    );
+                self.#shadowLimits = { ...self.#shadowLimits, atlasPages: n };
+                self.push();
+            },
         };
         this.tracing = {
             get checkerboard() {
@@ -460,6 +523,7 @@ export class Renderer extends Entity {
         this.#froxels = values.froxels;
         this.#shadowResolution = values.shadowResolution;
         this.#penumbraSamples = values.penumbraSamples;
+        this.#shadowLimits = values.shadows;
         this.#clouds = values.clouds;
         this.push();
     }
@@ -469,13 +533,13 @@ export class Renderer extends Entity {
      * nuvens da cena recebem os
      * valores dele agora e a cada mudança (o perfil, um ajuste). Os estágios padrão adotam os que entram na cena.
      */
-    adopt(resource: GlobalIllumination | Froxels | ShadowMap | CloudLayer): void {
+    adopt(resource: GlobalIllumination | Froxels | ShadowMap | ShadowAtlas | CloudLayer): void {
         this.#adopted.add(resource);
         this.pushTo(resource);
     }
 
     /** Deixa de seguir (o recurso saiu da cena). */
-    release(resource: GlobalIllumination | Froxels | ShadowMap | CloudLayer): void {
+    release(resource: GlobalIllumination | Froxels | ShadowMap | ShadowAtlas | CloudLayer): void {
         this.#adopted.delete(resource);
     }
 
@@ -483,10 +547,12 @@ export class Renderer extends Entity {
         for (const r of this.#adopted) this.pushTo(r);
     }
 
-    private pushTo(r: GlobalIllumination | Froxels | ShadowMap | CloudLayer): void {
+    private pushTo(r: GlobalIllumination | Froxels | ShadowMap | ShadowAtlas | CloudLayer): void {
         if (r instanceof GlobalIllumination) r.fromRenderer(this.#gi, this.#giOn);
         else if (r instanceof Froxels) r.grid = this.#froxels;
         else if (r instanceof CloudLayer) r.fromRenderer(this.#clouds);
+        else if (r instanceof ShadowAtlas)
+            r.fromRenderer(this.#shadowLimits.views, this.#shadowLimits.atlasPages);
         else r.fromRenderer(this.#shadowResolution, this.#penumbraSamples);
     }
 }

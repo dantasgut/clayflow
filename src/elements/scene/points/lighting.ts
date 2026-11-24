@@ -200,7 +200,12 @@ export const sceneTransmittedLightingPoint = lightingPoint(
     sceneTransmittedLightingReady,
 );
 
-/** Espessura atravessada pela luz: a do contribuinte que a conhece (o mapa de sombra da luz), em ordem. */
+/**
+ * Espessura atravessada pela luz, por luz (spec 013, R6): cada contribuinte responde só pela sua luz (o mapa de sombra
+ * dela) e desconhece as demais (x < 0); a da luz pedida é a do contribuinte que a conhece — o único —, devolvida no
+ * primeiro que a tiver. Nenhuma luz fica com a espessura de outra, qualquer que seja a ordem dos contribuintes; sem
+ * quem a conheça, desconhecida (nenhuma luz atravessa).
+ */
 export const lightThicknessPoint: ContributionPoint = {
     name: 'light_thickness',
     ready: lightThicknessReady,
@@ -211,14 +216,13 @@ export const lightThicknessPoint: ContributionPoint = {
                 name: `light_thickness:${modules.map((m) => m.name).join('+')}`,
                 requires: modules,
                 source: `fn light_thickness(light: u32, p: vec3f, n: vec3f) -> vec2f {
-    var known = vec2f(-1.0, 0.0);
 ${modules
     .map(
         (_, k) => `    let t${k} = light_thickness_${k}(light, p, n);
-    if (t${k}.x >= 0.0) { known = t${k}; }`,
+    if (t${k}.x >= 0.0) { return t${k}; }`,
     )
     .join('\n')}
-    return known;
+    return vec2f(-1.0, 0.0);
 }`,
             }),
         ),

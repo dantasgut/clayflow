@@ -7,6 +7,7 @@ import { HemisphereLight } from '../../HemisphereLight';
 import { Light } from '../../Light';
 import { PointLight } from '../../PointLight';
 import { RectLight } from '../../RectLight';
+import { ShadowAtlas } from '../../ShadowAtlas';
 import { ShadowMap } from '../../ShadowMap';
 import { SpotLight } from '../../SpotLight';
 import {
@@ -106,6 +107,8 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
 
     it('toda luz do pool contribui o mesmo laço; a que projeta sombra, também a sombra só para ela', () => {
         const casting = new DirectionalLight({ castShadow: true });
+        // Com a vista dela no atlas único (spec 013): sem vista, a luz não tem contribuição de sombra.
+        new ShadowAtlas().assign(casting.shadowMap!);
         const [pool, visibility, thickness, transmitted] = casting.getSceneContributions();
         expect(pool).toBe(poolLightContribution);
         expect(pool!.point).toBe(sceneDirectLightingPoint);
@@ -146,6 +149,90 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
         expect(loop.source).toContain('light_visibility(i, p, n) * light_transmission(i, p)');
         expect(() => composeWgsl(loop)).not.toThrow();
     });
+
+    /** As contribuições de sombra de `count` direcionais com vista no atlas: a luz `k` no slot `3 + k`, o mapa no `k`. */
+    function shadowModules(count: number, point: typeof lightVisibilityPoint) {
+        const atlas = new ShadowAtlas();
+        return Array.from({ length: count }, (_, k) => {
+            const light = new DirectionalLight({ castShadow: true });
+            atlas.assign(light.shadowMap!);
+            const contribution = light.getSceneContributions().find((c) => c.point === point)!;
+            return contribution.build((p) => (p.name === 'Light' ? 3 + k : k))!;
+        });
+    }
+
+    it.each([2, 3])(
+        '%i luzes com sombra: cada contribuição de visibilidade responde só pela sua luz (spec 013, T016)',
+        (count) => {
+            // Arrange + Act
+            const modules = shadowModules(count, lightVisibilityPoint);
+            // Assert: um módulo por luz, cada um neutro (1) para as outras e lendo o referencial do seu mapa.
+            expect(new Set(modules).size).toBe(count);
+            modules.forEach((m, k) => {
+                expect(m.source).toContain(`if (light != ${3 + k}u) { return 1.0; }`);
+                expect(m.source).toContain(`let matrix = shadow_matrices[${k}u];`);
+                expect(m.source).not.toContain(`shadow_matrices[${(k + 1) % count}u]`);
+            });
+            // A composição: o produto, em que só o fator da luz pedida difere de 1.
+            const combined = lightVisibilityPoint.combine(
+                modules.map((m, k) => instantiateModule(m, `_${k}`)),
+            );
+            expect(combined.source).toContain(
+                `return ${modules.map((_, k) => `light_visibility_${k}(light, p, n)`).join(' * ')};`,
+            );
+            expect(() => composeWgsl(combined)).not.toThrow();
+        },
+    );
+
+    it('a luz com sombra sem vista no atlas (acima do teto) não tem contribuição de sombra (spec 013)', () => {
+        const atlas = new ShadowAtlas({ views: 1 });
+        const [first, second] = [
+            new DirectionalLight({ castShadow: true }),
+            new DirectionalLight({ castShadow: true }),
+        ];
+        expect(atlas.assign(first.shadowMap!)).toBe(true);
+        expect(atlas.assign(second.shadowMap!)).toBe(false);
+        const built = (light: DirectionalLight) =>
+            light
+                .getSceneContributions()
+                .filter((c) => c.point === lightVisibilityPoint || c.point === lightThicknessPoint)
+                .map((c) => c.build(() => 0));
+        expect(built(first).every((m) => m !== undefined)).toBe(true);
+        expect(built(second)).toEqual([undefined, undefined]);
+        // A faixa liberada é dela: passa a contribuir.
+        atlas.release(first.shadowMap!);
+        atlas.assign(second.shadowMap!);
+        expect(built(second).every((m) => m !== undefined)).toBe(true);
+        expect(built(first)).toEqual([undefined, undefined]);
+    });
+
+    it.each([2, 3])(
+        '%i luzes com sombra: a espessura atravessada é por luz — cada contribuição só a da sua, desconhecida para as demais (spec 013, T026)',
+        (count) => {
+            // Arrange + Act
+            const modules = shadowModules(count, lightThicknessPoint);
+            // Assert: cada módulo desconhece (x < 0) a espessura das outras luzes e lê o referencial do seu mapa.
+            expect(new Set(modules).size).toBe(count);
+            modules.forEach((m, k) => {
+                expect(m.source).toContain(`if (light != ${3 + k}u) { return vec2f(-1.0, 0.0); }`);
+                expect(m.source).toContain(
+                    `shadow_virtual_thickness(shadow_matrices[${k}u], p, n, l)`,
+                );
+            });
+            // A composição devolve a do contribuinte que conhece a luz pedida — o único —, na primeira que achar: a ordem
+            // dos contribuintes não muda o resultado, e nenhuma luz fica com a espessura de outra.
+            const combined = lightThicknessPoint.combine(
+                modules.map((m, k) => instantiateModule(m, `_${k}`)),
+            );
+            for (let k = 0; k < count; k++) {
+                expect(combined.source).toContain(`let t${k} = light_thickness_${k}(light, p, n);`);
+                expect(combined.source).toContain(`if (t${k}.x >= 0.0) { return t${k}; }`);
+            }
+            expect(combined.source).not.toContain('var known');
+            expect(combined.source.trimEnd().endsWith('return vec2f(-1.0, 0.0);\n}')).toBe(true);
+            expect(() => composeWgsl(combined)).not.toThrow();
+        },
+    );
 
     it('a luz de área tem o laço dela (os lobos integrados sobre o retângulo), depois do das outras', () => {
         const rect = new RectLight({

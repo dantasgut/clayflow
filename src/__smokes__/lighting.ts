@@ -20,6 +20,12 @@
 //     180 quadros, a 0,36° e a 0,02° por quadro, em volta da origem e longe dela — o último quadro (a luz ainda
 //     girando) contra o da mesma cena com a luz parada na direção final: a sombra da luz que gira tem de ser a mesma da
 //     luz parada.
+//   - shadow-sum (spec 013, SC-001): esferas sobre um chão sob três direcionais com sombra, de direções e cores
+//     diferentes — a imagem contra a soma das três imagens de uma luz só (a sombra de uma luz não depende das outras);
+//     e a luz apagada, com a sombra desligada ou retirada some no quadro seguinte sem mudar as outras (FR-015);
+//   - shadow-limit (spec 013, SC-006): mais luzes com sombra do que o teto do renderizador — o evento
+//     `shadowUnavailable` nomeia as que ficaram sem, que iluminam sem sombra (a imagem contra a soma com elas sem
+//     sombra); o teto que sobe devolve a sombra, o que baixa a tira, com o evento.
 // Para rodar: `npm run smoke -- lighting [--query case=furnace]`. Resultado: `LIGHTING SMOKE PASSED` ou `FAIL: …`.
 import {
     Application,
@@ -630,6 +636,8 @@ const CASES: Record<string, () => Promise<void>> = {
     'sprites-lit': caseSpritesLit,
     penumbra: casePenumbra,
     'sun-travel': caseSunTravel,
+    'shadow-sum': caseShadowSum,
+    'shadow-limit': caseShadowLimit,
 };
 
 /** Fração do disco de raio 1 com x < s (o disco coberto por uma borda reta em s). */
@@ -871,6 +879,265 @@ async function caseSunTravel(): Promise<void> {
             );
         }
     }
+}
+
+/** As três direcionais dos casos `shadow-sum` e `shadow-limit`: azimute e elevação (rad), cor e intensidade. */
+const SHADOW_SUM_LIGHTS = [
+    { azimuth: 0.6, tilt: Math.PI / 4, color: [1, 0.35, 0.3, 1], intensity: 3 },
+    { azimuth: 2.7, tilt: 0.6, color: [0.3, 1, 0.4, 1], intensity: 2 },
+    { azimuth: 4.5, tilt: 0.95, color: [0.35, 0.45, 1, 1], intensity: 2.5 },
+] as const;
+
+/** O que cada uma das três luzes faz numa cena: fora dela, sem sombra ou com sombra. */
+type ShadowSumLight = 'off' | 'plain' | 'shadow';
+
+/** A cena dos casos `shadow-sum` e `shadow-limit`: o chão difuso, doze esferas e as luzes pedidas (`null`: fora). */
+async function shadowSumScene(
+    setup: readonly ShadowSumLight[],
+    prepare?: (app: Application) => void,
+): Promise<{
+    app: Application;
+    canvas: HTMLCanvasElement;
+    lights: (DirectionalLight | undefined)[];
+    read: () => Promise<HdrImage>;
+}> {
+    const { app, canvas } = await createApp(640, 400);
+    noAmbient(app);
+    prepare?.(app);
+    app.world.insert(
+        new Camera({ fov: Math.PI / 3, near: 0.1, far: 40 }).add(
+            new Transform({
+                position: [0, 3.5, 7, 1],
+                rotation: Transform.lookRotation([0, 3.5, 7], [0, 0, 0], [0, 1, 0]),
+            }),
+        ),
+    );
+    app.world.insert(
+        new PlaneGeometry({ size: [40, 40] })
+            .add(new StandardMaterial())
+            .add(new Transform())
+            .add(new MaterialFunction({ code: DIFFUSE_ONLY, lobes: ['diffuse'] })),
+    );
+    const lights = SHADOW_SUM_LIGHTS.map((spec, k) => {
+        const mode = setup[k] ?? 'off';
+        if (mode === 'off') return undefined;
+        const light = new DirectionalLight({
+            direction: [
+                Math.sin(spec.tilt) * Math.sin(spec.azimuth),
+                -Math.cos(spec.tilt),
+                Math.sin(spec.tilt) * Math.cos(spec.azimuth),
+                0,
+            ],
+            color: [...spec.color],
+            intensity: spec.intensity,
+            castShadow: mode === 'shadow',
+            angularRadius: 0.00466,
+        });
+        app.world.insert(light);
+        return light;
+    });
+    for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * 2 * Math.PI;
+        const r = 1.2 + 0.9 * (i % 3);
+        app.world.insert(
+            new SphereGeometry({ radius: 0.35 })
+                .add(new StandardMaterial({ albedo: [0.6, 0.6, 0.6, 1] }))
+                .add(new Transform({ position: [r * Math.cos(a), 0.35, r * Math.sin(a), 1] })),
+        );
+    }
+    await settle(app, 600);
+    const read = async (): Promise<HdrImage> => {
+        const texture = app.resources.textureOf(app.defaults.targets, 'color');
+        if (texture === undefined) throw new Error('alvo HDR não alocado');
+        return readHdrTexture(app, texture);
+    };
+    return { app, canvas, lights, read };
+}
+
+/** As imagens de uma luz só (com e sem sombra) dos casos de soma, feitas uma vez. */
+const shadowSumSingles = new Map<string, Promise<HdrImage>>();
+
+/** A imagem da cena só com a luz `k`, com sombra (`shadow`) ou sem; `k` −1: sem luz nenhuma (o fundo). */
+function shadowSumSingle(k: number, shadow: boolean): Promise<HdrImage> {
+    const key = `${k}:${shadow}`;
+    let image = shadowSumSingles.get(key);
+    if (image === undefined) {
+        image = (async () => {
+            const setup = SHADOW_SUM_LIGHTS.map(
+                (_, i): ShadowSumLight => (i !== k ? 'off' : shadow ? 'shadow' : 'plain'),
+            );
+            const s = await shadowSumScene(setup);
+            const hdr = await s.read();
+            dispose(s.app, s.canvas);
+            return hdr;
+        })();
+        shadowSumSingles.set(key, image);
+    }
+    return image;
+}
+
+/**
+ * A imagem `got` contra a soma das imagens de uma luz só (`setup`: cada luz fora, sem sombra ou com sombra), descontado
+ * o fundo comum a elas: a diferença
+ * média e a fração dos pixels a mais de 25 %, sobre o chão aceso pelas três luzes (o maior canal da soma das irradiâncias
+ * no chão aberto).
+ */
+async function shadowSumError(
+    got: HdrImage,
+    setup: readonly ShadowSumLight[],
+): Promise<{ mean: number; far: number }> {
+    const parts: HdrImage[] = [];
+    for (let k = 0; k < setup.length; k++)
+        if (setup[k] !== 'off') parts.push(await shadowSumSingle(k, setup[k] === 'shadow'));
+    // O que não vem das luzes (o fundo do quadro) está em cada imagem de uma luz: entra uma vez só na soma.
+    const base = await shadowSumSingle(-1, false);
+    const lit = Math.max(
+        ...[0, 1, 2].map((c) =>
+            SHADOW_SUM_LIGHTS.reduce(
+                (sum, l) => sum + (l.intensity * Math.cos(l.tilt) * l.color[c]!) / Math.PI,
+                0,
+            ),
+        ),
+    );
+    const n = got.width * got.height;
+    let sum = 0;
+    let wrong = 0;
+    for (let i = 0; i < n; i++) {
+        let e = 0;
+        for (let c = 0; c < 3; c++) {
+            let expected = base.data[i * 4 + c]! * (1 - parts.length);
+            for (const part of parts) expected += part.data[i * 4 + c]!;
+            e = Math.max(e, Math.abs(got.data[i * 4 + c]! - expected) / lit);
+        }
+        sum += e;
+        if (e > 0.25) wrong++;
+    }
+    return { mean: sum / n, far: wrong / n };
+}
+
+/** Registra e confere uma medida dos casos de soma contra a SC-001 (1 % na média, 1 % dos pixels a mais de 25 %). */
+function shadowSumCheck(name: string, what: string, e: { mean: number; far: number }): void {
+    log(
+        `${name}: ${what} — diferença média ${(100 * e.mean).toFixed(4)} % do chão aceso; ${(100 * e.far).toFixed(4)} % dos pixels a mais de 25 %`,
+    );
+    check(
+        e.mean <= 0.01 && e.far <= 0.01,
+        `${name}: ${what} — difere da soma das luzes: média ${(100 * e.mean).toFixed(4)} %, ${(100 * e.far).toFixed(4)} % dos pixels a mais de 25 %`,
+    );
+}
+
+/** Um quadro depois de uma mudança na cena: a imagem do quadro seguinte a ela. */
+async function nextFrameImage(s: {
+    app: Application;
+    read: () => Promise<HdrImage>;
+}): Promise<HdrImage> {
+    await nextGpuFrame(s.app);
+    s.app.step(1 / 60);
+    return s.read();
+}
+
+async function caseShadowSum(): Promise<void> {
+    const name = 'shadow-sum';
+    const s = await shadowSumScene(['shadow', 'shadow', 'shadow']);
+    const unavailable: unknown[] = [];
+    s.app.events.on('shadowUnavailable', (e) => unavailable.push(e.light));
+    // SC-001: as três com sombra contra a soma das três imagens de uma luz.
+    shadowSumCheck(
+        name,
+        'três direcionais com sombra',
+        await shadowSumError(await s.read(), ['shadow', 'shadow', 'shadow']),
+    );
+    const middle = s.lights[1]!;
+    // FR-015: a do meio apagada — no quadro seguinte, só as outras duas, cada uma com a sua sombra.
+    const intensity = middle.data.intensity;
+    middle.data.intensity = 0;
+    shadowSumCheck(
+        name,
+        'uma luz apagada, no quadro seguinte',
+        await shadowSumError(await nextFrameImage(s), ['shadow', 'off', 'shadow']),
+    );
+    // Acesa de novo com a sombra desligada: ilumina sem sombra, e as outras não mudam.
+    middle.data.intensity = intensity;
+    middle.data.castShadow = 0;
+    shadowSumCheck(
+        name,
+        'uma luz com a sombra desligada, no quadro seguinte',
+        await shadowSumError(await nextFrameImage(s), ['shadow', 'plain', 'shadow']),
+    );
+    // A sombra ligada de novo: a luz recupera a faixa e as páginas dela (alguns quadros).
+    middle.data.castShadow = 1;
+    for (let i = 0; i < 8; i++) {
+        await nextGpuFrame(s.app);
+        s.app.step(1 / 60);
+    }
+    shadowSumCheck(
+        name,
+        'a sombra ligada de novo',
+        await shadowSumError(await s.read(), ['shadow', 'shadow', 'shadow']),
+    );
+    // Retirada da cena: no quadro seguinte, só as outras duas.
+    s.app.world.remove(middle);
+    shadowSumCheck(
+        name,
+        'uma luz retirada, no quadro seguinte',
+        await shadowSumError(await nextFrameImage(s), ['shadow', 'off', 'shadow']),
+    );
+    check(
+        unavailable.length === 0,
+        `${name}: ${unavailable.length} avisos de sombra indisponível com três luzes (o teto é maior)`,
+    );
+    dispose(s.app, s.canvas);
+}
+
+async function caseShadowLimit(): Promise<void> {
+    const name = 'shadow-limit';
+    const unavailable: { light: unknown; reason: string }[] = [];
+    // O teto de duas luzes com sombra, posto antes de as luzes entrarem.
+    const s = await shadowSumScene(['shadow', 'shadow', 'shadow'], (app) => {
+        app.defaults.renderer.shadows.views = 2;
+        app.events.on('shadowUnavailable', (e) => unavailable.push(e));
+    });
+    const names = (): string =>
+        unavailable
+            .map((e) => `${s.lights.indexOf(e.light as DirectionalLight)}:${e.reason}`)
+            .join(' ');
+    // SC-006: a terceira luz (a última a entrar) é nomeada e ilumina sem sombra.
+    log(`${name}: teto 2, três luzes com sombra — avisos: ${names()}`);
+    check(names() === '2:limit', `${name}: avisos '${names()}' (esperado '2:limit')`);
+    shadowSumCheck(
+        name,
+        'a luz além do teto sem sombra, as outras com a delas',
+        await shadowSumError(await s.read(), ['shadow', 'shadow', 'plain']),
+    );
+    // O teto sobe para três: a terceira ganha a sombra, sem aviso novo.
+    s.app.defaults.renderer.shadows.views = 3;
+    for (let i = 0; i < 8; i++) {
+        await nextGpuFrame(s.app);
+        s.app.step(1 / 60);
+    }
+    shadowSumCheck(
+        name,
+        'o teto em 3: as três com sombra',
+        await shadowSumError(await s.read(), ['shadow', 'shadow', 'shadow']),
+    );
+    check(names() === '2:limit', `${name}: avisos '${names()}' depois de o teto subir`);
+    // O teto baixa para um (o que a troca de perfil faz): a segunda e a terceira saem, com o evento.
+    s.app.defaults.renderer.shadows.views = 1;
+    for (let i = 0; i < 8; i++) {
+        await nextGpuFrame(s.app);
+        s.app.step(1 / 60);
+    }
+    log(`${name}: teto 1 — avisos: ${names()}`);
+    check(
+        names() === '2:limit 1:limit 2:limit',
+        `${name}: avisos '${names()}' (esperado '2:limit 1:limit 2:limit')`,
+    );
+    shadowSumCheck(
+        name,
+        'o teto em 1: só a primeira com sombra',
+        await shadowSumError(await s.read(), ['shadow', 'plain', 'plain']),
+    );
+    dispose(s.app, s.canvas);
 }
 
 async function main(): Promise<void> {

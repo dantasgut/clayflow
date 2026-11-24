@@ -61,13 +61,13 @@ acima de 2 minutos ou Chrome travado: parar. Só o caso do que mudou durante a i
 
 **Pendências da fase 2** (reais, para as fases seguintes):
 
-- A vista de uma luz é dada pela presença do `ShadowMap`; a luz com `castShadow` desligado em tempo de execução fica com
-  o referencial vazio na GPU mas segue ocupando a faixa dela. A conta do teto com a sombra desligada entra com a T021/T022.
-- Os tetos por perfil (vistas e páginas) ainda são os fixos do `ShadowAtlas` (16 vistas, 48 páginas por lado): T022.
+- ~~A luz com `castShadow` desligado segue ocupando a faixa~~ e ~~os tetos fixos do `ShadowAtlas`~~ — resolvidos na
+  fase 4 (T021/T022).
 - A malha por vista de sombra da superfície adaptativa (T012) só tem teste de unidade; o smoke `parametricSurfaces` não
   foi rodado nesta fase (T049).
 - `shadowEdge` e `subsurface-terminator` não tinham número no `baseline.md`: os desta fase ficam como a referência.
-- Sem os eventos da cena em `registerPresentationDefaults` (`events` é opcional) nenhuma luz ganha vista no atlas.
+- ~~Sem os eventos da cena em `registerPresentationDefaults` nenhuma luz ganha vista no atlas~~ — resolvido: `events`
+  passou a ser obrigatório no tipo.
 
 ---
 
@@ -77,10 +77,10 @@ acima de 2 minutos ou Chrome travado: parar. Só o caso do que mudou durante a i
 
 **Independent Test**: `shadow-sum` — três direcionais com sombra contra a soma de três imagens de uma luz.
 
-- [ ] T016 [US1] Teste de unidade da composição em `src/elements/scene/points/__tests__/lighting.test.ts`: duas e três luzes com sombra geram contribuições que respondem só pela sua luz (visibilidade)
-- [ ] T017 [US1] [GPU] Caso `shadow-sum` em `src/__smokes__/lighting.ts`: esferas sobre um chão, três direcionais de direções e cores diferentes com sombra, contra a soma das três imagens de uma luz (SC-001); falha antes, passa depois
-- [ ] T018 [US1] [GPU] `src/elements/scene/points/shadowContribution.ts`: a contribuição de cada direcional lê a vista dela pelo atlas único; conferir `shadow-sum`
-- [ ] T019 [US1] [GPU] Uma luz com sombra apagada, removida ou com a sombra desligada some no quadro seguinte sem mudar as outras (caso `shadow-sum` com a variação; FR-015)
+- [x] T016 [US1] Teste de unidade da composição em `src/elements/scene/points/__tests__/lighting.test.ts`: duas e três luzes com sombra geram contribuições que respondem só pela sua luz (visibilidade) — feito; duas e três luzes: um módulo por luz, neutro (1) para as outras
+- [x] T017 [US1] [GPU] Caso `shadow-sum` em `src/__smokes__/lighting.ts`: esferas sobre um chão, três direcionais de direções e cores diferentes com sombra, contra a soma das três imagens de uma luz (SC-001); falha antes, passa depois — feito; o caso passou na primeira execução pelo atlas único (a fase 2 já o atendia): 0,0330 % na média e 0,0234 % dos pixels a mais de 25 % (SC-001: 1 % e 1 %). A soma desconta o fundo do quadro, comum às imagens de uma luz
+- [x] T018 [US1] [GPU] `src/elements/scene/points/shadowContribution.ts`: a contribuição de cada direcional lê a vista dela pelo atlas único; conferir `shadow-sum` — feito; a contribuição só é composta com a sombra ligada e a vista dada (`ShadowMap.data.view`); `shadow-sum` confere
+- [x] T019 [US1] [GPU] Uma luz com sombra apagada, removida ou com a sombra desligada some no quadro seguinte sem mudar as outras (caso `shadow-sum` com a variação; FR-015) — medido no quadro seguinte à mudança: apagada 0,0162 % / 0,0102 %; sombra desligada 0,0188 % / 0,0000 %; religada (8 quadros) 0,0567 % / 0,0617 %; retirada 0,0089 % / 0,0000 %
 
 **Checkpoint**: várias direcionais com sombra corretas, paradas.
 
@@ -92,10 +92,10 @@ acima de 2 minutos ou Chrome travado: parar. Só o caso do que mudou durante a i
 
 **Independent Test**: `shadow-limit` — mais luzes do que o teto; o evento nomeia as que ficaram sem sombra.
 
-- [ ] T020 [US6] Teste de unidade do evento em `src/elements/scene/__tests__/shadowCaster.test.ts`: acima do teto, `shadowUnavailable` com a luz e o motivo; a luz sem contribuição de sombra; a ordem de inserção
-- [ ] T021 [US6] O evento `shadowUnavailable` na cena e o aviso no console pelo app padrão (uma vez por luz) em `src/elements/scene/shadowCaster.ts` e `src/presentation/flows/defaults.ts`
-- [ ] T022 [US6] Os tetos por perfil em `src/elements/render/Renderer.ts` (`RENDER_PROFILES.shadows`: vistas, luzes de área, páginas) e a mudança de perfil tirando as vistas além do teto com evento
-- [ ] T023 [US6] [GPU] Caso `shadow-limit` em `src/__smokes__/lighting.ts` (SC-006)
+- [x] T020 [US6] Teste de unidade do evento em `src/elements/scene/__tests__/shadowCaster.test.ts`: acima do teto, `shadowUnavailable` com a luz e o motivo; a luz sem contribuição de sombra; a ordem de inserção — feito; 6 casos (o teto, a ordem de entrada, um aviso por espera, `castShadow` em execução, o teto que baixa e sobe)
+- [x] T021 [US6] O evento `shadowUnavailable` na cena e o aviso no console pelo app padrão (uma vez por luz) em `src/elements/scene/shadowCaster.ts` e `src/presentation/flows/defaults.ts` — feito; `shadowViewsByEvent` emite; `warnShadowUnavailable` leva ao console uma vez por luz
+- [x] T022 [US6] Os tetos por perfil em `src/elements/render/Renderer.ts` (`RENDER_PROFILES.shadows`: vistas, luzes de área, páginas) e a mudança de perfil tirando as vistas além do teto com evento — feito; `RENDER_PROFILES[perfil].shadows` 16/4/48, 8/2/32, 4/1/16 e `renderer.shadows.views|areaLights|atlasPages`; o atlas segue o renderizador
+- [x] T023 [US6] [GPU] Caso `shadow-limit` em `src/__smokes__/lighting.ts` (SC-006) — medido: teto 2 com três luzes, aviso `2:limit`, 0,0279 % / 0,0145 %; teto 3, 0,0330 % / 0,0234 %, sem aviso novo; teto 1, avisos das luzes 1 e 2, 0,0191 % / 0,0000 %
 
 ---
 
@@ -118,7 +118,7 @@ acima de 2 minutos ou Chrome travado: parar. Só o caso do que mudou durante a i
 
 **Independent Test**: `subsurface-two-lights` — a contraluz e a principal com sombra.
 
-- [ ] T026 [US4] Teste de unidade em `src/elements/scene/points/__tests__/lighting.test.ts`: `light_thickness` composto por luz (cada contribuição responde só pela sua; desconhecida para as demais), no lugar de "a última que conhece"
+- [x] T026 [US4] Teste de unidade em `src/elements/scene/points/__tests__/lighting.test.ts`: `light_thickness` composto por luz (cada contribuição responde só pela sua; desconhecida para as demais), no lugar de "a última que conhece" — feito; o teste falhava antes da T028 (a composição guardava "a última que conhece")
 - [ ] T027 [US4] [GPU] Caso `subsurface-two-lights` em `src/__smokes__/materials.ts`: uma peça fina de cera e a esfera de pele com a principal e a contraluz com sombra — a face contra a contraluz como no caso de uma luz só, e a diferença entre quadros com a câmera girando sem saltos (SC-005)
 - [ ] T028 [US4] [GPU] `src/elements/scene/points/lighting.ts` e `shadowContribution.ts`: a espessura por luz; conferir o caso
 
