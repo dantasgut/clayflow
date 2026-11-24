@@ -2933,8 +2933,8 @@ const DISPLACED: readonly DisplacedFrame[] = [
         subsurface: true,
         measure: measureWood,
     },
-    // O pinho claro de veio fino numa bola de 9,5 cm (uma unidade do padrão: 15,8 cm — anéis de 1,5 mm; o relevo de
-    // 1,1 mm é 2,3 % do raio), com a subsuperfície e o deslocamento, e a mesma bola sem os dois, sob o painel largo do
+    // O pinho claro de veio fino numa bola de 9,5 cm (uma unidade do padrão: 15,8 cm — anéis de 1,4 mm; o relevo de
+    // 0,5 mm é 1 % do raio), com a subsuperfície e o deslocamento, e a mesma bola sem os dois, sob o painel largo do
     // alto à esquerda e a luz rasante atravessada ao veio, contra o fundo neutro médio.
     {
         name: 'madeira-pinho',
