@@ -78,6 +78,7 @@ const NAMES = [
     'woodPineFine',
     'woodSolid',
     'skinDetailed',
+    'eye',
     'roofTile',
     'roofSlate',
     'paper',
@@ -98,18 +99,18 @@ function inner(name: MaterialName): Record<string, string> {
 }
 
 describe('Materials (spec 011, US5)', () => {
-    it('a biblioteca tem os 75 materiais, cada um um nó registrado sem ligação obrigatória', () => {
+    it('a biblioteca tem os 76 materiais, cada um um nó registrado sem ligação obrigatória', () => {
         expect(Object.keys(Materials).sort()).toEqual([...NAMES].sort());
         for (const name of NAMES) {
             const def = nodes.material[name];
             expect(def.name).toBe(`material.${name}`);
             expect(def.outputs).toEqual({ value: 'Closure' });
             expect(defaultNodeRegistry.get(def.name)).toBe(def);
-            // Toda entrada tem valor sem ligação: um parâmetro exposto, ou a amostra de superfície (`s`, a do ponto
-            // `material`) nos materiais com padrão.
+            // Toda entrada tem valor sem ligação: um parâmetro exposto, a amostra de superfície (`s`, a do ponto
+            // `material`) nos materiais com padrão, ou o valor declarado da entrada (as entradas por região da pele).
             for (const input of Object.keys(def.inputs)) {
-                if (input === 's') expect(def.defaults).toEqual({ s: 's' });
-                else expect(def.params).toHaveProperty(input);
+                if (input === 's') expect(def.defaults.s).toBe('s');
+                else if (!(input in def.defaults)) expect(def.params).toHaveProperty(input);
             }
             expect(Object.keys(def.params).length).toBeGreaterThan(0);
         }

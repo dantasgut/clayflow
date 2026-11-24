@@ -488,9 +488,38 @@ const trunk = defineNode({
     fn: 'node_pattern_trunk',
 });
 
+/**
+ * Olho: as regiões de um globo ocular centrado na origem de `p` (de `surface.solidSpace`), com o olhar ao longo de
+ * `p.y` — a íris (`iris`: o raio dela na esfera unitária, 0,49), a pupila (`pupil`: fração do raio da íris), o anel
+ * escuro da borda (`limbus`), as fibras radiais do estroma (`fiber` em [-1, 1], `fibers` por volta), a posição entre a
+ * pupila e a borda (`radial`) e os vasos da esclera (`vein`). Ver `node_pattern_iris`.
+ */
+const iris = defineNode({
+    name: 'pattern.iris',
+    inputs: { p: 'vec3f', width: 'f32', iris: 'f32', pupil: 'f32' },
+    outputs: {
+        iris: 'f32',
+        pupil: 'f32',
+        limbus: 'f32',
+        fiber: 'f32',
+        radial: 'f32',
+        vein: 'f32',
+    },
+    params: {
+        width: { type: 'f32', default: 0 },
+        iris: { type: 'f32', default: 0.49 },
+        pupil: { type: 'f32', default: 0.32 },
+        fibers: { type: 'f32', default: 48 },
+        seed: { type: 'u32', default: 0 },
+    },
+    code: nodePattern,
+    fn: 'node_pattern_iris',
+});
+
 export const pattern = {
     grain3,
     trunk,
+    iris,
     checker2: checker('checker2', 'vec2f'),
     checker3: checker('checker3', 'vec3f'),
     grain,

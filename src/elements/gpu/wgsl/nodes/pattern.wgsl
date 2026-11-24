@@ -1294,3 +1294,54 @@ fn node_pattern_trunk(p: vec3f, width: f32, scale: f32, knots: f32, seed: u32, i
     return NodePatternTrunk(mix(1.0 - 0.5 * (rise + fl), a * b, k), k * dv * ds * dr,
         mix(0.5, f32(hr >> 8u) / 16777215.0, k), knot, vec3f(fiber.x, p.y, fiber.y));
 }
+
+struct NodePatternIris {
+    iris: f32,
+    pupil: f32,
+    limbus: f32,
+    fiber: f32,
+    radial: f32,
+    vein: f32,
+}
+
+/**
+ * Olho (spec 011): as regiões de um globo ocular centrado na origem de `p`, com o eixo do olhar ao longo de `p.y` (o
+ * `axis` de `surface.solidSpace`). A distância ao eixo, na esfera unitária, é o seno do ângulo com o olhar: `iris` é
+ * o raio da íris nessa medida (0,49: a íris de 11,7 mm num globo de 24 mm) e `pupil` o da pupila como fração do da
+ * íris. Saídas: `iris` (1 dentro da íris, 0 na esclera, a borda suave), `pupil` (1 dentro da pupila), `limbus` (o anel
+ * escuro na borda da íris, de 0 a 1), `radial` (0 na borda da pupila, 1 na da íris), `fiber` em [-1, 1] — as fibras
+ * do estroma: riscos radiais, `fibers` por volta, em três oitavas, sem emenda na volta — e `vein` em [0, 1]: os vasos
+ * da esclera, linhas finas e ramificadas (onde um ruído 3D passa por zero), mais densas longe da íris. `width`: a
+ * largura do pixel em `p` (as bordas não ficam mais finas que ela).
+ */
+fn node_pattern_iris(p: vec3f, width: f32, iris: f32, pupil: f32, fibers: f32, seed: u32) -> NodePatternIris {
+    let l = max(length(p), 1e-6);
+    let d = p / l;
+    let rho = length(d.xz);
+    let size = max(iris, 1e-3);
+    let t = rho / size;
+    let edge = max(0.02, width / (l * size));
+    let front = step(0.0, d.y);
+    let disc = front * (1.0 - smoothstep(1.0 - edge, 1.0 + edge, t));
+    let hole = front * (1.0 - smoothstep(pupil - edge, pupil + edge, t));
+    let radial = clamp((t - pupil) / max(1.0 - pupil, 1e-3), 0.0, 1.0);
+    let limbus = disc * smoothstep(0.78, 1.0, t);
+    // As fibras: o ruído no ângulo (com período de uma volta) e no raio, alongado no raio.
+    let n = max(round(fibers), 1.0);
+    let turn = (atan2(d.z, d.x) / TAU + 0.5) * n;
+    var fiber = 0.0;
+    var amp = 1.0;
+    var norm = 0.0;
+    var f = 1.0;
+    for (var k = 0u; k < 3u; k++) {
+        fiber += amp * node_pattern_noise(vec2f(turn * f, radial * 1.5 * f), vec2f(n * f, 0.0), seed + k).x;
+        norm += amp;
+        amp *= 0.55;
+        f *= 2.0;
+    }
+    let ridge = 1.0 - abs(node_pattern_noise3(d * 5.0, seed + 7u).x) * 6.0;
+    let fine = 1.0 - abs(node_pattern_noise3(d * 13.0, seed + 8u).x) * 9.0;
+    let far = smoothstep(1.1, 2.0, t) + (1.0 - front);
+    let vein = clamp(max(ridge, 0.6 * fine), 0.0, 1.0) * clamp(far, 0.0, 1.0) * (1.0 - disc);
+    return NodePatternIris(disc, hole, limbus, fiber / norm, radial, vein);
+}

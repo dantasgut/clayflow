@@ -596,6 +596,48 @@ export function patternTrunk(
     };
 }
 
+/** `pattern.iris`: as regiões do globo ocular (íris, pupila, limbo, fibras, posição radial, vasos). */
+export function patternIris(
+    p: readonly number[],
+    width: number,
+    iris: number,
+    pupil: number,
+    fibers: number,
+    seed: number,
+): { iris: number; pupil: number; limbus: number; fiber: number; radial: number; vein: number } {
+    const l = Math.max(Math.hypot(p[0]!, p[1]!, p[2]!), 1e-6);
+    const d = [f32(f32(p[0]!) / f32(l)), f32(f32(p[1]!) / f32(l)), f32(f32(p[2]!) / f32(l))];
+    const rho = Math.hypot(d[0]!, d[2]!);
+    const size = Math.max(iris, 1e-3);
+    const t = rho / size;
+    const edge = Math.max(0.02, width / (l * size));
+    const front = d[1]! >= 0 ? 1 : 0;
+    const step = (a: number, b: number, x: number): number => smooth(clamp01((x - a) / (b - a)));
+    const disc = front * (1 - step(1 - edge, 1 + edge, t));
+    const hole = front * (1 - step(pupil - edge, pupil + edge, t));
+    const radial = clamp01((t - pupil) / Math.max(1 - pupil, 1e-3));
+    const limbus = disc * step(0.78, 1, t);
+    const n = Math.max(Math.round(fibers), 1);
+    const turn = (Math.atan2(d[2]!, d[0]!) / (2 * Math.PI) + 0.5) * n;
+    let fiber = 0;
+    let amp = 1;
+    let norm = 0;
+    let f = 1;
+    for (let k = 0; k < 3; k++) {
+        fiber +=
+            amp * patternNoise([f32(turn * f), f32(radial * 1.5 * f)], [n * f, 0], seed + k)[0];
+        norm += amp;
+        amp *= 0.55;
+        f *= 2;
+    }
+    const at = (s: number): V3 => [f32(d[0]! * s), f32(d[1]! * s), f32(d[2]! * s)];
+    const ridge = 1 - Math.abs(patternNoise3(at(5), seed + 7)[0]) * 6;
+    const fine = 1 - Math.abs(patternNoise3(at(13), seed + 8)[0]) * 9;
+    const far = step(1.1, 2, t) + (1 - front);
+    const vein = clamp01(Math.max(ridge, 0.6 * fine)) * clamp01(far) * (1 - disc);
+    return { iris: disc, pupil: hole, limbus, fiber: fiber / norm, radial, vein };
+}
+
 /** `pattern.bricks`: as fiadas de peças com junta (altura, gradiente, valor da peça, junta). */
 export function patternBricks(
     p: readonly number[],
@@ -1428,6 +1470,29 @@ export const patternCases: readonly NodeCase[] = [
                 num(x.knot_size),
                 num(x.knot_rings),
                 num(x.fall),
+            ),
+    },
+    {
+        node: 'pattern.iris',
+        // As bordas (íris, pupila, limbo) e os vasos são degraus de inclinação até 50 por unidade: o erro de f32 da
+        // direção (1e-7) e do `atan2` fica abaixo disto.
+        tolerance: 5e-3,
+        sample: (r, k) => ({
+            p: vector(r, 3, -1, 1),
+            width: k % 3 === 0 ? 0 : uniform(r, 0.001, 0.02),
+            iris: uniform(r, 0.35, 0.6),
+            pupil: uniform(r, 0.2, 0.5),
+            fibers: [16, 32, 48][k % 3]!,
+            seed: k % 5,
+        }),
+        reference: (x) =>
+            patternIris(
+                vec(x.p),
+                num(x.width),
+                num(x.iris),
+                num(x.pupil),
+                num(x.fibers),
+                num(x.seed),
             ),
     },
     {

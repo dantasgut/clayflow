@@ -1,10 +1,11 @@
-import { NodeGraph } from '../../../scene/graph/NodeGraph';
+import { graphArgument, NodeGraph } from '../../../scene/graph/NodeGraph';
 import type { NodeDefinition } from '../../../scene/graph/NodeDefinition';
 import { Subgraph } from '../../../scene/graph/Subgraph';
 import { bsdf } from '../bsdf';
 import { input } from '../input';
 import { surface } from '../surface';
 import { closure } from '../closure';
+import { color } from '../color';
 import { map } from '../map';
 import { math } from '../math';
 import { pattern } from '../pattern';
@@ -84,16 +85,23 @@ const skinGrain = (scale: number, octaves: number, seed: number) =>
  * `flush_color`); as sardas (`freckles` em [0, 1]) são pontos de melanina. O brilho são dois lobos da interface (IOR
  * 1,4): o largo da pele seca (`roughness`, 0,55) e o estreito da película de óleo (`oil_roughness`, 0,3), misturados
  * por `oil` em [0, 1] — a mistura varia em manchas: a pele brilha por partes. O relevo, em milímetros: os poros e as
- * linhas finas (`pore_height`, 0,05) e a irregularidade larga (`fold_height`, 0,08), na normal. Os padrões são maciços
+ * linhas finas (`pore_height`, 0,08) e a irregularidade larga (`fold_height`, 0,08), na normal. Os padrões são maciços
  * (a posição no objeto, `pattern_scale` unidades do padrão por unidade do objeto): não dependem do uv da malha, sem
  * emenda. Sem medida publicada para as proporções de cor: `light_color`, `dark_color` e `flush_color` são estimados.
- * Parâmetros: `melanin`, `blood`, `freckles`, `oil`, `light_color`, `dark_color`, `flush_color`, `radius`,
+ * A penugem é um lobo de fibra fraco (`fuzz_color`): o brilho rasante no contorno. Três entradas por região, para
+ * quem monta o rosto (sem ligação valem 1): `blood_mask` multiplica a vermelhidão (as bochechas, o nariz, as
+ * orelhas), `oil_mask` o brilho do óleo (a testa, o nariz, os lábios) e `tint` a cor (os lábios).
+ * Parâmetros: `melanin`, `blood`, `freckles`, `oil`, `fuzz_color`, `light_color`, `dark_color`, `flush_color`, `radius`,
  * `roughness`, `oil_roughness`, `ior`, `pore_height`, `fold_height`, `scale`, `pattern_scale`.
  */
 export const skinDetailed = Subgraph.point(
     new NodeGraph({
         nodes: {
             s: input.surfaceSample(),
+            // As entradas por região (sem ligação: 1): o sangue, o óleo e a cor multiplicados no ponto.
+            blood_mask: graphArgument('blood_mask'),
+            oil_mask: graphArgument('oil_mask'),
+            tint: graphArgument('tint'),
             solid: surface.solidSpace,
             tile: math.value.with({ value: 1 }),
             world: math.value.with({ value: 1 }),
@@ -107,9 +115,9 @@ export const skinDetailed = Subgraph.point(
             blood: math.value.with({ value: 0.5 }),
             freckles: math.value.with({ value: 0.25 }),
             oil: math.value.with({ value: 0.4 }),
-            light: math.value3.with({ value: [0.76, 0.53, 0.42] }),
+            light: math.value3.with({ value: [0.74, 0.5, 0.39] }),
             dark: math.value3.with({ value: [0.2, 0.11, 0.065] }),
-            flush: math.value3.with({ value: [1, 0.62, 0.6] }),
+            flush: math.value3.with({ value: [1, 0.52, 0.5] }),
             // A melanina em manchas largas: ± 7 % em volta do valor.
             uneven: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.93, out_max: 1.07 }),
             pigment: math.mul,
@@ -117,6 +125,8 @@ export const skinDetailed = Subgraph.point(
             // O sangue: a vermelhidão onde o grão largo passa do nível, até 70 % com `blood` 1.
             rosy: map.range.with({ in_min: -0.25, in_max: 0.45, out_min: 0, out_max: 0.7 }),
             rosy_amount: math.mul,
+            rosy_region: math.mul,
+            rosy_bound: math.clamp,
             reddened: math.mul3,
             flushed: math.mix3,
             // As sardas: pontos onde o grão médio passa do nível, mais escuros.
@@ -125,15 +135,21 @@ export const skinDetailed = Subgraph.point(
             spot_color: math.value3.with({ value: [0.6, 0.42, 0.3] }),
             spotted: math.mul3,
             toned: math.mix3,
+            tinted: math.mul3,
             body: bsdf.subsurface.with({ radius: [0.91, 0.6, 0.52] }),
             dry: bsdf.dielectric.with({ ior: 1.4, roughness: 0.55 }),
             oily: bsdf.dielectric.with({ ior: 1.4, roughness: 0.3 }),
             // O óleo por partes: de 0,4 a 1,6 vez o valor, em manchas.
             slick: map.range.with({ in_min: -0.4, in_max: 0.4, out_min: 0.4, out_max: 1.6 }),
             slick_amount: math.mul,
+            slick_region: math.mul,
+            slick_bound: math.clamp,
             specular: closure.mix,
             sum: closure.add,
-            pore_relief: surface.solidRelief.with({ height: 0.05 }),
+            // A penugem: o brilho rasante das fibras finas no contorno.
+            fuzz: bsdf.sheen.with({ color: [0.05, 0.045, 0.04], roughness: 0.5 }),
+            soft: closure.add,
+            pore_relief: surface.solidRelief.with({ height: 0.08 }),
             fold_relief: surface.solidRelief.with({ height: 0.08 }),
             height: math.add3,
             normal: surface.reliefNormal,
@@ -164,9 +180,12 @@ export const skinDetailed = Subgraph.point(
             ['blood.value', 'rosy_amount.b'],
             ['base.value', 'reddened.a'],
             ['flush.value', 'reddened.b'],
+            ['rosy_amount.value', 'rosy_region.a'],
+            ['blood_mask.value', 'rosy_region.b'],
+            ['rosy_region.value', 'rosy_bound.x'],
             ['base.value', 'flushed.a'],
             ['reddened.value', 'flushed.b'],
-            ['rosy_amount.value', 'flushed.t'],
+            ['rosy_bound.value', 'flushed.t'],
             ['speck.value', 'spot.x'],
             ['spot.value', 'spot_amount.a'],
             ['freckles.value', 'spot_amount.b'],
@@ -175,14 +194,19 @@ export const skinDetailed = Subgraph.point(
             ['flushed.value', 'toned.a'],
             ['spotted.value', 'toned.b'],
             ['spot_amount.value', 'toned.t'],
-            ['toned.value', 'body.color'],
+            ['toned.value', 'tinted.a'],
+            ['tint.value', 'tinted.b'],
+            ['tinted.value', 'body.color'],
             ['world.value', 'body.scale'],
             ['sheen.value', 'slick.x'],
             ['slick.value', 'slick_amount.a'],
             ['oil.value', 'slick_amount.b'],
             ['dry.value', 'specular.a'],
             ['oily.value', 'specular.b'],
-            ['slick_amount.value', 'specular.t'],
+            ['slick_amount.value', 'slick_region.a'],
+            ['oil_mask.value', 'slick_region.b'],
+            ['slick_region.value', 'slick_bound.x'],
+            ['slick_bound.value', 'specular.t'],
             ['specular.value', 'sum.a'],
             ['body.value', 'sum.b'],
             ['pore.value', 'pore_relief.value'],
@@ -197,15 +221,17 @@ export const skinDetailed = Subgraph.point(
             ['fold_relief.value', 'height.b'],
             ['height.value', 'normal.relief'],
             ['world.value', 'normal.scale'],
-            ['sum.value', 'out.c'],
+            ['sum.value', 'soft.a'],
+            ['fuzz.value', 'soft.b'],
+            ['soft.value', 'out.c'],
             ['normal.value', 'out.normal'],
         ],
         output: 'out.value',
     }),
     {
         name: 'material.skinDetailed',
-        inputs: { s: 'SurfaceSample' },
-        defaults: { s: 's' },
+        inputs: { s: 'SurfaceSample', blood_mask: 'f32', oil_mask: 'f32', tint: 'vec3f' },
+        defaults: { s: 's', blood_mask: '1.0', oil_mask: '1.0', tint: 'vec3f(1.0)' },
         expose: [
             ['melanin.value', 'melanin'],
             ['blood.value', 'blood'],
@@ -218,10 +244,110 @@ export const skinDetailed = Subgraph.point(
             ['dry.roughness', 'roughness'],
             ['oily.roughness', 'oil_roughness'],
             ['dry.ior', 'ior'],
+            ['fuzz.color', 'fuzz_color'],
             ['pore_relief.height', 'pore_height'],
             ['fold_relief.height', 'fold_height'],
             ['world.value', 'scale'],
             ['tile.value', 'pattern_scale'],
+        ],
+    },
+);
+
+/**
+ * `material.eye` — o globo ocular: a esclera branca, translúcida, com os vasos finos (`veins` em [0, 1],
+ * `vein_color`), a íris — de `iris_color` junto da pupila a `iris_edge_color` na borda, riscada pelas fibras radiais do
+ * estroma e fechada pelo anel escuro do limbo —, a pupila preta e, por cima de tudo, a córnea molhada: a interface lisa
+ * (IOR 1,376, `roughness` 0,08), que dá o reflexo das luzes. A geometria é uma esfera centrada na origem do
+ * objeto, com o olhar ao longo de `axis` (+z); `iris_size` é o raio da íris na esfera unitária (0,49: 11,7 mm num
+ * globo de 24 mm) e `pupil_size` o da pupila como fração do da íris. O corpo é subsuperfície (`radius`, (0,6; 0,45;
+ * 0,35) mm, estimado; `scale` unidades do mundo por metro): a esclera não é opaca. O que falta à física do olho: a
+ * córnea não tem a curvatura própria nem refrata a íris (a íris aparece na superfície do globo, sem a profundidade e
+ * sem a cáustica dela). Parâmetros: `iris_color`, `iris_edge_color`, `sclera_color`, `vein_color`, `veins`,
+ * `iris_size`, `pupil_size`, `fibers`, `roughness`, `ior`, `radius`, `scale`, `axis`.
+ */
+export const eye = Subgraph.point(
+    new NodeGraph({
+        nodes: {
+            s: input.surfaceSample(),
+            solid: surface.solidSpace.with({ axis: [0, 0, 1] }),
+            world: math.value.with({ value: 1 }),
+            parts: pattern.iris,
+            // A íris: a cor do centro à borda, as fibras (± 45 %) e o limbo escuro.
+            hue: color.ramp.with({
+                color_a: [0.2, 0.1, 0.03],
+                color_b: [0.06, 0.03, 0.012],
+                low: 0,
+                high: 1,
+            }),
+            streak: map.range.with({ in_min: -0.6, in_max: 0.6, out_min: 0.55, out_max: 1.45 }),
+            ring: map.range.with({ out_min: 1, out_max: 0.25 }),
+            shade: math.mul,
+            stroma: math.scale3,
+            // A esclera e os vasos.
+            white: math.value3.with({ value: [0.86, 0.83, 0.79] }),
+            vessel: math.value3.with({ value: [0.62, 0.16, 0.14] }),
+            veins: math.value.with({ value: 0.5 }),
+            vein_amount: math.mul,
+            sclera: math.mix3,
+            fronted: math.mix3,
+            black: math.value3.with({ value: [0.005, 0.005, 0.005] }),
+            holed: math.mix3,
+            body: bsdf.subsurface.with({ radius: [0.6, 0.45, 0.35] }),
+            cornea: bsdf.dielectric.with({ ior: 1.376, roughness: 0.08 }),
+            out: closure.add,
+        },
+        links: [
+            ['s.object_position', 'solid.position'],
+            ['s.dodu', 'solid.dodu'],
+            ['s.dodv', 'solid.dodv'],
+            ['s.duvdx', 'solid.duvdx'],
+            ['s.duvdy', 'solid.duvdy'],
+            ['s.footprint', 'solid.footprint'],
+            ['solid.p', 'parts.p'],
+            ['solid.width', 'parts.width'],
+            ['parts.radial', 'hue.t'],
+            ['parts.fiber', 'streak.x'],
+            ['parts.limbus', 'ring.x'],
+            ['streak.value', 'shade.a'],
+            ['ring.value', 'shade.b'],
+            ['hue.color', 'stroma.v'],
+            ['shade.value', 'stroma.s'],
+            ['parts.vein', 'vein_amount.a'],
+            ['veins.value', 'vein_amount.b'],
+            ['white.value', 'sclera.a'],
+            ['vessel.value', 'sclera.b'],
+            ['vein_amount.value', 'sclera.t'],
+            ['sclera.value', 'fronted.a'],
+            ['stroma.value', 'fronted.b'],
+            ['parts.iris', 'fronted.t'],
+            ['fronted.value', 'holed.a'],
+            ['black.value', 'holed.b'],
+            ['parts.pupil', 'holed.t'],
+            ['holed.value', 'body.color'],
+            ['world.value', 'body.scale'],
+            ['cornea.value', 'out.a'],
+            ['body.value', 'out.b'],
+        ],
+        output: 'out.value',
+    }),
+    {
+        name: 'material.eye',
+        inputs: { s: 'SurfaceSample' },
+        defaults: { s: 's' },
+        expose: [
+            ['hue.color_a', 'iris_color'],
+            ['hue.color_b', 'iris_edge_color'],
+            ['white.value', 'sclera_color'],
+            ['vessel.value', 'vein_color'],
+            ['veins.value', 'veins'],
+            ['parts.iris', 'iris_size'],
+            ['parts.pupil', 'pupil_size'],
+            ['parts.fibers', 'fibers'],
+            ['cornea.roughness', 'roughness'],
+            ['cornea.ior', 'ior'],
+            ['body.radius', 'radius'],
+            ['world.value', 'scale'],
+            ['solid.axis', 'axis'],
         ],
     },
 );
