@@ -290,6 +290,23 @@ A 013 fecha com a sombra para várias fontes de luz pelo atlas único: direciona
 claflow-web com três luzes com sombra: as caixas dos aglomerados que valiam para outra malha (`e0db504a`) e a leitura
 da sombra uma vez só no shader para qualquer número de luzes (`d6157201`).
 
+Depois do fechamento (ramo `bugfix/013-sombra-tremula`, 2026-11-24), quatro defeitos vistos no rosto do claflow-web com
+a câmera andando, cada um medido em quadros seguidos do app:
+
+- **A sombra que aparecia e sumia** (`6eefbe2a`): a malha adaptativa refeita com a câmera enchia a lista das dinâmicas
+  (um retângulo por aglomerado, teto 1024) e todas as páginas da vista contavam como tocadas. Agora, com a lista cheia,
+  tocadas são as páginas do retângulo de cada instância que mudou (`movedBase`). Mudanças bruscas no recorte do nariz:
+  57 de 180 quadros → 0 de 150; 9–12 → 28 quadros por segundo.
+- **A linha de um pixel no contorno** (`9989a892`, resolução temporal): na silhueta o histórico acompanha a superfície
+  da frente (o ponto mais perto na vizinhança 3 × 3) e a caixa de recorte usa toda a vizinhança.
+- **A linha tracejada clara dentro do rosto** (`bccfffe6`): a espessura sem página lida devolvia zero na vista
+  direcional (a luz atravessando inteira por um quadro); agora é desconhecida em qualquer vista.
+- **A sombra que ia e voltava a cada quadro** (`c1a0225c`): o sorteio da amostragem, igual para todos os pontos,
+  deslocava a sombra inteira; agora é composto com um valor por ponto. Vai e vem da borda: 1,2–1,3 px → 0,33–0,48 px (o
+  do contorno da cabeça, só geometria: 0,55 px).
+
+Sem caso de smoke próprio para a primeira (o caso escrito, `adaptive-travel`, não reproduziu o defeito e não entrou).
+
 Transferido para a fila, sem meta nova:
 
 - **Sombra das luzes de área** (fase 8, por raios): o que falta para as órbitas e a base do nariz escurecerem no retrato.
