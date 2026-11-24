@@ -54,8 +54,8 @@ Ficam 7 abertas: a US6 (T095–T100, a comparação com o Three.js no bench) e T
 Acrescentada e fechada (2026-11-22): T113, o espalhamento sob a superfície físico (a difusão entre pixels e a luz que
 atravessa as partes finas), junto da US5.
 
-Em 2026-11-24 a US6 (T095–T100) foi **transferida** para a spec curta de desempenho (nota em cada tarefa). Fica 1
-aberta: T112 (vídeos). O que resta de qualidade e de cálculo está na seção "Fechamento (2026-11-24)", no fim.
+Em 2026-11-24 a US6 (T095–T100) foi **transferida** para a spec curta de desempenho (nota em cada tarefa). A T112
+(vídeos) fechou no mesmo dia: nenhuma aberta. O que resta de qualidade e de cálculo está na seção "Fechamento (2026-11-24)", no fim.
 
 Acrescentada e fechada (2026-11-22): T114, o reflexo traçado dos opacos lisos (o metal polido como espelho), com a
 pintura de carro e a ferrugem refeitas e os rótulos na galeria, junto da US5.
@@ -506,9 +506,10 @@ OpenPBR como sub-grafo.
   - **Reconciliação (2026-11-12, 034 T071)**: `bench:check` e baseline regravado no fechamento da 033 (T068, `3136f735`), com o código da 011; o custo da apresentação HDR medido na 034 T069 (`c8668d13`): 0,113 ms sem antisserrilhado (≤ 0,3 ms); com MSAA 4×, 0,325 ms — acima dos 0,3 ms escritos aqui; a 034 T069 registrou ≤ 0,5 ms (3 % do quadro de 60 Hz) para esse caso, e o padrão do motor é o antisserrilhado temporal, não o MSAA.
 - [x] T111 `npm run ci` verde
   - **Reconciliação (2026-11-12, 034 T071)**: `npm run ci` verde no `develop` depois do PR #47 (`693aed4b`): `specs/033-global-illumination/baseline-check.md` (`df93e6a8`), 205 arquivos, 1599 testes.
-- [ ] T112 Vídeos (R14) enviados ao usuário: galeria girando sob luz que se move; grafo de material sendo editado; água (lago e tanque) com cáusticas de perto; comparação lado a lado Clayflow × Three (`materials`, `water-lake`)
+- [x] T112 Vídeos (R14) enviados ao usuário: galeria girando sob luz que se move; grafo de material sendo editado; água (lago e tanque) com cáusticas de perto; comparação lado a lado Clayflow × Three (`materials`, `water-lake`)
   - **Reconciliação (2026-11-12, 034 T071)**: os vídeos que não dependem da biblioteca nem da comparação vão com a 034 T077; a galeria girando, o grafo de material editado e a comparação Clayflow × Three (`materials`, `water-lake`) vão para a 035.
   - **Conferência (2026-11-17)**: (c) parcial: os vídeos da água (lago e tanque com cáusticas de perto) foram na 034 T077 (fechada); faltam a galeria girando sob luz que se move, o grafo de material sendo editado e a comparação Clayflow × Three (`materials`, `water-lake`), que dependem da US5 e da US6.
+  - **Fechada (2026-11-24)**: os dois vídeos que faltavam, gravados pelo gravador do `claflow-web` (`npm run video`, porta 5184; as cenas em `src/scenes/materiais.ts`, ramo `feature/011-biblioteca-de-materiais` de lá, registro `ac53d2d`), 1280 × 720 a 30 quadros por segundo. `materiais-galeria.mp4` (30 s): quatro trechos pelos quadros da galeria do smoke `materials` — metais e pinturas e as madeiras sob os painéis do estúdio dando a volta, os translúcidos com a contraluz andando por trás, o relevo na geometria com a luz rasante indo da esquerda à direita —, a câmera orbitando e os nomes pelo `UiText`. `material-editado.mp4` (26 s): `woodPineFine` (`ring_count`, `knot_density`, `ring_height`, no material e no deslocamento), `carPaint` (`flake_color`, `flake_size`), `woodVarnishedGloss` (`coat_roughness`) e a mistura madeira × metal por ruído com o limiar da máscara andando — todos pelo registro de parâmetros (`values`), sem recompilar. Os arquivos ficam em `claflow-web/videos/` (fora do versionamento, como os outros). A água foi na 034 T077; a comparação Clayflow × Three foi transferida com a US6. Observado na gravação: com o antisserrilhado temporal a imagem leva algumas dezenas de quadros para acompanhar um valor que muda (a volta do matiz da pintura passa por tons acinzentados em vez do verde e do ciano puros).
 
 ---
 
@@ -541,7 +542,7 @@ fase na `feature/011-hdr-pbr`.
 ## Fechamento (2026-11-24)
 
 O ramo `feature/011-biblioteca-de-materiais` recebeu o `develop` com a spec 041 (nuvens volumétricas) e fecha a 011 com
-a US6 transferida e T112 (vídeos) aberta. Pendências de qualidade e de cálculo que ficam, sem meta nova:
+a US6 transferida e a T112 (vídeos) fechada. Pendências de qualidade e de cálculo que ficam, sem meta nova:
 
 - **Folha** (`leaf`, `leafMatte`, `leafDry`): aspecto de desenho.
 - **Gelo**: o miolo leitoso.
