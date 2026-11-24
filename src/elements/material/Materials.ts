@@ -31,6 +31,7 @@ export type MaterialName =
     | 'glass'
     | 'metalOxidized'
     | 'skin'
+    | 'skinDetailed'
     | 'wax'
     | 'marble'
     | 'jade'
@@ -161,6 +162,7 @@ export const Materials: Readonly<Record<MaterialName, MaterialFactory>> = Object
     glass: factory(material.glass),
     metalOxidized: factory(material.metalOxidized),
     skin: factory(material.skin),
+    skinDetailed: factory(material.skinDetailed),
     wax: factory(material.wax),
     marble: factory(material.marble),
     jade: factory(material.jade),

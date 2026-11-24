@@ -2,6 +2,8 @@ import { NodeGraph } from '../../../scene/graph/NodeGraph';
 import type { NodeDefinition } from '../../../scene/graph/NodeDefinition';
 import { Subgraph } from '../../../scene/graph/Subgraph';
 import { bsdf } from '../bsdf';
+import { input } from '../input';
+import { surface } from '../surface';
 import { closure } from '../closure';
 import { map } from '../map';
 import { math } from '../math';
@@ -68,6 +70,161 @@ export const skin = scattering('material.skin', {
     roughness: 0.45,
     ior: 1.4,
 });
+
+/** Um grão maciço de frequência igual nos três eixos (os padrões da pele não têm direção). */
+const skinGrain = (scale: number, octaves: number, seed: number) =>
+    pattern.grain3.with({ scale: [scale, scale, scale], octaves, seed });
+
+/**
+ * `material.skinDetailed` — pele humana com o que se vê de perto. O corpo é a subsuperfície de `skin` (`radius`, o
+ * caminho livre médio (0,91; 0,60; 0,52) mm da "skin2" de Jensen et al. 2001: o vermelho espalha mais longe — o
+ * terminador avermelhado, a orelha acesa na contraluz), com `scale` unidades do mundo por metro. A cor sai de dois
+ * pigmentos: a melanina (`melanin` em [0, 1]: da pele clara `light_color` à escura `dark_color`), irregular em manchas
+ * largas, e o sangue perto da superfície (`blood` em [0, 1]: a vermelhidão em manchas, que multiplica a cor por
+ * `flush_color`); as sardas (`freckles` em [0, 1]) são pontos de melanina. O brilho são dois lobos da interface (IOR
+ * 1,4): o largo da pele seca (`roughness`, 0,55) e o estreito da película de óleo (`oil_roughness`, 0,3), misturados
+ * por `oil` em [0, 1] — a mistura varia em manchas: a pele brilha por partes. O relevo, em milímetros: os poros e as
+ * linhas finas (`pore_height`, 0,05) e a irregularidade larga (`fold_height`, 0,08), na normal. Os padrões são maciços
+ * (a posição no objeto, `pattern_scale` unidades do padrão por unidade do objeto): não dependem do uv da malha, sem
+ * emenda. Sem medida publicada para as proporções de cor: `light_color`, `dark_color` e `flush_color` são estimados.
+ * Parâmetros: `melanin`, `blood`, `freckles`, `oil`, `light_color`, `dark_color`, `flush_color`, `radius`,
+ * `roughness`, `oil_roughness`, `ior`, `pore_height`, `fold_height`, `scale`, `pattern_scale`.
+ */
+export const skinDetailed = Subgraph.point(
+    new NodeGraph({
+        nodes: {
+            s: input.surfaceSample(),
+            solid: surface.solidSpace,
+            tile: math.value.with({ value: 1 }),
+            world: math.value.with({ value: 1 }),
+            pore: skinGrain(220, 2, 71),
+            fold: skinGrain(45, 2, 72),
+            blotch: skinGrain(2.2, 3, 73),
+            mottle: skinGrain(9, 2, 74),
+            speck: skinGrain(60, 1, 75),
+            sheen: skinGrain(5, 2, 76),
+            melanin: math.value.with({ value: 0.25 }),
+            blood: math.value.with({ value: 0.5 }),
+            freckles: math.value.with({ value: 0.25 }),
+            oil: math.value.with({ value: 0.4 }),
+            light: math.value3.with({ value: [0.76, 0.53, 0.42] }),
+            dark: math.value3.with({ value: [0.2, 0.11, 0.065] }),
+            flush: math.value3.with({ value: [1, 0.62, 0.6] }),
+            // A melanina em manchas largas: ± 7 % em volta do valor.
+            uneven: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.93, out_max: 1.07 }),
+            pigment: math.mul,
+            base: math.mix3,
+            // O sangue: a vermelhidão onde o grão largo passa do nível, até 70 % com `blood` 1.
+            rosy: map.range.with({ in_min: -0.25, in_max: 0.45, out_min: 0, out_max: 0.7 }),
+            rosy_amount: math.mul,
+            reddened: math.mul3,
+            flushed: math.mix3,
+            // As sardas: pontos onde o grão médio passa do nível, mais escuros.
+            spot: map.range.with({ in_min: 0.3, in_max: 0.42, out_min: 0, out_max: 0.55 }),
+            spot_amount: math.mul,
+            spot_color: math.value3.with({ value: [0.6, 0.42, 0.3] }),
+            spotted: math.mul3,
+            toned: math.mix3,
+            body: bsdf.subsurface.with({ radius: [0.91, 0.6, 0.52] }),
+            dry: bsdf.dielectric.with({ ior: 1.4, roughness: 0.55 }),
+            oily: bsdf.dielectric.with({ ior: 1.4, roughness: 0.3 }),
+            // O óleo por partes: de 0,4 a 1,6 vez o valor, em manchas.
+            slick: map.range.with({ in_min: -0.4, in_max: 0.4, out_min: 0.4, out_max: 1.6 }),
+            slick_amount: math.mul,
+            specular: closure.mix,
+            sum: closure.add,
+            pore_relief: surface.solidRelief.with({ height: 0.05 }),
+            fold_relief: surface.solidRelief.with({ height: 0.08 }),
+            height: math.add3,
+            normal: surface.reliefNormal,
+            out: closure.normal,
+        },
+        links: [
+            ['s.object_position', 'solid.position'],
+            ['s.dodu', 'solid.dodu'],
+            ['s.dodv', 'solid.dodv'],
+            ['s.duvdx', 'solid.duvdx'],
+            ['s.duvdy', 'solid.duvdy'],
+            ['s.footprint', 'solid.footprint'],
+            ['tile.value', 'solid.scale'],
+            ...['pore', 'fold', 'blotch', 'mottle', 'speck', 'sheen'].flatMap(
+                (id): [string, string][] => [
+                    ['solid.p', `${id}.p`],
+                    ['solid.width', `${id}.width`],
+                ],
+            ),
+            ['mottle.value', 'uneven.x'],
+            ['melanin.value', 'pigment.a'],
+            ['uneven.value', 'pigment.b'],
+            ['light.value', 'base.a'],
+            ['dark.value', 'base.b'],
+            ['pigment.value', 'base.t'],
+            ['blotch.value', 'rosy.x'],
+            ['rosy.value', 'rosy_amount.a'],
+            ['blood.value', 'rosy_amount.b'],
+            ['base.value', 'reddened.a'],
+            ['flush.value', 'reddened.b'],
+            ['base.value', 'flushed.a'],
+            ['reddened.value', 'flushed.b'],
+            ['rosy_amount.value', 'flushed.t'],
+            ['speck.value', 'spot.x'],
+            ['spot.value', 'spot_amount.a'],
+            ['freckles.value', 'spot_amount.b'],
+            ['flushed.value', 'spotted.a'],
+            ['spot_color.value', 'spotted.b'],
+            ['flushed.value', 'toned.a'],
+            ['spotted.value', 'toned.b'],
+            ['spot_amount.value', 'toned.t'],
+            ['toned.value', 'body.color'],
+            ['world.value', 'body.scale'],
+            ['sheen.value', 'slick.x'],
+            ['slick.value', 'slick_amount.a'],
+            ['oil.value', 'slick_amount.b'],
+            ['dry.value', 'specular.a'],
+            ['oily.value', 'specular.b'],
+            ['slick_amount.value', 'specular.t'],
+            ['specular.value', 'sum.a'],
+            ['body.value', 'sum.b'],
+            ['pore.value', 'pore_relief.value'],
+            ['pore.gradient', 'pore_relief.gradient'],
+            ['solid.du', 'pore_relief.du'],
+            ['solid.dv', 'pore_relief.dv'],
+            ['fold.value', 'fold_relief.value'],
+            ['fold.gradient', 'fold_relief.gradient'],
+            ['solid.du', 'fold_relief.du'],
+            ['solid.dv', 'fold_relief.dv'],
+            ['pore_relief.value', 'height.a'],
+            ['fold_relief.value', 'height.b'],
+            ['height.value', 'normal.relief'],
+            ['world.value', 'normal.scale'],
+            ['sum.value', 'out.c'],
+            ['normal.value', 'out.normal'],
+        ],
+        output: 'out.value',
+    }),
+    {
+        name: 'material.skinDetailed',
+        inputs: { s: 'SurfaceSample' },
+        defaults: { s: 's' },
+        expose: [
+            ['melanin.value', 'melanin'],
+            ['blood.value', 'blood'],
+            ['freckles.value', 'freckles'],
+            ['oil.value', 'oil'],
+            ['light.value', 'light_color'],
+            ['dark.value', 'dark_color'],
+            ['flush.value', 'flush_color'],
+            ['body.radius', 'radius'],
+            ['dry.roughness', 'roughness'],
+            ['oily.roughness', 'oil_roughness'],
+            ['dry.ior', 'ior'],
+            ['pore_relief.height', 'pore_height'],
+            ['fold_relief.height', 'fold_height'],
+            ['world.value', 'scale'],
+            ['tile.value', 'pattern_scale'],
+        ],
+    },
+);
 
 /**
  * `material.wax` — cera (parafina de vela): IOR 1,44 (parafina sólida, n_D 1,44), rugosidade 0,3; sem medida tabelada do

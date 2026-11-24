@@ -77,6 +77,7 @@ const NAMES = [
     'woodAshBrushed',
     'woodPineFine',
     'woodSolid',
+    'skinDetailed',
     'roofTile',
     'roofSlate',
     'paper',
@@ -97,7 +98,7 @@ function inner(name: MaterialName): Record<string, string> {
 }
 
 describe('Materials (spec 011, US5)', () => {
-    it('a biblioteca tem os 74 materiais, cada um um nó registrado sem ligação obrigatória', () => {
+    it('a biblioteca tem os 75 materiais, cada um um nó registrado sem ligação obrigatória', () => {
         expect(Object.keys(Materials).sort()).toEqual([...NAMES].sort());
         for (const name of NAMES) {
             const def = nodes.material[name];

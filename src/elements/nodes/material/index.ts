@@ -37,7 +37,7 @@ import {
     terracotta,
     tile,
 } from './stone';
-import { glass, jade, marble, milk, porcelain, skin, wax } from './translucent';
+import { glass, jade, marble, milk, porcelain, skin, skinDetailed, wax } from './translucent';
 import { woodVarnishedGloss, woodVarnishedMatte } from './wood';
 import {
     barkBirch,
@@ -87,6 +87,7 @@ export const material = {
     glass,
     metalOxidized,
     skin,
+    skinDetailed,
     wax,
     marble,
     jade,
