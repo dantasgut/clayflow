@@ -3204,7 +3204,7 @@ const ROOF_SLOPE_CODE = `fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceF
  * `drop` abaixo da origem (apoiadas nas capas das duas águas). A normal aponta para fora.
  */
 const ROOF_RIDGE_CODE = `fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
-    let a = 3.14159265 * u;
+    let a = ${Math.PI} * u;
     return vec3f((0.5 - v) * data.width, data.radius * sin(a) - data.drop, data.radius * cos(a));
 }`;
 

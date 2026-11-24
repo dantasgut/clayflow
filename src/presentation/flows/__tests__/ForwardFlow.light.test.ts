@@ -38,8 +38,11 @@ describe('ForwardFlow — luz pelos pontos de cena (spec 007, 031)', () => {
         const rs = s.scene.resourceSystem;
         const src = forwardSource(s);
         expect(
-            // As luzes e os vivos lidos pela arena de pools (T060i): os acessores no lugar dos arrays.
-            src.match(/if \(!pool_live\(light_live_at\(i >> 5u\), i\)\) \{ continue; \}/g),
+            // As luzes e os vivos lidos pela arena de pools (T060i): os acessores no lugar dos arrays. O laço das
+            // luzes pontuais e direcionais pula as de área (spec 011, R19: elas têm o laço próprio).
+            src.match(
+                /if \(!pool_live\(light_live_at\(i >> 5u\), i\) \|\| lights_at_kind\(i\) == 3u\) \{ continue; \}/g,
+            ),
         ).toHaveLength(1);
         expect(src).toContain(
             `if (light != ${rs.poolSlotOf('Light', s.lightId)}u) { return 1.0; }`,
