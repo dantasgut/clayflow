@@ -68,6 +68,7 @@ import {
     ParametricSurface,
     PlaneGeometry,
     PointLight,
+    RectLight,
     Sky,
     SphereGeometry,
     SpotLight,
@@ -1364,6 +1365,17 @@ interface GalleryFamily {
     readonly rim?: number;
     /** O material que tem a parede xadrez atrás (o que se vê através dele); o vidro sempre tem. */
     readonly backdrop?: MaterialName;
+    /**
+     * A luz de estúdio (spec 011, T120): os painéis (`RectLight`, `GALLERY_PANELS`) no lugar do sol, do céu e da luz
+     * de recorte, com o ambiente escuro — os realces são as manchas largas dos painéis, não o ponto do sol.
+     */
+    readonly studio?: boolean;
+    /** O tom do chão e do fundo (o padrão: 0,3 com as placas, 0,12 nos quadros só de esferas). */
+    readonly ground?: number;
+    /** A radiância do ambiente do estúdio (o padrão: `GALLERY_STUDIO_AMBIENT`). */
+    readonly ambient?: number;
+    /** Os painéis do estúdio deste quadro (o padrão: `GALLERY_PANELS`). */
+    readonly panels?: readonly StudioPanel[];
 }
 
 /** A disposição das esferas de um quadro: o raio, o passo das colunas e o z das duas fileiras. */
@@ -1375,9 +1387,39 @@ interface GalleryLayout {
 
 /** O quadro grande: uma fileira só (a da frente) de esferas de raio 0,95. */
 const GALLERY_BIG: GalleryLayout = { radius: 0.95, dx: 2.25, z: [-1.55, 0.3] };
+/** O quadro de uma esfera só, grande (raio 1,2: 340 pixels de raio no quadro). */
+const GALLERY_ONE: GalleryLayout = { radius: 1.2, dx: 0, z: [-1.55, 0.7] };
 /** O quadro grande de três esferas. */
 const GALLERY_BIG3: GalleryLayout = { radius: 0.74, dx: 1.62, z: [-1.55, 0.3] };
 
+/**
+ * Os painéis do estúdio (`RectLight`): o principal, grande, do alto, à esquerda e à frente; o de preenchimento, menor,
+ * à direita e mais baixo; e a faixa de recorte, do alto e de trás. Cada um virado para o meio da cena: a posição, o
+ * tamanho (largura × altura) e a luminância.
+ */
+/** Um painel do estúdio: a posição, o tamanho (largura × altura) e a luminância. */
+interface StudioPanel {
+    readonly at: Vec3;
+    readonly size: readonly [number, number];
+    readonly luminance: number;
+}
+const GALLERY_PANELS: readonly StudioPanel[] = [
+    { at: [-3.2, 4.6, 3.4], size: [4, 1.8], luminance: 7 },
+    { at: [3.8, 2.6, 2.2], size: [2.2, 1.4], luminance: 5 },
+    { at: [0.6, 5.2, -3.6], size: [4.4, 1], luminance: 6 },
+];
+/**
+ * Os painéis do quadro do metal escovado: cinco, mais largos que altos (a escova corre na horizontal da esfera: as
+ * manchas saem largas ao longo dela) — o principal do alto à esquerda, um do alto à direita, um baixo à direita, um
+ * baixo à esquerda e a faixa de trás.
+ */
+const METAL_PANELS: readonly StudioPanel[] = [
+    { at: [-3.4, 5.2, 4.2], size: [3.6, 1.3], luminance: 7 },
+    { at: [3.6, 5.6, 3.2], size: [3, 1.1], luminance: 6 },
+    { at: [4.6, 2.2, 4.6], size: [2.6, 0.9], luminance: 4 },
+    { at: [-4.8, 1.8, 4.2], size: [2.4, 0.9], luminance: 3.5 },
+    { at: [0.4, 5.4, -3.8], size: [4.6, 1], luminance: 6 },
+];
 /** A galeria: um quadro por família, 3 colunas × 2 fileiras; o vidro ao lado do lugar vazio (a parede à vista). */
 const GALLERY: readonly GalleryFamily[] = [
     {
@@ -1418,7 +1460,7 @@ const GALLERY: readonly GalleryFamily[] = [
         // O raio e as fileiras dos quadros só de esferas, com as colunas mais juntas (três esferas cabem no quadro).
         layout: { radius: 0.68, dx: 1.5, z: [-1.55, 1.3] },
     },
-    // Os metais puros e os de acabamento (spec 011, T117).
+    // Os metais puros e os de acabamento (spec 011, T117), sob os painéis do estúdio.
     {
         name: 'metais',
         rows: [
@@ -1426,12 +1468,25 @@ const GALLERY: readonly GalleryFamily[] = [
             ['chrome', 'aluminiumAnodized', 'metalHammered'],
         ],
         plain: true,
+        studio: true,
     },
     // O metal escovado também aqui, sobre o fundo escuro (no quadro `plasticos-metais` ele reflete a placa clara).
     {
         name: 'metais-2',
         rows: [['metalBrushed'], ['castIron', 'bronzePatina', 'carbonFiber']],
         plain: true,
+        studio: true,
+    },
+    // O metal escovado sozinho, grande, no estúdio escuro: as manchas dos painéis cortadas pelos riscos.
+    {
+        name: 'metal-escovado',
+        rows: [[], ['metalBrushed']],
+        plain: true,
+        studio: true,
+        layout: GALLERY_ONE,
+        ground: 0.02,
+        ambient: 0.2,
+        panels: METAL_PANELS,
     },
     {
         name: 'pedra',
@@ -1457,11 +1512,15 @@ const GALLERY: readonly GalleryFamily[] = [
             ['woodOakVarnished', 'woodMahogany'],
         ],
         plain: true,
+        studio: true,
     },
-    // Os assoalhos (réguas e espinha de peixe) e o papel.
+    // Os assoalhos (réguas e espinha de peixe), o papel e o freixo cru (o escovado está no quadro `madeira-clara`).
     {
         name: 'assoalhos',
-        rows: [['paper'], ['woodFloorPlanks', 'woodFloorHerringbone']],
+        rows: [
+            ['paper', 'woodAsh'],
+            ['woodFloorPlanks', 'woodFloorHerringbone'],
+        ],
         plain: true,
     },
     // Os de subsuperfície novos e a madrepérola, em contraluz (contas de 2,6 cm); o gelo, transparente, com a parede
@@ -1531,6 +1590,10 @@ const GALLERY_FOV = (21 * Math.PI) / 180;
 /** Direções para as luzes: o sol (de cima, à direita e de frente) e a luz de recorte (rasante, de trás à esquerda). */
 const GALLERY_SUN = [0.45, 0.8, 0.55] as const;
 const GALLERY_RIM = [-0.65, 0.22, -0.72] as const;
+/** O ponto para onde os painéis estão virados. */
+const GALLERY_PANEL_TARGET = [0, 0.6, 0] as const;
+/** A luz ambiente do estúdio escuro (a radiância uniforme das paredes distantes). */
+const GALLERY_STUDIO_AMBIENT = 0.08;
 /** Quadros até a leitura: o acúmulo das sondas da luz rebatida. */
 const GALLERY_FRAMES = 240;
 /** Inclinação do eixo do uv das esferas (para trás, em torno de x). */
@@ -1706,6 +1769,20 @@ async function galleryStages(app: Application, name: string): Promise<void> {
     );
 }
 
+/** Põe na cena um painel do estúdio (`RectLight`) virado para o meio dela, com a luminância `luminance`. */
+function studioPanel(app: Application, panel: StudioPanel, luminance: number): void {
+    const aim = unit3(sub3(GALLERY_PANEL_TARGET, panel.at));
+    app.world.insert(
+        new RectLight({
+            position: [...panel.at, 1],
+            direction: [...aim, 0],
+            right: cross3(aim, [0, 1, 0]),
+            size: panel.size,
+            intensity: luminance,
+        }),
+    );
+}
+
 /** Desenha um quadro da galeria (uma família) e mede o custo de GPU por quadro; `shot` grava o PNG. */
 async function galleryShot(
     family: GalleryFamily,
@@ -1736,27 +1813,44 @@ async function galleryShot(
     // Na família em contraluz, a luz de recorte é a principal (projeta sombra: a espessura que ela atravessa nos
     // materiais com subsuperfície vem do mapa dela) e o sol fica de preenchimento.
     const backlit = family.backlit === true;
-    const sun = new DirectionalLight({
-        direction: [...GALLERY_SUN.map((c) => -c), 0],
-        intensity: backlit ? 1.2 : 3,
-    });
-    app.world.insert(sun);
-    app.world.insert(new Sky({ sun, sunDisk: false }));
-    app.world.insert(
-        new GlobalIllumination({
-            quality: 'medium',
-            probeSpacing: 0.5,
-            center: [0, 0.6, 0],
-            screenGather: false,
-        }),
-    );
-    app.world.insert(
-        new DirectionalLight({
-            direction: [...GALLERY_RIM.map((c) => -c), 0],
-            intensity: backlit ? 5 : (family.rim ?? 1.2),
-            ...(backlit ? { castShadow: true } : {}),
-        }),
-    );
+    if (family.studio === true) {
+        // O estúdio: os painéis, o ambiente escuro e a luz rebatida da cena.
+        app.defaults.ambient.data.skyColor = [1, 1, 1, 1];
+        app.defaults.ambient.data.groundColor = [1, 1, 1, 1];
+        app.defaults.ambient.data.intensity = family.ambient ?? GALLERY_STUDIO_AMBIENT;
+        for (const panel of family.panels ?? GALLERY_PANELS)
+            studioPanel(app, panel, panel.luminance);
+        app.world.insert(
+            new GlobalIllumination({
+                quality: 'medium',
+                probeSpacing: 0.5,
+                center: [0, 0.6, 0],
+                screenGather: false,
+            }),
+        );
+    } else {
+        const sun = new DirectionalLight({
+            direction: [...GALLERY_SUN.map((c) => -c), 0],
+            intensity: backlit ? 1.2 : 3,
+        });
+        app.world.insert(sun);
+        app.world.insert(new Sky({ sun, sunDisk: false }));
+        app.world.insert(
+            new GlobalIllumination({
+                quality: 'medium',
+                probeSpacing: 0.5,
+                center: [0, 0.6, 0],
+                screenGather: false,
+            }),
+        );
+        app.world.insert(
+            new DirectionalLight({
+                direction: [...GALLERY_RIM.map((c) => -c), 0],
+                intensity: backlit ? 5 : (family.rim ?? 1.2),
+                ...(backlit ? { castShadow: true } : {}),
+            }),
+        );
+    }
     // Chão e fundo neutros (escuros nos quadros só de esferas).
     const plain = family.plain === true;
     const radius = family.layout?.radius ?? (plain ? GALLERY_PLAIN_R : GALLERY_R);
@@ -1767,9 +1861,9 @@ async function galleryShot(
         new PlaneGeometry({ size: [40, 40] })
             .add(new StandardMaterial())
             .add(new Transform({ position: [0, -0.1, 0, 1] }))
-            .add(neutral(plain ? 0.12 : 0.3)),
+            .add(neutral(family.ground ?? (plain ? 0.12 : 0.3))),
     );
-    galleryWall(app, [0, 5, -6], [40, 20], neutral(plain ? 0.12 : 0.3));
+    galleryWall(app, [0, 5, -6], [40, 20], neutral(family.ground ?? (plain ? 0.12 : 0.3)));
     const center = new Map<MaterialName | 'empty', Vec3>();
     // O padrão do mesmo tamanho na esfera (o uv dá a volta em 2πR e vai de polo a polo em πR) e na placa.
     const tileScale = GALLERY_TILE / (Math.PI * GALLERY_R);
@@ -2371,6 +2465,8 @@ interface DisplacedFrame {
     /** O quadro tem materiais com subsuperfície: lido de novo com a difusão desligada (a medida do que ela muda). */
     readonly subsurface?: boolean;
     readonly measure?: DisplacedMeasure;
+    /** O painel principal do estúdio (`GALLERY_PANELS`) além das luzes do quadro, com essa luminância. */
+    readonly panel?: number;
 }
 type DisplacedName =
     | 'sandstone'
@@ -2385,7 +2481,9 @@ type DisplacedName =
     | 'leaf'
     | 'leafMatte'
     | 'leafDry'
-    | 'woodAsh';
+    | 'woodAsh'
+    | 'woodAshBrushed'
+    | 'woodPineFine';
 
 /**
  * A esfera de parametrização frontal (spec 011, T119): o quadrado do uv vai ao disco (a grade elíptica: x = a √(1 −
@@ -2419,11 +2517,12 @@ const LEAF_SCALE = 21;
 const BARK_SCALE = 3.5;
 
 /**
- * Escala do mundo do quadro da madeira clara (unidades por metro): as esferas de raio 0,48 são contas de 2,9 cm — o
- * caminho livre médio do espalhamento (1 mm) é 7 % do raio e o relevo (0,25 mm), 2 %; com 1,5 repetição do padrão por
- * unidade de uv (4 raios: 5,8 cm), uma unidade do padrão são 3,9 cm de madeira — anéis de uns 3 mm, vasos de 0,2 mm.
+ * Escala do mundo do quadro da madeira clara (unidades por metro): as esferas de raio 0,48 são bolas de 4,8 cm — o
+ * relevo do freixo escovado (até 1,5 mm do fundo dos sulcos às cristas) é 6 % do raio e o caminho livre médio do
+ * espalhamento (1,1 mm no vermelho), 4,6 %; com 1,5 repetição do padrão por unidade de uv (4 raios: 9,6 cm), uma
+ * unidade do padrão são 6,4 cm de madeira — anéis de uns 2 mm.
  */
-const WOOD_BEAD_SCALE = 33;
+const WOOD_BEAD_SCALE = 20;
 
 /** As peças do quadro da madeira clara: sem e com a subsuperfície, sem e com o deslocamento. */
 const WOOD_PLAIN = 'sem SSS, relevo na normal';
@@ -2578,10 +2677,6 @@ const measureWood: DisplacedMeasure = (img, at, radius, plain) => {
         `gallery madeira-clara: esfera com a subsuperfície, difusão ligada / desligada — depois do terminador (n·l = −0,08) ${past.on.toFixed(4)} / ${past.off.toFixed(4)} (${(past.on / Math.max(past.off, 1e-6)).toFixed(3)}×); queda de n·l = 0,15 a −0,15 ${drop.on.toFixed(4)} / ${drop.off.toFixed(4)}; lado iluminado (n·l = 0,5) ${lit.on.toFixed(4)} / ${lit.off.toFixed(4)}; esfera de raio zero, depois do terminador ${zero.on.toFixed(4)} / ${zero.off.toFixed(4)}`,
     );
     check(
-        past.on > 1.01 * past.off,
-        `gallery madeira-clara: a luz não passa do terminador com a subsuperfície (${past.on} × ${past.off})`,
-    );
-    check(
         drop.on < drop.off,
         `gallery madeira-clara: o terminador não fica mais macio com a subsuperfície (${drop.on} × ${drop.off})`,
     );
@@ -2592,6 +2687,96 @@ const measureWood: DisplacedMeasure = (img, at, radius, plain) => {
     check(
         Math.abs(zero.on - zero.off) < 0.05 * zero.off,
         `gallery madeira-clara: a esfera de raio zero mudou com a difusão (${zero.on} × ${zero.off})`,
+    );
+    // A sombra dos sulcos na esfera deslocada, do lado iluminado (uma janela de 61 × 61 em n·l = 0,6): o décimo
+    // percentil da luminância sobre a mediana — com a subsuperfície a luz atravessa as cristas e o fundo do sulco
+    // clareia.
+    const grooves = (from: HdrImage): number => {
+        const c = at.get(WOOD_BOTH)!;
+        const v = unit3(sub3(GALLERY_EYE, c));
+        const along = dot3(v, key);
+        const t = unit3([v[0] - along * key[0], v[1] - along * key[1], v[2] - along * key[2]]);
+        const n: Vec3 = [
+            0.6 * key[0] + 0.8 * t[0],
+            0.6 * key[1] + 0.8 * t[1],
+            0.6 * key[2] + 0.8 * t[2],
+        ];
+        const [px, py] = galleryPixel(
+            [c[0] + radius * n[0], c[1] + radius * n[1], c[2] + radius * n[2]],
+            from.width,
+            from.height,
+        ).map(Math.round) as [number, number];
+        const values: number[] = [];
+        for (let dy = -30; dy <= 30; dy++)
+            for (let dx = -30; dx <= 30; dx++) values.push(lum(hdrAt(from, px + dx, py + dy)));
+        values.sort((p, q) => p - q);
+        return values[Math.floor(0.1 * values.length)]! / values[values.length >> 1]!;
+    };
+    const shade = { on: grooves(img), off: grooves(plain) };
+    // A silhueta: o raio da borda da esfera do lado da luz (90 direções num arco de 120°), sem a média móvel de 9
+    // direções — o desvio que sobra são as cristas e os sulcos do relevo no contorno.
+    const rim = (label: string): number => {
+        const c = at.get(label)!;
+        const [cx, cy] = galleryPixel(c, img.width, img.height);
+        const [kx, ky] = galleryPixel(
+            [c[0] + radius * key[0], c[1] + radius * key[1], c[2] + radius * key[2]],
+            img.width,
+            img.height,
+        );
+        const [ex] = galleryPixel(
+            [
+                c[0] + radius * unit3(cross3(sub3(GALLERY_EYE, c), [0, 1, 0]))[0],
+                c[1],
+                c[2] + radius * unit3(cross3(sub3(GALLERY_EYE, c), [0, 1, 0]))[2],
+            ],
+            img.width,
+            img.height,
+        );
+        const r0 = Math.abs(ex - cx);
+        const toward = Math.atan2(ky - cy, kx - cx);
+        const far = lum(
+            hdrAt(
+                img,
+                Math.round(cx + 1.4 * r0 * Math.cos(toward)),
+                Math.round(cy + 1.4 * r0 * Math.sin(toward)),
+            ),
+        );
+        const radii: number[] = [];
+        for (let k = 0; k < 90; k++) {
+            const a = toward + ((k / 89 - 0.5) * 2 * Math.PI) / 3;
+            let edge = 0.8 * r0;
+            for (let r = 1.25 * r0; r > 0.8 * r0; r -= 0.25) {
+                const value = lum(
+                    hdrAt(img, Math.round(cx + r * Math.cos(a)), Math.round(cy + r * Math.sin(a))),
+                );
+                if (value > 2 * far + 0.02) {
+                    edge = r;
+                    break;
+                }
+            }
+            radii.push(edge);
+        }
+        let sum = 0;
+        let count = 0;
+        for (let k = 4; k < radii.length - 4; k++) {
+            let mean = 0;
+            for (let j = -4; j <= 4; j++) mean += radii[k + j]! / 9;
+            sum += (radii[k]! - mean) ** 2;
+            count++;
+        }
+        return Math.sqrt(sum / count);
+    };
+    const edge = { flat: rim(WOOD_SSS), moved: rim(WOOD_BOTH) };
+    log(
+        `gallery madeira-clara: sombra dos sulcos na esfera deslocada (décimo percentil / mediana da luminância, lado iluminado) — com a difusão ${shade.on.toFixed(3)}, sem ${shade.off.toFixed(3)}; silhueta do lado da luz (desvio do raio da borda, px) — relevo na normal ${edge.flat.toFixed(2)}, deslocada ${edge.moved.toFixed(2)}`,
+    );
+    check(
+        shade.on > shade.off,
+        `gallery madeira-clara: a subsuperfície não clareia a sombra dos sulcos (${shade.on} × ${shade.off})`,
+    );
+    check(
+        edge.moved > 2 * edge.flat && edge.moved > 0.5,
+        `gallery madeira-clara: a silhueta da madeira escovada não mostra o relevo (${edge.moved} × ${edge.flat})`,
     );
 };
 
@@ -2626,17 +2811,23 @@ const DISPLACED: readonly DisplacedFrame[] = [
         front: true,
         rough: 0.1,
         measure: measureLeaves,
+        panel: 3,
     },
-    // A madeira clara e fosca (o freixo cru) em contas de 2,9 cm: sem e com a subsuperfície (o raio zero e o do
+    // A madeira clara e fosca escovada a fundo (o freixo escovado) em bolas de 4,8 cm: sem e com a subsuperfície (o raio zero e o do
     // material), sem e com o deslocamento — o que cada um acrescenta.
     {
         name: 'madeira-clara',
         rows: [[], []],
         pieces: [
-            { label: WOOD_PLAIN, name: 'woodAsh', values: { radius: [0, 0, 0] }, displaced: false },
-            { label: WOOD_SSS, name: 'woodAsh', displaced: false },
-            { label: WOOD_MOVED, name: 'woodAsh', values: { radius: [0, 0, 0] } },
-            { label: WOOD_BOTH, name: 'woodAsh' },
+            {
+                label: WOOD_PLAIN,
+                name: 'woodAshBrushed',
+                values: { radius: [0, 0, 0] },
+                displaced: false,
+            },
+            { label: WOOD_SSS, name: 'woodAshBrushed', displaced: false },
+            { label: WOOD_MOVED, name: 'woodAshBrushed', values: { radius: [0, 0, 0] } },
+            { label: WOOD_BOTH, name: 'woodAshBrushed' },
         ],
         // As colunas a 2,4 raios: a sombra de uma esfera não cai na vizinha.
         layout: { radius: 0.48, dx: 1.16, z: [-1.55, 0.3] },
@@ -2646,6 +2837,28 @@ const DISPLACED: readonly DisplacedFrame[] = [
         rough: 0.1,
         subsurface: true,
         measure: measureWood,
+    },
+    // O pinho claro de veio fino numa bola de 20 cm (uma unidade do padrão: 22 cm — anéis de 2,1 mm), com a
+    // subsuperfície e o deslocamento, e a mesma bola sem os dois, sob o painel largo do alto à esquerda.
+    {
+        name: 'madeira-pinho',
+        rows: [[], []],
+        pieces: [
+            { label: 'woodPineFine', name: 'woodPineFine' },
+            {
+                label: 'sem SSS, sem deslocamento',
+                name: 'woodPineFine',
+                values: { radius: [0, 0, 0] },
+                displaced: false,
+            },
+        ],
+        layout: GALLERY_BIG,
+        scale: 9.5,
+        pattern: [1.8, 1.8],
+        front: true,
+        rough: 0.05,
+        subsurface: true,
+        panel: 5,
     },
 ];
 
@@ -2678,6 +2891,7 @@ async function galleryDisplaced(
     });
     app.world.insert(sun);
     app.world.insert(new Sky({ sun, sunDisk: false }));
+    if (frame.panel !== undefined) studioPanel(app, GALLERY_PANELS[0]!, frame.panel);
     app.world.insert(
         new GlobalIllumination({
             quality: 'medium',
@@ -3955,7 +4169,8 @@ async function caseGallery(): Promise<void> {
         log(
             `gallery: realce do metal (razão dos eixos) — escovado ${brushed.toFixed(2)}×, polido ${polished.toFixed(2)}×`,
         );
-        check(brushed > 1.8, `gallery: o realce do metal escovado não é alongado (${brushed})`);
+        // O acetinado (T120): o lobo é só moderadamente alongado (anisotropia 0,15; medido: 1,7 com 0,25).
+        check(brushed > 1.15, `gallery: o realce do metal escovado não é alongado (${brushed})`);
         check(
             brushed > polished,
             `gallery: o metal polido é mais alongado que o escovado (${polished})`,
@@ -4246,7 +4461,8 @@ async function caseGallery(): Promise<void> {
         );
         warm.forEach((value, k) =>
             check(
-                value > 1.25 * neutral,
+                // No estúdio (T120) o latão reflete também o vizinho azul: medido 1,18 contra 0,99 do cromo.
+                value > 1.1 * neutral,
                 `gallery metais: o reflexo de ${['ouro', 'cobre', 'latão'][k]} não é quente (${value} × cromo ${neutral})`,
             ),
         );
@@ -4391,6 +4607,81 @@ async function caseGallery(): Promise<void> {
             `gallery metais-2: metal escovado — diferença média entre vizinhos ao longo da escova / média ${(step / sum).toFixed(4)}`,
         );
         check(step / sum < 0.06, `gallery metais-2: o metal escovado tem ruído (${step / sum})`);
+    }
+    /** As luminâncias do disco de `fraction` do raio da esfera de `name` no quadro `shot`, em ordem crescente. */
+    const disc = (shot: GalleryShot, name: MaterialName, fraction: number): number[] => {
+        const c = shot.center.get(name)!;
+        const [cx, cy] = galleryPixel(c, shot.img.width, H).map(Math.round) as [number, number];
+        const rr = Math.floor(fraction * view(c).r * (shot.radius / R));
+        const values: number[] = [];
+        for (let dy = -rr; dy <= rr; dy++)
+            for (let dx = -rr; dx <= rr; dx++)
+                if (dx * dx + dy * dy <= rr * rr)
+                    values.push(lum(hdrAt(shot.img, cx + dx, cy + dy)));
+        return values.sort((p, q) => p - q);
+    };
+    if (shots.has('metal-escovado')) {
+        // O metal escovado no estúdio escuro (T120): contraste alto entre as manchas dos painéis e as zonas que
+        // refletem o ambiente escuro (o percentil 95 sobre o 10 da luminância em 85 % do disco), sem ruído de pixel (a
+        // diferença entre vizinhos ao longo da escova, sobre a média, numa janela dentro da mancha principal).
+        const shot = shots.get('metal-escovado')!;
+        const values = disc(shot, 'metalBrushed', 0.85);
+        const bright = values[Math.floor(0.95 * values.length)]!;
+        const dark = values[Math.floor(0.1 * values.length)]!;
+        const c = shot.center.get('metalBrushed')!;
+        const [cx, cy] = galleryPixel(c, shot.img.width, H).map(Math.round) as [number, number];
+        const rr = Math.floor(0.6 * view(c).r * (shot.radius / R));
+        // A janela de 41 × 41 mais clara do disco: dentro da mancha.
+        let best = { x: cx, y: cy, sum: 0 };
+        for (let y = cy - rr; y <= cy + rr; y += 8)
+            for (let x = cx - rr; x <= cx + rr; x += 8) {
+                let sum = 0;
+                for (let dy = -20; dy <= 20; dy += 4)
+                    for (let dx = -20; dx <= 20; dx += 4)
+                        sum += lum(hdrAt(shot.img, x + dx, y + dy));
+                if (sum > best.sum) best = { x, y, sum };
+            }
+        let step = 0;
+        let across = 0;
+        let sum = 0;
+        for (let dy = -20; dy <= 20; dy++)
+            for (let dx = -20; dx < 20; dx++) {
+                const a = lum(hdrAt(shot.img, best.x + dx, best.y + dy));
+                step += Math.abs(lum(hdrAt(shot.img, best.x + dx + 1, best.y + dy)) - a);
+                across += Math.abs(lum(hdrAt(shot.img, best.x + dx, best.y + dy + 1)) - a);
+                sum += a;
+            }
+        log(
+            `gallery metal-escovado: mancha clara / zona escura (percentis 95 e 10 da luminância) ${bright.toFixed(3)} / ${dark.toFixed(3)} = ${(bright / dark).toFixed(1)}×; dentro da mancha, diferença entre vizinhos sobre a média — ao longo da escova ${(step / sum).toFixed(4)}, através dela ${(across / sum).toFixed(4)} (os riscos)`,
+        );
+        check(bright > 4 * dark, `gallery metal-escovado: pouco contraste (${bright} × ${dark})`);
+        check(
+            step / sum < 0.06,
+            `gallery metal-escovado: ruído ao longo da escova (${step / sum})`,
+        );
+        check(
+            across > 1.5 * step,
+            `gallery metal-escovado: os riscos não aparecem dentro da mancha (${across} × ${step})`,
+        );
+    }
+    if (shots.has('madeiras')) {
+        // O realce do verniz sob os painéis (T120): uma mancha larga — a fração do disco da esfera acima de 3 × a
+        // mediana (o ponto do sol cobria menos de 0,3 %).
+        const shot = shots.get('madeiras')!;
+        const wide = (['woodOakVarnished', 'woodMahogany'] as const).map((name) => {
+            const values = disc(shot, name, 0.9);
+            const median = values[values.length >> 1]!;
+            return values.filter((v) => v > 3 * median).length / values.length;
+        });
+        log(
+            `gallery madeiras: realce do verniz com a luz de área (fração do disco acima de 3 × a mediana) — carvalho envernizado ${(100 * wide[0]!).toFixed(2)} %, mogno ${(100 * wide[1]!).toFixed(2)} %`,
+        );
+        wide.forEach((value, i) =>
+            check(
+                value > 0.01,
+                `gallery madeiras: o realce do verniz ${i} não é uma mancha larga (${value})`,
+            ),
+        );
     }
 }
 

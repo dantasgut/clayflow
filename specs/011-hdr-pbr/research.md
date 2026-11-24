@@ -518,7 +518,7 @@ painel: até 25 % a menos onde ela vale menos de 5 % do pico); custo fixo de 40 
 **Metal escovado.** O acabamento da referência é o acetinado de lixa passada à mão: riscos finos quase paralelos, com a
 direção variando alguns graus e cruzando-se, e riscos fundos isolados. `pattern.brush` dá a altura, a direção local
 dos riscos (a tangente do lobo) e o risco fundo; o lobo é largo (rugosidade 0,33 a 0,47) e só moderadamente alongado
-(anisotropia 0,35): as passadas cruzadas alargam o lobo também ao longo da escova. O condutor é aço inoxidável (F0
+(anisotropia 0,15): as passadas cruzadas alargam o lobo também ao longo da escova. O condutor é aço inoxidável (F0
 0,56, 0,57, 0,58): o tom chumbo vem de refletir a metade do ambiente escuro, sem escurecer nada. A mancha de uma fonte
 se alonga **através** da escova (é o que as ranhuras fazem com a luz); na referência as manchas são largas ao longo dela
 porque os painéis são largos — a galeria usa painéis mais largos que altos.
