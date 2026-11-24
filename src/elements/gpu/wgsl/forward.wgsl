@@ -114,6 +114,33 @@ fn forward_surface(in: VsOut, front: bool) -> ForwardSurface {
     let uv_inv = select(0.0, 1.0 / uv_det, abs(uv_det) > 1e-24);
     let dpdu = (dpdx_world * duvdy.y - dpdy_world * duvdx.y) * uv_inv;
     let dpdv = (dpdy_world * duvdx.x - dpdx_world * duvdy.x) * uv_inv;
+    // As derivadas do uv para os padrões são as da superfície lisa (a da normal interpolada), não as da faceta: numa
+    // malha deslocada (spec 011) a faceta inclina com o relevo e, onde a malha mal resolve o detalhe, facetas vizinhas
+    // teriam larguras de filtro diferentes — o padrão do material piscaria de triângulo em triângulo. O passo do pixel
+    // sobre a faceta é levado ao plano tangente ao longo do raio de visão (s = Δp − v (Δp · n) / (v · n), com v · n
+    // preso em 0,05) e resolvido nas tangentes do uv sem a componente normal. Sem relevo, a faceta já está no plano
+    // tangente e nada muda.
+    let to_eye = forward_view_dir(cameras[forward_frame.cameraSlot], in.world_position);
+    let facing = dot(to_eye, n);
+    let facing_inv = select(-1.0, 1.0, facing >= 0.0) / max(abs(facing), 0.05);
+    let step_x = dpdx_world - to_eye * (dot(dpdx_world, n) * facing_inv);
+    let step_y = dpdy_world - to_eye * (dot(dpdy_world, n) * facing_inv);
+    let tan_u = dpdu - n * dot(dpdu, n);
+    let tan_v = dpdv - n * dot(dpdv, n);
+    let m_e = dot(tan_u, tan_u);
+    let m_f = dot(tan_u, tan_v);
+    let m_g = dot(tan_v, tan_v);
+    let m_det = m_e * m_g - m_f * m_f;
+    let smooth_ok = m_det > 1e-24 * max(m_e * m_g, 1e-30);
+    let m_inv = select(0.0, 1.0 / m_det, smooth_ok);
+    let pattern_duvdx = select(duvdx, vec2f(
+        m_g * dot(step_x, tan_u) - m_f * dot(step_x, tan_v),
+        m_e * dot(step_x, tan_v) - m_f * dot(step_x, tan_u),
+    ) * m_inv, smooth_ok);
+    let pattern_duvdy = select(duvdy, vec2f(
+        m_g * dot(step_y, tan_u) - m_f * dot(step_y, tan_v),
+        m_e * dot(step_y, tan_v) - m_f * dot(step_y, tan_u),
+    ) * m_inv, smooth_ok);
     // Fechamento pelo ponto `material` (spec 009/011; pronto: o das constantes do material).
     let sample = SurfaceSample(
         in.world_position,
@@ -124,8 +151,8 @@ fn forward_surface(in: VsOut, front: bool) -> ForwardSurface {
         in.curvature,
         in.principal,
         footprint,
-        duvdx,
-        duvdy,
+        pattern_duvdx,
+        pattern_duvdy,
         dpdu,
         dpdv,
     );

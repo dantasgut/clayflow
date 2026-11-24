@@ -378,8 +378,8 @@ normal; a função é a `DisplacementFunction` da entidade, cujo grafo é o mesm
 subsuperfície (R15).
 
 **A passagem deslocamento → relevo → média**: os padrões filtram pela largura que recebem. No ponto `displacement` a
-amostra traz, no lugar das derivadas de tela do uv, o passo da malha no uv: o detalhe menor que dois segmentos não vira
-geometria. No material a largura é a do pixel: o mesmo detalhe continua na normal até ficar menor que o pixel, e daí
+amostra traz, no lugar das derivadas de tela do uv, o dobro do passo da malha no uv: o detalhe com menos de quatro segmentos por
+período não vira geometria (2026-11-24: antes era o passo, e as cristas de dois a quatro segmentos saíam em contas). No material a largura é a do pixel: o mesmo detalhe continua na normal até ficar menor que o pixel, e daí
 vai à média. A malha adaptativa (spec 010) escolhe o nível de cada retalho pelo tamanho na tela (`screen`): de perto os
 segmentos encolhem no mundo e mais relevo passa da normal para a geometria, sem regra à parte. Na adaptativa, o passo
 de um vértice de borda é o do menor nível dos retalhos que a dividem (e no canto, dos quatro): os dois lados calculam a

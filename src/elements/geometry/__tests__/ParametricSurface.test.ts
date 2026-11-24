@@ -14,6 +14,7 @@ import {
 import { Camera } from '../../scene/Camera';
 import { DirectionalLight } from '../../scene/DirectionalLight';
 import { Displacements } from '../../material/Displacements';
+import { relief } from '../../nodes/material';
 import { displacementPoint, surfaceAdapt, surfaceEval, surfaceEvalDiff } from '../shaders';
 import { bindPoints, type BindablePoint } from '../../../scene/shaders/bindPoints';
 import { composeWgsl } from '../../../scene/shaders/composeWgsl';
@@ -252,7 +253,11 @@ describe('deslocamento (spec 011, T115)', () => {
         expect(fn.params).toMatchObject({ relief_height: 'f32', out_scale: 'f32' });
         expect(fn.values.relief_height).toBe(0.5);
         expect(fn.values.out_scale).toBe(5.5);
-        expect(Object.keys(Displacements).sort()).toEqual(['leather', 'woodRough', 'wool']);
+        // Um deslocamento por relevo da biblioteca (`relief.*`).
+        expect(Object.keys(Displacements).sort()).toEqual(Object.keys(relief).sort());
+        expect(Object.keys(Displacements)).toEqual(
+            expect.arrayContaining(['leather', 'woodRough', 'wool', 'woodPineFine']),
+        );
         expect(() => Displacements.wool({ crack_depth: 1 })).toThrow(/crack_depth/);
     });
 
