@@ -43,3 +43,20 @@ Os estágios da sombra, na mesma cena (iguais nas cinco): `shadow_matrix` 5 (com
 `sp_allocate_main` 5; `sp_fill_main` 3; `sp_pairs_count_main` 3; `sp_pairs_base_main` 4; `sp_pairs_main` 4;
 `sp_clusters_main` 8; `sp_cluster_box_main` 1; `shadow_bounds` 2; `shadow_depth` 6; `shadow_request` 3;
 `shadow_request_clear` 1. O `forward_cull` (seleção dos desenhos, não lê a sombra) chega a 10 em `dc_phase1_main`.
+
+## Depois da fase 2 (T015)
+
+2026-11-24, Apple M4, Chrome headless, uma luz com sombra pelo atlas único.
+
+- `lighting` `penumbra`: θ 0,00466 → 1,8 %; θ 0,02 → 12,3 %; θ 0,05 → 1,6 %; borda dura 2,89 mm — igual a antes.
+- `lighting` `sun-travel`: 0,0000 % nos casos de 0,36° e 0,02° por quadro; 0,0018 % (origem) e 0,0123 % (longe) nos de
+  0,002° — igual a antes.
+- `antialiasing` `shadowEdge`: passa — degrau da borda 0,081 px RMS sem antisserrilhado, 0,047 px no temporal (cintilação
+  1,87 %), 0,046 px na acumulação. Sem número de antes (o smoke não tinha sido rodado depois do #54).
+- `materials` `subsurface-terminator`: passa — em n·l = −0,2, subsuperfície (0,046, 0,007, 0,000), difuso 0. Sem número
+  de antes.
+
+Buffers de storage por estágio, pela mesma medida da T002: forward 6 (só a luz), 7 (função), 6 (GI), 7 (névoa), 8 (os
+três) — igual a antes; com três luzes com sombra, os mesmos. Estágios da sombra: iguais, salvo `sp_clear_main` 3 → 2,
+`sp_free_main` 2 → 1, `sp_fill_main` 3 → 2 (não leem mais o referencial) e `shadow_request_clear` 1 → 2 (lê o referencial
+para esvaziar só as faixas vivas). O maior segue `sp_clusters_main`, com 8.
