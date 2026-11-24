@@ -20,8 +20,11 @@ import {
  */
 export const SHADOW_MAX_VIEWS = 16;
 
-/** Páginas físicas por lado do atlas, no máximo (o índice da página física tem 16 bits; 48² cabem num quadro). */
-export const SHADOW_ATLAS_PAGES_MAX = 48;
+/**
+ * Páginas físicas por lado do atlas, no máximo: 64² = 4096 páginas — as que as etapas das livres e da alocação percorrem
+ * num quadro (`SP_FREE_CHUNK`, `SP_ALLOCATE_CHUNK`) e o que o índice da página suja num par comporta (12 bits).
+ */
+export const SHADOW_ATLAS_PAGES_MAX = 64;
 
 /**
  * Páginas desenhadas por quadro, no máximo, entre todas as vistas cujo cache segue (a fila das sujas; o resto fica para

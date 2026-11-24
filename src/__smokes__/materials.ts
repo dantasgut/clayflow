@@ -53,6 +53,10 @@
 //     quartos, sob a luz rasante de lado;
 //   - library-compose (US5): madeira crua e metal escovado (nós da biblioteca) misturados por ruído, e um material
 //     pronto com a entrada da cor ligada a outro nó (xadrez).
+//   - subsurface-two-lights (spec 013, SC-005): uma peça fina de cera e uma esfera de pele sob a luz principal e a
+//     contraluz, as duas com sombra — a face contra a contraluz como quando ela é a única luz com sombra (a espessura é
+//     por luz: a da principal não toma o lugar da da contraluz), e a diferença entre quadros seguidos com a câmera
+//     girando sem saltos (nenhuma acima de 1,5 vez a mediana);
 // Para rodar: `npm run smoke -- materials [--query case=closure-mix]`. Resultado: `MATERIALS SMOKE PASSED` ou `FAIL: …`.
 import {
     BoxGeometry,
@@ -80,7 +84,7 @@ import {
 } from 'clayflow/web';
 import type { Application, LobeName, MaterialName } from 'clayflow/web';
 import { capture, nextGpuFrame, settle } from './support/extensionScenes';
-import { hdrAt, type HdrImage } from './support/imageMeasures';
+import { hdrAt, readHdrTexture, type HdrImage } from './support/imageMeasures';
 import {
     closureFn,
     disposeApp,
@@ -945,6 +949,194 @@ async function caseSss(): Promise<void> {
         );
         check(none === 0 && texture === undefined, 'sss: custo sem material com subsuperfície');
     }
+}
+
+/** A luz principal do caso `subsurface-two-lights` (de onde vem): de frente, da direita e de cima. */
+const TWO_LIGHTS_MAIN = [0.55, 0.6, 0.58] as const;
+/** As peças do caso: o centro da vela de cera (8 mm) e o da esfera de pele. */
+const TWO_LIGHTS_CANDLE: Vec3 = [-0.8, 0.85, 0];
+const twoLightsSkin = (): Vec3 => [0.9, GALLERY_R, 0.2];
+
+/**
+ * A cena do caso `subsurface-two-lights` (a 55 unidades por metro, como o quadro da subsuperfície): a vela de cera de
+ * 8 mm em pé e a esfera de pele sobre o chão, sob a contraluz rasante com sombra e a luz principal — com sombra
+ * (`mainShadow`) ou sem — e o hemisfério baixo. `eye`: a posição da câmera (olha o alvo da galeria).
+ */
+async function twoLightsScene(
+    width: number,
+    height: number,
+    mainShadow: boolean,
+): Promise<{ app: Application; canvas: HTMLCanvasElement; look: (eye: Vec3) => void }> {
+    const { app, canvas } = await materialApp(width, height, engineErrors);
+    const camera = new Transform({
+        position: [...GALLERY_EYE, 1],
+        rotation: Transform.lookRotation([...GALLERY_EYE], [...GALLERY_TARGET]),
+    });
+    app.world.insert(
+        new Camera({ projection: 'perspective', fov: GALLERY_FOV, near: 0.5, far: 60 }).add(camera),
+    );
+    app.defaults.ambient.data.intensity = 0.12;
+    // A contraluz primeiro (a primeira luz com sombra), depois a principal.
+    app.world.insert(
+        new DirectionalLight({
+            direction: [...SSS_BACK.map((c) => -c), 0],
+            intensity: 6,
+            castShadow: true,
+        }),
+    );
+    app.world.insert(
+        new DirectionalLight({
+            direction: [...TWO_LIGHTS_MAIN.map((c) => -c), 0],
+            intensity: 2.5,
+            castShadow: mainShadow,
+        }),
+    );
+    app.world.insert(
+        new PlaneGeometry({ size: [40, 40] })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [0, 0, 0, 1] }))
+            .add(neutral(0.18)),
+    );
+    galleryWall(app, [0, 5, -6], [40, 20], neutral(0.12));
+    app.world.insert(
+        new BoxGeometry({ size: [SSS_CANDLE, 1.7, SSS_CANDLE] })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [...TWO_LIGHTS_CANDLE, 1] }))
+            .add(Materials.wax({ scale: GALLERY_SCALE })),
+    );
+    app.world.insert(
+        new SphereGeometry({ radius: GALLERY_R, latSegments: 96, lonSegments: 192 })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [...twoLightsSkin(), 1] }))
+            .add(Materials.skin({ scale: GALLERY_SCALE })),
+    );
+    const look = (eye: Vec3): void => {
+        camera.data.position = [...eye, 1];
+        camera.data.rotation = Transform.lookRotation([...eye], [...GALLERY_TARGET]);
+    };
+    return { app, canvas, look };
+}
+
+async function caseSubsurfaceTwoLights(): Promise<void> {
+    const name = 'subsurface-two-lights';
+    const W = 640;
+    const H = 360;
+    /** Média de 9 × 9 px em volta do ponto de mundo `p`. */
+    const around = (img: HdrImage, p: Vec3): Vec3 => {
+        const [fx, fy] = galleryPixel(p, W, H);
+        const sum = [0, 0, 0];
+        for (let dy = -4; dy <= 4; dy++)
+            for (let dx = -4; dx <= 4; dx++)
+                hdrAt(img, Math.round(fx) + dx, Math.round(fy) + dy).forEach(
+                    (v, k) => (sum[k]! += v / 81),
+                );
+        return [sum[0]!, sum[1]!, sum[2]!];
+    };
+    const fmt = (v: Vec3): string => v.map((x) => x.toFixed(3)).join(', ');
+    const pct = (x: number): string => `${(100 * x).toFixed(2)} %`;
+    // As faces contra a contraluz, voltadas para a câmera e para a principal (sem nada entre elas e a principal): a
+    // frente da vela e o ponto da esfera de pele voltado para a câmera.
+    const skin = twoLightsSkin();
+    const view = unit3(sub3(GALLERY_EYE, skin));
+    const points: readonly (readonly [string, Vec3])[] = [
+        [
+            'vela',
+            [
+                TWO_LIGHTS_CANDLE[0],
+                TWO_LIGHTS_CANDLE[1] + 0.2,
+                TWO_LIGHTS_CANDLE[2] + SSS_CANDLE / 2,
+            ],
+        ],
+        [
+            'pele',
+            [
+                skin[0] + GALLERY_R * view[0],
+                skin[1] + GALLERY_R * view[1],
+                skin[2] + GALLERY_R * view[2],
+            ],
+        ],
+    ];
+    // A referência: a contraluz como a única luz com sombra (a principal ilumina sem sombra).
+    const single = await twoLightsScene(W, H, false);
+    const reference = await renderHdr(single.app, 40, 1500);
+    disposeApp(single.app, single.canvas);
+    // As duas com sombra.
+    const both = await twoLightsScene(W, H, true);
+    const on = await renderHdr(both.app, 40, 1500);
+    both.app.defaults.renderer.subsurface.enabled = false;
+    const off = await renderHdr(both.app, 8);
+    both.app.defaults.renderer.subsurface.enabled = true;
+    await renderHdr(both.app, 8);
+    for (const [piece, p] of points) {
+        const got = around(on, p);
+        const want = around(reference, p);
+        const dark = around(off, p);
+        log(
+            `${name}: ${piece}, face contra a contraluz — as duas luzes com sombra (${fmt(got)}); só a contraluz com sombra (${fmt(want)}): ${pct(rel3(got, want))}; sem a subsuperfície (${fmt(dark)})`,
+        );
+        check(
+            rel3(got, want) <= 0.03,
+            `${name}: ${piece} — a face contra a contraluz difere do caso de uma luz com sombra (${pct(rel3(got, want))})`,
+        );
+    }
+    // A vela acende pela contraluz também com as duas luzes com sombra (mais no vermelho).
+    const candle = points[0]![1];
+    const through = around(on, candle)[0] - around(off, candle)[0];
+    log(
+        `${name}: vela — a luz que atravessa (vermelho) ${through.toFixed(3)}; com a subsuperfície ${(lum(around(on, candle)) / lum(around(off, candle))).toFixed(2)} × sem ela (a face também recebe a principal de frente)`,
+    );
+    check(through > 0.02, `${name}: a contraluz não atravessa a vela (${through.toFixed(4)})`);
+    // A câmera girando em volta do alvo (0,4° por quadro, 48 quadros): a diferença entre quadros seguidos.
+    const texture = both.app.resources.textureOf(both.app.defaults.targets, 'color');
+    if (texture === undefined) throw new Error('alvo HDR não alocado');
+    const radius = Math.hypot(
+        GALLERY_EYE[0] - GALLERY_TARGET[0],
+        GALLERY_EYE[2] - GALLERY_TARGET[2],
+    );
+    const diffs: number[] = [];
+    let previous = on;
+    for (let i = 1; i <= 48; i++) {
+        const a = (i * 0.4 * Math.PI) / 180;
+        both.look([
+            GALLERY_TARGET[0] + radius * Math.sin(a),
+            GALLERY_EYE[1],
+            GALLERY_TARGET[2] + radius * Math.cos(a),
+        ]);
+        await nextGpuFrame(both.app);
+        both.app.step(1 / 60);
+        const frame = await readHdrTexture(both.app, texture);
+        let sum = 0;
+        const n = frame.width * frame.height;
+        for (let k = 0; k < n; k++)
+            sum += Math.abs(
+                lum([frame.data[k * 4]!, frame.data[k * 4 + 1]!, frame.data[k * 4 + 2]!])
+                    - lum([
+                        previous.data[k * 4]!,
+                        previous.data[k * 4 + 1]!,
+                        previous.data[k * 4 + 2]!,
+                    ]),
+            );
+        diffs.push(sum / n);
+        previous = frame;
+    }
+    disposeApp(both.app, both.canvas);
+    // O salto: um quadro cuja diferença se destaca das dos vizinhos — a razão para a mediana dos sete quadros em volta.
+    // (A mediana da sequência inteira não serve de escala: a diferença muda devagar com o que a câmera vê ao girar — a
+    // mesma curva com uma luz com sombra só e sem a subsuperfície, de 1,6 vez entre o vale e o pico.)
+    const medianOf = (values: readonly number[]): number =>
+        [...values].sort((x, y) => x - y)[values.length >> 1]!;
+    const jumps = diffs.map(
+        (d, i) => d / medianOf(diffs.slice(Math.max(0, i - 3), Math.min(diffs.length, i + 4))),
+    );
+    const worst = Math.max(...jumps);
+    const whole = Math.max(...diffs) / medianOf(diffs);
+    log(
+        `${name}: câmera girando, 48 quadros — diferença entre quadros seguidos: mediana ${medianOf(diffs).toFixed(5)}; maior salto ${worst.toFixed(2)} × a mediana dos vizinhos (quadro ${jumps.indexOf(worst) + 1}); o maior sobre a mediana da sequência inteira ${whole.toFixed(2)} ×`,
+    );
+    check(
+        worst <= 1.5,
+        `${name}: salto entre quadros com a câmera girando (${worst.toFixed(2)} × a mediana dos vizinhos)`,
+    );
 }
 
 async function caseEmission(): Promise<void> {
@@ -4953,6 +5145,7 @@ const CASES: Record<string, () => Promise<void>> = {
     'anisotropy-rotate': caseAnisotropy,
     'thin-film-angle': caseThinFilm,
     'subsurface-terminator': caseSubsurface,
+    'subsurface-two-lights': caseSubsurfaceTwoLights,
     sss: caseSss,
     'emission-hdr': caseEmission,
     'closure-mix': caseMix,

@@ -18,7 +18,7 @@ Um por cena, criado com a primeira luz com sombra por páginas e removido com a 
   índice; a que sai libera a dela.
 - **Páginas físicas**: `atlasPages²` páginas de `130²` palavras, comuns a todas as vistas, a partir de `pagesBase` (depois
   das tabelas de todas as faixas). `atlasPages` = o de uma vista (as páginas de um nível, de 16 a 48) × √(vistas vivas),
-  até o teto do perfil e até o maior lado cujo buffer cabe no `maxStorageBufferBindingSize` do adaptador. Com as mesmas
+  até o teto do perfil (64, 32 ou 16: o que dá a cada uma de quatro vistas as páginas de um nível) e até o maior lado cujo buffer cabe no `maxStorageBufferBindingSize` do adaptador. Com as mesmas
   faixas o reservatório só cresce: a vista que sai não realoca o atlas.
 - **Orçamento**: `budget` (`SHADOW_PAGE_BUDGET`, 256): as páginas desenhadas por quadro entre as vistas cujo cache
   segue.
@@ -97,7 +97,7 @@ Ajustáveis por cima do perfil em `renderer.shadows` (`views`, `areaLights`, `at
 
 | Perfil | `views` | `areaLights` | `atlasPages` (teto) |
 | ------ | ------- | ------------ | ------------------- |
-| alto   | 16      | 4            | 48                  |
+| alto   | 16      | 4            | 64                  |
 | médio  | 8       | 2            | 32                  |
 | baixo  | 4       | 1            | 16                  |
 

@@ -158,12 +158,12 @@ describe('Renderer (spec 039, FR-010)', () => {
         expect(() => new ShadowMap({ penumbraSamples: 2 })).toThrow(RangeError);
     });
 
-    it('os tetos das sombras por perfil (spec 013, R9): vistas 16/8/4, luzes de área 4/2/1, páginas 48/32/16', () => {
-        expect(RENDER_PROFILES.high.shadows).toEqual({ views: 16, areaLights: 4, atlasPages: 48 });
+    it('os tetos das sombras por perfil (spec 013, R9): vistas 16/8/4, luzes de área 4/2/1, páginas 64/32/16', () => {
+        expect(RENDER_PROFILES.high.shadows).toEqual({ views: 16, areaLights: 4, atlasPages: 64 });
         expect(RENDER_PROFILES.medium.shadows).toEqual({ views: 8, areaLights: 2, atlasPages: 32 });
         expect(RENDER_PROFILES.low.shadows).toEqual({ views: 4, areaLights: 1, atlasPages: 16 });
         const r = new Renderer();
-        expect(r.shadows).toMatchObject({ views: 16, areaLights: 4, atlasPages: 48 });
+        expect(r.shadows).toMatchObject({ views: 16, areaLights: 4, atlasPages: 64 });
         r.profile = 'low';
         expect(r.shadows).toMatchObject({ views: 4, areaLights: 1, atlasPages: 16 });
         // Ajustes por cima do perfil; fora da faixa, recusados sem mudar o anterior.
@@ -173,7 +173,7 @@ describe('Renderer (spec 039, FR-010)', () => {
         for (const set of [
             () => (r.shadows.views = 0),
             () => (r.shadows.views = 17),
-            () => (r.shadows.atlasPages = 49),
+            () => (r.shadows.atlasPages = 65),
             () => (r.shadows.areaLights = -1),
         ])
             expect(set).toThrow(RangeError);

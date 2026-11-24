@@ -42,10 +42,10 @@ const SP_NEED_ALLOC: u32 = 1u;
 const SP_NEED_RENDER: u32 = 2u;
 /** Páginas por invocação na montagem das filas (4096 páginas por nível / 256 invocações). */
 const SP_RANK_CHUNK: u32 = 16u;
-/** Páginas físicas por invocação na pilha das livres (48² páginas / 256 invocações). */
-const SP_FREE_CHUNK: u32 = 9u;
-/** Posições da ordem por invocação na alocação (48² páginas físicas / 256 invocações: o atlas inteiro num quadro). */
-const SP_ALLOCATE_CHUNK: u32 = 9u;
+/** Páginas físicas por invocação na pilha das livres (64² páginas / 256 invocações). */
+const SP_FREE_CHUNK: u32 = 16u;
+/** Posições da ordem por invocação na alocação (64² páginas físicas / 256 invocações: o atlas inteiro num quadro). */
+const SP_ALLOCATE_CHUNK: u32 = 16u;
 /** Páginas por eixo que um pedido do quadro anterior alcança no referencial de agora, no máximo (`sp_requests_main`). */
 const SP_REQUEST_SPAN: i32 = 4;
 /** Grupos de trabalho por linha do despacho indireto dos pares (o mínimo garantido de grupos por dimensão). */

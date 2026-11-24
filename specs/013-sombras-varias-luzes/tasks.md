@@ -59,6 +59,25 @@ acima de 2 minutos ou Chrome travado: parar. Só o caso do que mudou durante a i
 
 **Checkpoint**: uma luz com sombra como antes, pelo atlas único — fechado em 2026-11-24.
 
+**Pendências das fases 3 a 6** (reais; entram na T046 salvo indicação):
+
+- **O reservatório esgota com três vistas de 4096²**: medido no `sun-travel` de três luzes (640 × 400), cada vista pede
+  de 750 a 1400 páginas (295 a 420 só da reserva grossa no frustum). Com 48² = 2304 páginas todas ficavam alocadas e
+  os níveis finos faltavam de um jeito que depende do que já estava alocado (FR-017 vale: sombra menos fina, não
+  errada, mas o quadro em movimento deixa de bater com o parado). O teto do perfil alto subiu para 64 (4096 páginas;
+  com três vistas, 56² = 3136); as 48 de partida da R9 não fecham a SC-002.
+- **A luz alinhada com a vista pede páginas demais**: o nível de um ponto é a distância dele à câmera no plano da luz;
+  com a luz vindo de trás da câmera, o chão à vista cai nos níveis 1 e 2 (texel de milímetros) e uma vista sozinha
+  passa de 1500 páginas. É a regra de níveis da 034, não desta spec; o caso `sun-travel` de três luzes evita esse
+  alinhamento e o `shadow-sum` o tem (0,0280 % / 0,0152 %, dentro da SC-001).
+- **Página nova sem página física livre gasta o orçamento**: com o reservatório cheio, os pedidos que não entram ocupam
+  posições do orçamento do quadro à frente dos redesenhos de níveis mais finos das vistas cujo cache segue — visto no
+  diagnóstico como páginas alocadas e não desenhadas (14 a 18) na vista parada com um objeto se movendo. Não aparece
+  com o reservatório folgado.
+- **`subsurface-two-lights` não mede um ponto que as duas luzes atravessam**: as faces medidas recebem a principal de
+  frente; a espessura por luz nesse ponto está coberta só pelo teste de unidade. O critério "duas vezes mais clara que
+  sem a contraluz" da SC-005 é do retrato (T048): aqui a vela fica 1,60 × mais clara com a subsuperfície.
+
 **Pendências da fase 2** (reais, para as fases seguintes):
 
 - ~~A luz com `castShadow` desligado segue ocupando a faixa~~ e ~~os tetos fixos do `ShadowAtlas`~~ — resolvidos na
@@ -78,7 +97,7 @@ acima de 2 minutos ou Chrome travado: parar. Só o caso do que mudou durante a i
 **Independent Test**: `shadow-sum` — três direcionais com sombra contra a soma de três imagens de uma luz.
 
 - [x] T016 [US1] Teste de unidade da composição em `src/elements/scene/points/__tests__/lighting.test.ts`: duas e três luzes com sombra geram contribuições que respondem só pela sua luz (visibilidade) — feito; duas e três luzes: um módulo por luz, neutro (1) para as outras
-- [x] T017 [US1] [GPU] Caso `shadow-sum` em `src/__smokes__/lighting.ts`: esferas sobre um chão, três direcionais de direções e cores diferentes com sombra, contra a soma das três imagens de uma luz (SC-001); falha antes, passa depois — feito; o caso passou na primeira execução pelo atlas único (a fase 2 já o atendia): 0,0330 % na média e 0,0234 % dos pixels a mais de 25 % (SC-001: 1 % e 1 %). A soma desconta o fundo do quadro, comum às imagens de uma luz
+- [x] T017 [US1] [GPU] Caso `shadow-sum` em `src/__smokes__/lighting.ts`: esferas sobre um chão, três direcionais de direções e cores diferentes com sombra, contra a soma das três imagens de uma luz (SC-001); falha antes, passa depois — feito; o caso passou na primeira execução pelo atlas único (a fase 2 já o atendia): 0,0330 % na média e 0,0234 % dos pixels a mais de 25 % (SC-001: 1 % e 1 %); com o teto de 64 páginas da fase 5, 0,0280 % e 0,0152 %. A soma desconta o fundo do quadro, comum às imagens de uma luz
 - [x] T018 [US1] [GPU] `src/elements/scene/points/shadowContribution.ts`: a contribuição de cada direcional lê a vista dela pelo atlas único; conferir `shadow-sum` — feito; a contribuição só é composta com a sombra ligada e a vista dada (`ShadowMap.data.view`); `shadow-sum` confere
 - [x] T019 [US1] [GPU] Uma luz com sombra apagada, removida ou com a sombra desligada some no quadro seguinte sem mudar as outras (caso `shadow-sum` com a variação; FR-015) — medido no quadro seguinte à mudança: apagada 0,0162 % / 0,0102 %; sombra desligada 0,0188 % / 0,0000 %; religada (8 quadros) 0,0567 % / 0,0617 %; retirada 0,0089 % / 0,0000 %
 
@@ -94,7 +113,7 @@ acima de 2 minutos ou Chrome travado: parar. Só o caso do que mudou durante a i
 
 - [x] T020 [US6] Teste de unidade do evento em `src/elements/scene/__tests__/shadowCaster.test.ts`: acima do teto, `shadowUnavailable` com a luz e o motivo; a luz sem contribuição de sombra; a ordem de inserção — feito; 6 casos (o teto, a ordem de entrada, um aviso por espera, `castShadow` em execução, o teto que baixa e sobe)
 - [x] T021 [US6] O evento `shadowUnavailable` na cena e o aviso no console pelo app padrão (uma vez por luz) em `src/elements/scene/shadowCaster.ts` e `src/presentation/flows/defaults.ts` — feito; `shadowViewsByEvent` emite; `warnShadowUnavailable` leva ao console uma vez por luz
-- [x] T022 [US6] Os tetos por perfil em `src/elements/render/Renderer.ts` (`RENDER_PROFILES.shadows`: vistas, luzes de área, páginas) e a mudança de perfil tirando as vistas além do teto com evento — feito; `RENDER_PROFILES[perfil].shadows` 16/4/48, 8/2/32, 4/1/16 e `renderer.shadows.views|areaLights|atlasPages`; o atlas segue o renderizador
+- [x] T022 [US6] Os tetos por perfil em `src/elements/render/Renderer.ts` (`RENDER_PROFILES.shadows`: vistas, luzes de área, páginas) e a mudança de perfil tirando as vistas além do teto com evento — feito; `RENDER_PROFILES[perfil].shadows` 16/4/64 (as páginas do alto subiram de 48 para 64 na fase 5, pela medida), 8/2/32, 4/1/16 e `renderer.shadows.views|areaLights|atlasPages`; o atlas segue o renderizador
 - [x] T023 [US6] [GPU] Caso `shadow-limit` em `src/__smokes__/lighting.ts` (SC-006) — medido: teto 2 com três luzes, aviso `2:limit`, 0,0279 % / 0,0145 %; teto 3, 0,0330 % / 0,0234 %, sem aviso novo; teto 1, avisos das luzes 1 e 2, 0,0191 % / 0,0000 %
 
 ---
@@ -105,8 +124,8 @@ acima de 2 minutos ou Chrome travado: parar. Só o caso do que mudou durante a i
 
 **Independent Test**: `sun-travel` com três luzes girando a velocidades diferentes.
 
-- [ ] T024 [US5] [GPU] `sun-travel` em `src/__smokes__/lighting.ts` com três direcionais com sombra girando a velocidades diferentes (uma rápida, uma lenta abaixo do limiar, uma parada), o último quadro contra o estado parado (SC-002)
-- [ ] T025 [US5] [GPU] O recomeço do cache por vista (o `direction.w` e o `sp.reset` de cada vista) sem afetar as demais; a câmera andando e um objeto movendo sob as três luzes no mesmo caso
+- [x] T024 [US5] [GPU] `sun-travel` em `src/__smokes__/lighting.ts` com três direcionais com sombra girando a velocidades diferentes (uma rápida, uma lenta abaixo do limiar, uma parada), o último quadro contra o estado parado (SC-002) — medido (M4, headless): três luzes (0,36°, 0,002° e parada), câmera e objeto em movimento — 180 quadros 0,0000 % / 0,0000 %; 177 quadros 0,0008 % / 0,0000 % (SC-002: 0,05 % e 0,05 %). Os casos de uma luz seguem iguais ao `baseline.md`. Com o teto de 48 páginas e a luz lenta alinhada com a vista (azimute 2,7) dava 0,0383 % / 0,0559 %: o reservatório esgotava (ver as pendências)
+- [x] T025 [US5] [GPU] O recomeço do cache por vista (o `direction.w` e o `sp.reset` de cada vista) sem afetar as demais; a câmera andando e um objeto movendo sob as três luzes no mesmo caso — feito; o recomeço é por vista (`direction.w`, a geração da faixa) e a luz que gira a cada quadro não tira páginas das outras; a câmera e o objeto no mesmo caso (acima)
 
 **Checkpoint**: as direcionais fecham (US1, US5, US6).
 
@@ -119,8 +138,8 @@ acima de 2 minutos ou Chrome travado: parar. Só o caso do que mudou durante a i
 **Independent Test**: `subsurface-two-lights` — a contraluz e a principal com sombra.
 
 - [x] T026 [US4] Teste de unidade em `src/elements/scene/points/__tests__/lighting.test.ts`: `light_thickness` composto por luz (cada contribuição responde só pela sua; desconhecida para as demais), no lugar de "a última que conhece" — feito; o teste falhava antes da T028 (a composição guardava "a última que conhece")
-- [ ] T027 [US4] [GPU] Caso `subsurface-two-lights` em `src/__smokes__/materials.ts`: uma peça fina de cera e a esfera de pele com a principal e a contraluz com sombra — a face contra a contraluz como no caso de uma luz só, e a diferença entre quadros com a câmera girando sem saltos (SC-005)
-- [ ] T028 [US4] [GPU] `src/elements/scene/points/lighting.ts` e `shadowContribution.ts`: a espessura por luz; conferir o caso
+- [x] T027 [US4] [GPU] Caso `subsurface-two-lights` em `src/__smokes__/materials.ts`: uma peça fina de cera e a esfera de pele com a principal e a contraluz com sombra — a face contra a contraluz como no caso de uma luz só, e a diferença entre quadros com a câmera girando sem saltos (SC-005) — medido: a face contra a contraluz, as duas com sombra contra só a contraluz com sombra — vela 0,00 %, pele 0,00 % (limite 3 %); a luz que atravessa a vela 0,394 (vermelho); câmera girando 48 quadros, maior salto 1,04 × a mediana dos sete quadros vizinhos (limite 1,5). Contra a mediana da sequência inteira dá 1,61 × — a mesma curva lenta com uma luz com sombra só e sem a subsuperfície (1,61 e 1,64): por isso a escala é a dos vizinhos
+- [x] T028 [US4] [GPU] `src/elements/scene/points/lighting.ts` e `shadowContribution.ts`: a espessura por luz; conferir o caso — feito; `subsurface-two-lights` confere; `subsurface-terminator` (0,046, 0,007, 0,000) e `gallery` `subsuperficie` passam
 
 ---
 

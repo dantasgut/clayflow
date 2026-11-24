@@ -60,7 +60,7 @@ export interface ShadowLimits {
     readonly views: number;
     /** Luzes de área com sombra, no máximo. */
     readonly areaLights: number;
-    /** Páginas físicas por lado do atlas, no máximo (1 a 48). */
+    /** Páginas físicas por lado do atlas, no máximo (1 a 64). */
     readonly atlasPages: number;
 }
 
@@ -93,7 +93,10 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
         froxels: [160, 90, 128],
         shadowResolution: 4096,
         penumbraSamples: 9,
-        shadows: { views: 16, areaLights: 4, atlasPages: 48 },
+        // 64 páginas por lado (e não as 48 de partida da R9): medido no `sun-travel` de três luzes, 48² páginas não
+        // bastam a três vistas de 4096² (cada uma pede de 750 a 1400) e a sombra em movimento deixa de bater com a
+        // parada; com 64, quatro vistas têm cada uma as páginas de um nível, como no médio e no baixo.
+        shadows: { views: 16, areaLights: 4, atlasPages: 64 },
         clouds: {
             steps: 128,
             lightSteps: 6,
@@ -227,7 +230,7 @@ export interface ShadowSettings {
     views: number;
     /** Luzes de área com sombra ao mesmo tempo, no máximo (inteiro ≥ 0; spec 013). */
     areaLights: number;
-    /** Páginas físicas por lado do atlas único das sombras, no máximo, inteiro em 1–48 (spec 013). */
+    /** Páginas físicas por lado do atlas único das sombras, no máximo, inteiro em 1–64 (spec 013). */
     atlasPages: number;
 }
 

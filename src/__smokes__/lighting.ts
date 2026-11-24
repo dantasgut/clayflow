@@ -19,7 +19,9 @@
 //   - sun-travel: esferas sobre o chão sob uma direcional com sombra que gira em volta de y (o sol ao longo do dia) por
 //     180 quadros, a 0,36° e a 0,02° por quadro, em volta da origem e longe dela — o último quadro (a luz ainda
 //     girando) contra o da mesma cena com a luz parada na direção final: a sombra da luz que gira tem de ser a mesma da
-//     luz parada.
+//     luz parada. E com três direcionais com sombra (spec 013, SC-002) girando a velocidades diferentes — uma rápida,
+//     uma lenta abaixo do limiar do cache e uma parada —, a câmera andando e um objeto se movendo: o último quadro
+//     contra o estado parado;
 //   - shadow-sum (spec 013, SC-001): esferas sobre um chão sob três direcionais com sombra, de direções e cores
 //     diferentes — a imagem contra a soma das três imagens de uma luz só (a sombra de uma luz não depende das outras);
 //     e a luz apagada, com a sombra desligada ou retirada some no quadro seguinte sem mudar as outras (FR-015);
@@ -826,6 +828,132 @@ async function sunTravelImage(
     return hdr;
 }
 
+/**
+ * As três direcionais do caso `sun-travel` de várias luzes: o azimute final (rad), a inclinação, a intensidade e o
+ * passo por quadro (graus) — uma rápida, uma lenta abaixo do limiar do cache das páginas (0,006°) e uma parada. Nenhuma
+ * alinhada com a vista: a luz que vem de trás da câmera na direção do que ela vê põe os níveis mais finos do mapa (os
+ * em volta da câmera no plano da luz) sobre o chão à vista e pede sozinha mais páginas que o reservatório de três
+ * vistas — a sombra dela fica menos fina (FR-017) de um jeito que depende do que já estava alocado, e o quadro em
+ * movimento deixa de ser comparável ao parado (medido com o azimute 2,7: 0,056 % dos pixels).
+ */
+const SUN_TRAVEL_LIGHTS = [
+    { end: 0.6, tilt: Math.PI / 4, intensity: 3, step: 0.36 },
+    { end: 1.9, tilt: 0.6, intensity: 2, step: 0.002 },
+    { end: 4.5, tilt: 0.95, intensity: 2.5, step: 0 },
+] as const;
+
+/**
+ * O alvo HDR do caso `sun-travel` com as três luzes com sombra depois de `frames` quadros: com `moving`, cada luz gira
+ * no seu passo até o azimute final, a câmera anda de lado e uma esfera atravessa o chão, todos chegando ao estado final
+ * no último quadro; sem ele, tudo parado no estado final.
+ */
+async function sunTravelManyImage(moving: boolean, frames: number): Promise<HdrImage> {
+    const { app, canvas } = await createApp(640, 400);
+    noAmbient(app);
+    const direction = (k: number, left: number): [number, number, number, number] => {
+        const spec = SUN_TRAVEL_LIGHTS[k]!;
+        const a = spec.end - (moving ? (spec.step * Math.PI * left) / 180 : 0);
+        return [
+            Math.sin(spec.tilt) * Math.sin(a),
+            -Math.cos(spec.tilt),
+            Math.sin(spec.tilt) * Math.cos(a),
+            0,
+        ];
+    };
+    // A câmera anda 1 cm por quadro em x; a esfera, 2 cm por quadro em z.
+    const eye = (left: number): [number, number, number] => [moving ? -0.01 * left : 0, 3.5, 7];
+    const ball = (left: number): [number, number, number, number] => [
+        0.4,
+        0.35,
+        0.3 - (moving ? 0.02 * left : 0),
+        1,
+    ];
+    const camera = new Transform({
+        position: [...eye(frames), 1],
+        rotation: Transform.lookRotation(eye(frames), [eye(frames)[0], 0, 0], [0, 1, 0]),
+    });
+    app.world.insert(new Camera({ fov: Math.PI / 3, near: 0.1, far: 40 }).add(camera));
+    app.world.insert(
+        new PlaneGeometry({ size: [40, 40] })
+            .add(new StandardMaterial())
+            .add(new Transform())
+            .add(new MaterialFunction({ code: DIFFUSE_ONLY, lobes: ['diffuse'] })),
+    );
+    const lights = SUN_TRAVEL_LIGHTS.map((spec, k) => {
+        const light = new DirectionalLight({
+            direction: direction(k, frames),
+            intensity: spec.intensity,
+            castShadow: true,
+            angularRadius: 0.00466,
+        });
+        app.world.insert(light);
+        return light;
+    });
+    for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * 2 * Math.PI;
+        const r = 1.2 + 0.9 * (i % 3);
+        app.world.insert(
+            new SphereGeometry({ radius: 0.35 })
+                .add(new StandardMaterial({ albedo: [0.6, 0.6, 0.6, 1] }))
+                .add(new Transform({ position: [r * Math.cos(a), 0.35, r * Math.sin(a), 1] })),
+        );
+    }
+    const mover = new Transform({ position: ball(frames) });
+    app.world.insert(
+        new SphereGeometry({ radius: 0.35 })
+            .add(new StandardMaterial({ albedo: [0.6, 0.6, 0.6, 1] }))
+            .add(mover),
+    );
+    await settle(app, 600);
+    for (let i = 1; i <= frames; i++) {
+        const left = frames - i;
+        lights.forEach((light, k) => {
+            if (SUN_TRAVEL_LIGHTS[k]!.step !== 0) light.data.direction = direction(k, left);
+        });
+        if (moving) {
+            camera.data.position = [...eye(left), 1];
+            mover.data.position = ball(left);
+        }
+        if (i > 1) await nextGpuFrame(app);
+        app.step(1 / 60);
+    }
+    const texture = app.resources.textureOf(app.defaults.targets, 'color');
+    if (texture === undefined) throw new Error('alvo HDR não alocado');
+    const hdr = await readHdrTexture(app, texture);
+    dispose(app, canvas);
+    return hdr;
+}
+
+/** As três direcionais com sombra em movimento, a câmera andando e um objeto se movendo, contra o estado parado. */
+async function sunTravelMany(): Promise<void> {
+    const still = await sunTravelManyImage(false, 60);
+    // O chão aceso pelas três luzes: a escala das diferenças.
+    const lit = SUN_TRAVEL_LIGHTS.reduce(
+        (sum, l) => sum + (l.intensity * Math.cos(l.tilt)) / Math.PI,
+        0,
+    );
+    for (const frames of [180, 177]) {
+        const moving = await sunTravelManyImage(true, frames);
+        let sum = 0;
+        let wrong = 0;
+        const n = still.width * still.height;
+        for (let i = 0; i < n; i++) {
+            const e = Math.abs(moving.data[i * 4]! - still.data[i * 4]!) / lit;
+            sum += e;
+            if (e > 0.25) wrong++;
+        }
+        const mean = sum / n;
+        const far = wrong / n;
+        log(
+            `sun-travel: três luzes (0,36°, 0,002° e parada), câmera e objeto em movimento, ${frames} quadros — diferença média ${(100 * mean).toFixed(4)} % do chão aceso; ${(100 * far).toFixed(4)} % dos pixels a mais de 25 %`,
+        );
+        check(
+            mean <= 0.0005 && far <= 0.0005,
+            `sun-travel: três luzes em movimento, ${frames} quadros — difere do estado parado: média ${(100 * mean).toFixed(4)} %, ${(100 * far).toFixed(4)} % dos pixels a mais de 25 %`,
+        );
+    }
+}
+
 async function caseSunTravel(): Promise<void> {
     const end = 0.6;
     // Em volta da origem e longe dela (a âncora das páginas é a origem do mundo: longe, a página de um ponto muda mais
@@ -879,6 +1007,7 @@ async function caseSunTravel(): Promise<void> {
             );
         }
     }
+    await sunTravelMany();
 }
 
 /** As três direcionais dos casos `shadow-sum` e `shadow-limit`: azimute e elevação (rad), cor e intensidade. */
