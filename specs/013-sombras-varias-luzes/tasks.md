@@ -65,7 +65,11 @@ acima de 2 minutos ou Chrome travado: parar. Só o caso do que mudou durante a i
   de 750 a 1400 páginas (295 a 420 só da reserva grossa no frustum). Com 48² = 2304 páginas todas ficavam alocadas e
   os níveis finos faltavam de um jeito que depende do que já estava alocado (FR-017 vale: sombra menos fina, não
   errada, mas o quadro em movimento deixa de bater com o parado). O teto do perfil alto subiu para 64 (4096 páginas;
-  com três vistas, 56² = 3136); as 48 de partida da R9 não fecham a SC-002.
+  com três vistas, 56² = 3136); as 48 de partida da R9 não fecham a SC-002. **O caso com a luz alinhada com a vista não
+  passa**: com o azimute original da luz lenta (2,7) o `sun-travel` de três luzes deu 0,0383 % / 0,0559 % com 48
+  páginas (SC-002: 0,05 % / 0,05 %); com 64 páginas (56² = 3136, todas alocadas) seguiu diferindo — 41 pixels da luz
+  lenta e 293 da parada a mais de 10 %, medido por luz com uma cor por luz (a medida do caso, a mais de 25 %, não foi
+  tirada nessa configuração). O caso registrado usa o azimute 1,9.
 - **A luz alinhada com a vista pede páginas demais**: o nível de um ponto é a distância dele à câmera no plano da luz;
   com a luz vindo de trás da câmera, o chão à vista cai nos níveis 1 e 2 (texel de milímetros) e uma vista sozinha
   passa de 1500 páginas. É a regra de níveis da 034, não desta spec; o caso `sun-travel` de três luzes evita esse
@@ -180,7 +184,7 @@ acima de 2 minutos ou Chrome travado: parar. Só o caso do que mudou durante a i
 ## Phase 9: User Story 7 — O custo cabe no quadro (P2)
 
 - [ ] T045 [US7] [GPU] Caso `shadow-timing` em `src/__smokes__/lighting.ts`: a mesma cena com 1 a 4 direcionais com sombra, paradas e girando, e com 1 luz de área; o custo por luz contra SC-007 a SC-009
-- [ ] T046 [US7] [GPU] Ajustar pelo que a medida mostrar (o orçamento por vista, a resolução do passe da luz de área, os tetos da R9), com o racional registrado; a sobra real vai para a fila
+- [ ] T046 [US7] [GPU] Ajustar pelo que a medida mostrar (o orçamento por vista, a resolução do passe da luz de área, os tetos da R9), com o racional registrado; a sobra real vai para a fila. **A avaliar aqui (decidido em 2026-11-24)**: o teto de 64 páginas do perfil alto é provisório — 277 MB de atlas com quatro vistas é muito e não é a solução; a causa é cada vista de 4096² pedir de 750 a 1400 páginas. A saída a avaliar é a resolução por vista cair com o número de vistas vivas e/ou a regra de nível, com a memória medida
 
 ---
 

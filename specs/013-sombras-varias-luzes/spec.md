@@ -292,7 +292,9 @@ real.
   fica mais escuro que a pele iluminada em volta.
 - **SC-005**: Com a luz principal e a contraluz com sombra, a orelha na contraluz fica pelo menos duas vezes mais clara
   que sem a contraluz, e a diferença entre quadros seguidos com a câmera girando não tem salto acima de 1,5 vez a
-  mediana.
+  mediana dos sete quadros em volta (o próprio e os três de cada lado). A escala é a dos vizinhos porque a diferença
+  muda devagar com o que a câmera vê ao girar: medida contra a mediana da sequência inteira, a mesma cena dá 1,6 vez
+  com uma luz com sombra só e sem a subsuperfície, sem salto nenhum.
 - **SC-006**: Com mais luzes com sombra do que o teto, 100 % das luzes sem sombra são nomeadas num aviso, e nenhuma
   produz sombra.
 - **SC-007**: Cada luz direcional com sombra a mais custa no máximo 1,5 ms de GPU por quadro (9 % do quadro de 60 Hz)
