@@ -77,9 +77,12 @@ const skinGrain = (scale: number, octaves: number, seed: number) =>
     pattern.grain3.with({ scale: [scale, scale, scale], octaves, seed });
 
 /**
- * `material.skinDetailed` — pele humana com o que se vê de perto. O corpo é a subsuperfície de `skin` (`radius`, o
- * caminho livre médio (0,91; 0,60; 0,52) mm da "skin2" de Jensen et al. 2001: o vermelho espalha mais longe — o
- * terminador avermelhado, a orelha acesa na contraluz), com `scale` unidades do mundo por metro. A cor sai de dois
+ * `material.skinDetailed` — pele humana com o que se vê de perto. O corpo é subsuperfície, com `scale` unidades do
+ * mundo por metro e `radius` (2,2; 1,1; 0,85) mm: o raio com que a cauda do perfil de Burley (3ℓ/s) iguala o
+ * comprimento de difusão 1/σ_tr dos coeficientes da "skin2" de Jensen et al. 2001 (4,8; 1,7; 1,1 mm, com σ_tr =
+ * √(3 σ_a σ_t′)) — o caminho livre médio 1/σ_t′ de `skin` (0,91; 0,60; 0,52) dá uma cauda de 2 mm no vermelho, curta
+ * para a pele, que é em camadas (a derme com sangue espalha o vermelho bem mais longe que a epiderme). É uma
+ * estimativa de uma camada só. O vermelho espalha mais longe: o terminador avermelhado, a orelha acesa na contraluz. A cor sai de dois
  * pigmentos: a melanina (`melanin` em [0, 1]: da pele clara `light_color` à escura `dark_color`), irregular em manchas
  * largas, e o sangue perto da superfície (`blood` em [0, 1]: a vermelhidão em manchas, que multiplica a cor por
  * `flush_color`); as sardas (`freckles` em [0, 1]) são pontos de melanina. O brilho são dois lobos da interface (IOR
@@ -136,7 +139,7 @@ export const skinDetailed = Subgraph.point(
             spotted: math.mul3,
             toned: math.mix3,
             tinted: math.mul3,
-            body: bsdf.subsurface.with({ radius: [0.91, 0.6, 0.52] }),
+            body: bsdf.subsurface.with({ radius: [2.2, 1.1, 0.85] }),
             dry: bsdf.dielectric.with({ ior: 1.4, roughness: 0.55 }),
             oily: bsdf.dielectric.with({ ior: 1.4, roughness: 0.26 }),
             // O óleo por partes: de 0,4 a 1,6 vez o valor, em manchas.
