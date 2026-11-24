@@ -16,6 +16,7 @@ import type { ConsumerResolver, ResolveContext } from '../consumers/ConsumerReso
 import { SingletonResolver } from '../consumers/strategies/SingletonResolver';
 import { PoolResolver } from '../consumers/strategies/PoolResolver';
 import { TextureResolver } from '../consumers/strategies/TextureResolver';
+import { concreteSource } from '../systems/flowBinding/sources';
 import { fakeResourceCore } from './helpers/fakeResourceCore';
 
 const Cam = new StructSchema('ResolverCam', { vp: FieldType.mat4x4f }, { addressSpace: 'uniform' });
@@ -127,6 +128,32 @@ describe('PoolResolver', () => {
             kind: 'buffer',
             buffer: resources.poolBufferSpec('ResolverItem'),
         });
+    });
+
+    it('pool com série temporal → a fatia do quadro (atraso 0) pelo anel, não a fatia física 0', () => {
+        const { world, resources, ctx } = scene();
+        const Hist = new StructSchema('ResolverHist', { v: FieldType.vec4f });
+        world.insert(
+            new Bag([
+                {
+                    id: 'h',
+                    role: 'storage-rw',
+                    schema: Hist,
+                    storage: 'pool',
+                    upload: 'never',
+                    history: { depth: 2 },
+                },
+            ]),
+        );
+        resources.ensurePoolAllocated('ResolverHist');
+        const ring = resources.channelOfPool('ResolverHist')!;
+        const source = new PoolResolver('ResolverHist', Hist).resolve(ctx);
+        expect(source).toMatchObject({ kind: 'channel', lag: 0 });
+        // A fonte concreta acompanha a cabeça do anel: a fatia de agora em qualquer quadro.
+        for (const head of [0, 1]) {
+            const now = concreteSource(source!, head);
+            expect(now).toEqual({ kind: 'buffer', buffer: ring.allSlices()[head]!.buffer });
+        }
     });
 
     it('a C2 registra um PoolResolver ao criar o pool, sem substituir um existente', () => {

@@ -4,6 +4,8 @@
 //   3. `sp_instances_main` (uma invocação por instância): o retângulo da instância no plano da luz (a caixa pela matriz
 //      de mundo); a instância que se moveu ou se deformou desde o quadro anterior (a série dos retângulos, atraso 1)
 //      entra na lista das dinâmicas com o retângulo de antes e o de agora;
+//   3b. `sp_requests_main` (uma por página virtual): os pedidos do quadro anterior (a série dos pedidos) no referencial
+//      deste quadro;
 //   4. `sp_update_main` (uma por página virtual): a página do quadro anterior (a tabela no começo do atlas, refeita no
 //      lugar) segue quando ainda é a
 //      mesma página global, foi pedida há poucos quadros, a série do atlas a tem carimbada na época atual e
@@ -103,6 +105,8 @@ fn sp_clear_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgr
     if (i < sp.keepBase) { atomicStore(&sp_scratch[i], 0u); }
     let physical = sp_atlas_pages_total();
     if (i < physical) { atomicStore(&sp_scratch[sp.keepBase + i], 0u); }
+    let n = shadow_matrices[sp.casterSlot].pagesPerLevel;
+    if (i < SV_MAX_LEVELS * n * n) { atomicStore(&sp_scratch[sp.requestBase + i], 0u); }
     if (i < sp.groupCount) {
         // A caixa vazia até o kernel da geometria escrever a do quadro.
         let b = sp.boundsBase + i * 6u;
@@ -111,7 +115,7 @@ fn sp_clear_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgr
             sp_set_f(b + 3u + c, -3.0e38);
         }
         atomicStore(&sp_scratch[sp.groupPairsBase + i * 4u], 0u);
-        // A caixa da geometria em aglomerados, vazia (os mínimos no topo, os máximos no fundo da ordem de `sp_order`).
+        // A caixa da geometria em aglomerados, vazia (os mínimos no topo, os máximos no fundo da ordem de `sv_order`).
         for (var c = 0u; c < 3u; c++) {
             atomicStore(&sp_scratch[sp.groupBoxBase + i * 6u + c], 0xFFFFFFFFu);
             atomicStore(&sp_scratch[sp.groupBoxBase + i * 6u + 3u + c], 0u);
@@ -166,6 +170,64 @@ fn sp_instances_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wo
     if (!moved) { return; }
     // O de antes e o de agora: as páginas onde a instância estava e onde está.
     sp_push_dynamic(vec4f(min(before.xy, rect.xy), max(before.zw, rect.zw)));
+}
+
+// ---- 3b. os pedidos no referencial do quadro ----
+
+/**
+ * Os pedidos do quadro anterior (a série dos pedidos, atraso 1) levados ao referencial deste quadro (uma invocação por
+ * página virtual do quadro anterior; a seção `requestBase`, uma palavra por página virtual de agora). Com o mesmo
+ * referencial, a mesma página. Com a luz em outra direção, a página pedida é um prisma do mundo — o retângulo dela no
+ * plano da luz de antes pela faixa de profundidade dos pontos que a pediram: os oito cantos vão ao plano da luz de agora
+ * (as duas bases são rotações em volta da origem do mundo) e as páginas do mesmo nível que o retângulo deles toca ficam
+ * pedidas (até `SP_REQUEST_SPAN` por eixo; a luz que salta de direção passa disso e o quadro fica com a reserva grossa
+ * no frustum). Sem isso, a luz que gira a cada quadro desenharia as páginas que os pontos vistos ocupavam no referencial
+ * de antes, não as que ocupam agora.
+ */
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn sp_requests_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    let m = shadow_matrices[sp.casterSlot];
+    let n = m.pagesPerLevel;
+    if (sp.requestsValid == 0u || i >= SV_MAX_LEVELS * n * n) { return; }
+    let before = sp_matrices_previous[sp.casterSlot];
+    if (before.pagesPerLevel != n || before.firstLevelRadius != m.firstLevelRadius) { return; }
+    let k = i / (n * n);
+    if (k >= sv_levels(m) || k >= sv_levels(before)) { return; }
+    let hi = sp_requests_previous[i * 2u + 1u];
+    if (hi == 0u) { return; }
+    let lo = sp_requests_previous[i * 2u];
+    let same = all(before.lightView[0] == m.lightView[0]) && all(before.lightView[1] == m.lightView[1])
+        && all(before.lightView[2] == m.lightView[2]);
+    if (same) {
+        atomicStore(&sp_scratch[sp.requestBase + i], 1u);
+        return;
+    }
+    let s = vec2u((i % (n * n)) % n, (i % (n * n)) / n);
+    let g = vec2f(sp_global(before, k, s));
+    let p = sv_page_size(m, k);
+    // Luz de antes → mundo → luz de agora.
+    let turn = mat3x3f(m.lightView[0].xyz, m.lightView[1].xyz, m.lightView[2].xyz) * rigid_rotation_inverse(before.lightView);
+    var rect = vec4f(3.0e38, 3.0e38, -3.0e38, -3.0e38);
+    for (var c = 0u; c < 8u; c++) {
+        let corner = vec3f(
+            (g.x + select(0.0, 1.0, (c & 1u) != 0u)) * p,
+            (g.y + select(0.0, 1.0, (c & 2u) != 0u)) * p,
+            sv_unorder(select(lo, hi, (c & 4u) != 0u)),
+        );
+        let q = (turn * corner).xy;
+        rect = vec4f(min(rect.xy, q), max(rect.zw, q));
+    }
+    let first = sv_page_of(m, k, rect.xy);
+    let last = sv_page_of(m, k, rect.zw);
+    for (var dy = 0; dy < SP_REQUEST_SPAN; dy++) {
+        for (var dx = 0; dx < SP_REQUEST_SPAN; dx++) {
+            let page = first + vec2i(dx, dy);
+            if (any(page > last) || !sv_in_window(m, k, page)) { continue; }
+            let slot = sv_slot(m, k, page);
+            atomicStore(&sp_scratch[sp.requestBase + slot.y * n + slot.x], 1u);
+        }
+    }
 }
 
 // ---- 4. a tabela ----
@@ -236,7 +298,7 @@ fn sp_update_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workg
     let old = select(sp_table_load(m, texel), vec4u(0u), reset);
     let valid = (old.z & SV_ALLOCATED) != 0u && old.x == gx && old.y == gy;
     let rect = sp_page_rect(m, k, g);
-    var requested = sp.requestsValid != 0u && sp_requests_previous[sv_request_word(m, texel)] != 0u;
+    var requested = atomicLoad(&sp_scratch[sp.requestBase + i]) != 0u;
     // O nível mais grosso no frustum, sempre: a reserva do que não está numa superfície vista no quadro anterior (os
     // pontos do volume da névoa, o primeiro quadro, um corte, a borda que aparece).
     if (k + 1u == sv_levels(m)) { requested = requested || sp_in_frustum(m, rect); }
@@ -321,72 +383,111 @@ fn sp_free_main(@builtin(local_invocation_index) lid: u32) {
 // ---- 6. a alocação e as sujas ----
 
 /**
- * As filas na ordem do mais grosso ao mais fino até o orçamento (um grupo de trabalho; a invocação `lid` é a posição
- * na ordem): a página nova recebe a física livre da sua posição entre as novas, e as que entram formam a lista das sujas
- * na mesma ordem — tudo determinístico.
+ * Páginas que entram no quadro, no máximo: o orçamento (`sp.budget`) enquanto o cache segue — o que não entra fica para
+ * os quadros seguintes, e a imagem lê o que já está desenhado. No quadro em que o cache recomeça (a luz mudou de
+ * direção, os grupos mudaram, a série foi interrompida) não há o que ler de antes: entram todas as páginas pedidas, até
+ * o atlas inteiro — a luz que gira a cada quadro (o sol ao longo do dia) recomeça a cada quadro, e o que ficasse para
+ * depois nunca seria desenhado.
+ */
+fn sp_budget(m: ShadowMatrix) -> u32 {
+    let all = min(sp_atlas_pages_total(), 256u * SP_ALLOCATE_CHUNK);
+    return select(min(sp.budget, all), all, sp.reset != 0u || m.direction.w != 0.0);
+}
+
+/**
+ * As filas na ordem do mais grosso ao mais fino até o orçamento do quadro (`sp_budget`; um grupo de trabalho, cada
+ * invocação com um trecho seguido das posições na ordem): a página nova recebe a física livre da sua posição entre as
+ * novas, e as que entram formam a lista das sujas na mesma ordem — tudo determinístico.
  */
 @compute @workgroup_size(256)
 fn sp_allocate_main(@builtin(local_invocation_index) lid: u32) {
     let m = shadow_matrices[sp.casterSlot];
     let n = m.pagesPerLevel;
-    var t = lid;
-    var k = 0u;
-    var found = lid < sp.budget;
-    if (found) {
-        found = false;
+    let budget = sp_budget(m);
+    let per = (budget + 255u) / 256u;
+    var words: array<u32, SP_ALLOCATE_CHUNK>;
+    var physes: array<u32, SP_ALLOCATE_CHUNK>;
+    var levels: array<u32, SP_ALLOCATE_CHUNK>;
+    // Por posição do trecho: achada na fila (bit 0), nova (bit 1), entra no quadro (bit 2).
+    var states: array<u32, SP_ALLOCATE_CHUNK>;
+    var fresh = 0u;
+    for (var c = 0u; c < SP_ALLOCATE_CHUNK; c++) {
+        states[c] = 0u;
+        var t = lid * per + c;
+        if (c >= per || t >= budget) { continue; }
         for (var step = 0u; step < SV_MAX_LEVELS; step++) {
             if (step >= sv_levels(m)) { break; }
             let level = sv_levels(m) - 1u - step;
-            let c = atomicLoad(&sp_scratch[SP_LEVEL_WORK + level]);
-            if (t < c) {
-                k = level;
-                found = true;
+            let count = atomicLoad(&sp_scratch[SP_LEVEL_WORK + level]);
+            if (t < count) {
+                let o = sp.workBase + (level * n * n + t) * 2u;
+                words[c] = atomicLoad(&sp_scratch[o]);
+                physes[c] = atomicLoad(&sp_scratch[o + 1u]);
+                levels[c] = level;
+                states[c] = select(1u, 3u, (words[c] & SP_RERENDER) == 0u);
                 break;
             }
-            t -= c;
+            t -= count;
         }
+        if ((states[c] & 2u) != 0u) { fresh++; }
     }
-    var word = 0u;
-    var phys = 0u;
-    if (found) {
-        let o = sp.workBase + (k * n * n + t) * 2u;
-        word = atomicLoad(&sp_scratch[o]);
-        phys = atomicLoad(&sp_scratch[o + 1u]);
-    }
-    let fresh = found && (word & SP_RERENDER) == 0u;
     // A posição entre as novas: a física livre dessa posição.
-    pa_rank[lid] = select(0u, 1u, fresh);
-    pa_scan(lid);
-    let a = pa_rank[lid] - select(0u, 1u, fresh);
-    let ok = found && (!fresh || a < atomicLoad(&sp_scratch[SP_FREE_COUNT]));
-    if (fresh && ok) { phys = atomicLoad(&sp_scratch[sp.freeBase + a]); }
-    // A posição entre as que entram: a da lista das sujas.
-    workgroupBarrier();
-    pa_rank[lid] = select(0u, 1u, ok);
-    pa_scan(lid);
-    let d = pa_rank[lid] - select(0u, 1u, ok);
-    if (lid == 255u) {
-        atomicStore(&sp_scratch[SP_DIRTY_COUNT], pa_rank[255]);
+    var a = pa_exclusive(lid, fresh);
+    let free = atomicLoad(&sp_scratch[SP_FREE_COUNT]);
+    var entering = 0u;
+    for (var c = 0u; c < SP_ALLOCATE_CHUNK; c++) {
+        if ((states[c] & 1u) == 0u) { continue; }
+        if ((states[c] & 2u) != 0u) {
+            if (a < free) {
+                physes[c] = atomicLoad(&sp_scratch[sp.freeBase + a]);
+                states[c] |= 4u;
+            }
+            a++;
+        } else {
+            states[c] |= 4u;
+        }
+        if ((states[c] & 4u) != 0u) { entering++; }
     }
-    if (!ok) { return; }
-    let i = word & ~SP_RERENDER;
-    let s = vec2u((i % (n * n)) % n, (i % (n * n)) / n);
-    let g = sp_global(m, k, s);
+    // A posição entre as que entram: a da lista das sujas.
+    var d = pa_exclusive(lid, entering);
+    if (lid == 255u) {
+        let dirty = pa_rank[255];
+        atomicStore(&sp_scratch[SP_DIRTY_COUNT], dirty);
+        // Os despachos das etapas seguintes pelo que entrou (sem página suja, nenhum): o fundo, um grupo por página
+        // suja; os pares, uma invocação por (página suja, instância), em linhas de até `SP_DISPATCH_ROW` grupos.
+        sp_dispatch[0] = dirty;
+        sp_dispatch[1] = 1u;
+        sp_dispatch[2] = 1u;
+        let groups = (dirty * sp.instanceCount + WORKGROUP_SIZE - 1u) / WORKGROUP_SIZE;
+        let row = min(groups, SP_DISPATCH_ROW);
+        sp_dispatch[4] = row;
+        sp_dispatch[5] = (groups + max(row, 1u) - 1u) / max(row, 1u);
+        sp_dispatch[6] = 1u;
+    }
     let z0 = bitcast<u32>(m.camera.z);
-    sp_table_store(
-        m,
-        vec2u(s.x, s.y + k * n),
-        vec4u(bitcast<u32>(g.x), bitcast<u32>(g.y), SV_ALLOCATED | SV_RENDERED | phys, z0),
-    );
-    // O carimbo da série do atlas: a página escrita na época atual.
-    sp_atlas_stamps[phys] = sp_atlas_clock.x;
-    // A página virtual aponta a posição na lista das sujas (os sprites acham as páginas sujas que alcançam por ela).
-    atomicStore(&sp_scratch[sp.needBase + i], SP_DIRTY_MARK | d);
-    let r = sp.dirtyBase + d * 4u;
-    atomicStore(&sp_scratch[r], phys | (k << 16u));
-    atomicStore(&sp_scratch[r + 1u], bitcast<u32>(g.x));
-    atomicStore(&sp_scratch[r + 2u], bitcast<u32>(g.y));
-    atomicStore(&sp_scratch[r + 3u], z0);
+    for (var c = 0u; c < SP_ALLOCATE_CHUNK; c++) {
+        if ((states[c] & 4u) == 0u) { continue; }
+        let k = levels[c];
+        let phys = physes[c];
+        let i = words[c] & ~SP_RERENDER;
+        let s = vec2u((i % (n * n)) % n, (i % (n * n)) / n);
+        let g = sp_global(m, k, s);
+        sp_table_store(
+            m,
+            vec2u(s.x, s.y + k * n),
+            vec4u(bitcast<u32>(g.x), bitcast<u32>(g.y), SV_ALLOCATED | SV_RENDERED | phys, z0),
+        );
+        // O carimbo da série do atlas: a página escrita na época atual.
+        sp_atlas_stamps[phys] = sp_atlas_clock.x;
+        // A página virtual aponta a posição na lista das sujas (os sprites acham as páginas sujas que alcançam por ela).
+        atomicStore(&sp_scratch[sp.needBase + i], SP_DIRTY_MARK | d);
+        let r = sp.dirtyBase + d * 4u;
+        atomicStore(&sp_scratch[r], phys | (k << 16u));
+        atomicStore(&sp_scratch[r + 1u], bitcast<u32>(g.x));
+        atomicStore(&sp_scratch[r + 2u], bitcast<u32>(g.y));
+        atomicStore(&sp_scratch[r + 3u], z0);
+        d++;
+    }
 }
 
 // ---- 6b. o fundo das páginas sujas ----
@@ -395,7 +496,7 @@ fn sp_allocate_main(@builtin(local_invocation_index) lid: u32) {
 @compute @workgroup_size(256)
 fn sp_fill_main(@builtin(workgroup_id) wid: vec3u, @builtin(local_invocation_index) lid: u32) {
     let d = wid.x;
-    if (d >= sp.budget || d >= atomicLoad(&sp_scratch[SP_DIRTY_COUNT])) { return; }
+    if (d >= atomicLoad(&sp_scratch[SP_DIRTY_COUNT])) { return; }
     let m = shadow_matrices[sp.casterSlot];
     let phys = atomicLoad(&sp_scratch[sp.dirtyBase + d * 4u]) & 0xFFFFu;
     let first = sv_page_word(m, phys, vec2u(0u));
@@ -408,7 +509,7 @@ fn sp_fill_main(@builtin(workgroup_id) wid: vec3u, @builtin(local_invocation_ind
 
 /** O grupo da instância `j` se o retângulo dela toca a página suja `d`; senão, `SP_SKIP`. */
 fn sp_pair_group(d: u32, j: u32) -> u32 {
-    if (d >= sp.budget || d >= atomicLoad(&sp_scratch[SP_DIRTY_COUNT])) { return SP_SKIP; }
+    if (d >= atomicLoad(&sp_scratch[SP_DIRTY_COUNT])) { return SP_SKIP; }
     let word = sp_groups[sp.instanceGroupBase + j];
     if ((word & SP_SKIP) != 0u) { return SP_SKIP; }
     let m = shadow_matrices[sp.casterSlot];
@@ -552,7 +653,7 @@ fn sp_cluster_bounds_main(
         }
     }
     // A caixa da geometria: a união das dos aglomerados, no grupo de trabalho e depois entre os grupos (o mínimo e o
-    // máximo atômicos sobre a ordem dos bits, `sp_order`); `sp_cluster_box_main` a escreve em `boundsBase`.
+    // máximo atômicos sobre a ordem dos bits, `sv_order`); `sp_cluster_box_main` a escreve em `boundsBase`.
     sp_cb_lo[lid] = lo;
     sp_cb_hi[lid] = hi;
     for (var s = WORKGROUP_SIZE / 2u; s > 0u; s >>= 1u) {
@@ -565,8 +666,8 @@ fn sp_cluster_bounds_main(
     if (lid != 0u || any(sp_cb_lo[0] > sp_cb_hi[0])) { return; }
     let w = sp.groupBoxBase + sp_geometry.group * 6u;
     for (var a = 0u; a < 3u; a++) {
-        atomicMin(&sp_scratch[w + a], sp_order(sp_cb_lo[0][a]));
-        atomicMax(&sp_scratch[w + 3u + a], sp_order(sp_cb_hi[0][a]));
+        atomicMin(&sp_scratch[w + a], sv_order(sp_cb_lo[0][a]));
+        atomicMax(&sp_scratch[w + 3u + a], sv_order(sp_cb_hi[0][a]));
     }
 }
 
@@ -598,16 +699,6 @@ fn sp_cluster_moved(deforming: bool, stamped: bool, old: array<vec3f, 2>, lo: ve
 var<workgroup> sp_cb_lo: array<vec3f, WORKGROUP_SIZE>;
 var<workgroup> sp_cb_hi: array<vec3f, WORKGROUP_SIZE>;
 
-/** O `f32` em `u32` na mesma ordem (o mínimo e o máximo atômicos dos inteiros valem para os reais). */
-fn sp_order(f: f32) -> u32 {
-    let b = bitcast<u32>(f);
-    return select(b | 0x80000000u, ~b, (b & 0x80000000u) != 0u);
-}
-
-fn sp_unorder(u: u32) -> f32 {
-    return bitcast<f32>(select(~u, u & 0x7FFFFFFFu, (u & 0x80000000u) != 0u));
-}
-
 /**
  * A caixa da geometria de um grupo em aglomerados (uma invocação), da união das caixas dos aglomerados (o
  * `sp_cluster_bounds_main` deste quadro) — só os triângulos do quadro, sem varrer o buffer de vértices inteiro (a malha
@@ -620,7 +711,7 @@ fn sp_cluster_box_main() {
     if (atomicLoad(&sp_scratch[w + 3u]) == 0u) { return; }
     let b = sp.boundsBase + sp_geometry.group * 6u;
     for (var a = 0u; a < 6u; a++) {
-        sp_set_f(b + a, sp_unorder(atomicLoad(&sp_scratch[w + a])));
+        sp_set_f(b + a, sv_unorder(atomicLoad(&sp_scratch[w + a])));
     }
 }
 
@@ -776,7 +867,7 @@ fn ss_rect_main(@builtin(local_invocation_index) lid: u32) {
 fn ss_pairs_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i >= ss_source.count) { return; }
-    if (min(atomicLoad(&sp_scratch[SP_DIRTY_COUNT]), sp.budget) == 0u) { return; }
+    if (atomicLoad(&sp_scratch[SP_DIRTY_COUNT]) == 0u) { return; }
     let m = shadow_matrices[sp.casterSlot];
     let l = sv_light(m, ss_center(i));
     let r = ss_source.radius;

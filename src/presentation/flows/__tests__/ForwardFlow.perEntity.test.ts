@@ -55,7 +55,9 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         // etapa das listas das malhas grandes em aglomerados (`sp_clusters_main`, T064) liga os pools das instâncias e
         // das matrizes de mundo: o grupo dela refeito quando eles crescem (1 a mais), por pool. A etapa da caixa da
         // geometria em aglomerados (`sp_cluster_box_main`, spec 041) religa o trabalho que cresce (1 a mais), por dobra.
-        expect(s.creates().filter((c) => !growth.test(discOf(c))).length).toBeLessThan(137);
+        // A etapa dos pedidos do quadro anterior no referencial do quadro (`sp_requests_main`) liga o trabalho que
+        // cresce: o grupo dela refeito a cada dobra (10 a mais nas dobras deste teste), não por entidade.
+        expect(s.creates().filter((c) => !growth.test(discOf(c))).length).toBeLessThan(147);
         expect(s.creates().filter((c) => growth.test(discOf(c))).length).toBeLessThan(20);
         expect(
             s

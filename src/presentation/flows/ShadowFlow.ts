@@ -70,6 +70,8 @@ export interface ShadowSlots extends SlotMap {
     readonly matrices: PoolSlot<false>;
     /** Entidades desenhadas no mapa (geometria + transform), em grupos por (geometria, orientação) mantidos pela C2. */
     readonly casters: EntitiesSlot;
+    /** A série `ShadowMatrix` (o referencial do quadro anterior, atraso 1: o dos pedidos do quadro anterior). */
+    readonly matricesSeries: ChannelSlot<false>;
     /** A série dos pedidos de páginas (o quadro anterior, pelo `ShadowRequestFlow`). */
     readonly requests: ChannelSlot<false>;
     /** A série do atlas (a tabela no começo e as páginas físicas: o alvo do desenho; o quadro anterior segue no de agora). */
@@ -87,8 +89,9 @@ export interface ShadowSlots extends SlotMap {
 /** Reserva dos pares instância × página suja por quadro (4 MB; o que passa fica para os quadros seguintes). */
 const PAIR_CAPACITY = 1 << 20;
 /**
- * Páginas desenhadas por quadro, no máximo (a fila das sujas; o resto fica para os quadros seguintes). Até 256: a
- * alocação é um grupo de trabalho, uma invocação por posição.
+ * Páginas desenhadas por quadro, no máximo, enquanto o cache segue (a fila das sujas; o resto fica para os quadros
+ * seguintes). No quadro em que o cache recomeça (a luz mudou de direção, os grupos mudaram), entram todas as pedidas,
+ * até o atlas inteiro (`sp_budget`): não há o que ler de antes.
  */
 export const SHADOW_PAGE_BUDGET = 256;
 /** Instâncias dinâmicas por quadro na lista que suja as páginas (além disso, todas as páginas são redesenhadas). */
@@ -171,6 +174,7 @@ const SCRATCH = 'shadow_pages_scratch';
 const GROUPS = 'shadow_pages_groups';
 const ARGS = 'shadow_pages_args';
 const PAIRS = 'shadow_pages_pairs';
+const DISPATCH = 'shadow_pages_dispatch';
 const SPRITES = 'shadow_pages_sprites';
 const RECTS = 'rects';
 const CLUSTER_BOXES = 'clusterBoxes';
@@ -211,6 +215,7 @@ function layoutOf(c: Capacity): {
     groupBoxBase: number;
     clusterListBase: number;
     countBase: number;
+    requestBase: number;
     words: number;
 } {
     const physical = c.atlasPages * c.atlasPages;
@@ -218,7 +223,8 @@ function layoutOf(c: Capacity): {
     const freeBase = keepBase + physical;
     const workBase = freeBase + physical;
     const dirtyBase = workBase + SHADOW_MAX_LEVELS * c.pagesPerLevel * c.pagesPerLevel * 2;
-    const dynamicBase = dirtyBase + SHADOW_PAGE_BUDGET * 4;
+    // As sujas: até o atlas inteiro (o quadro em que o cache recomeça).
+    const dynamicBase = dirtyBase + physical * 4;
     const boundsBase = dynamicBase + DYNAMIC_CAP * 4;
     const rectsBase = boundsBase + c.groups * 6;
     const groupPairsBase = rectsBase + c.instances * 4;
@@ -228,6 +234,8 @@ function layoutOf(c: Capacity): {
     const clusterListBase = groupBoxBase + c.groups * 6;
     // A contagem de índices do quadro de cada grupo em aglomerados com contagem da GPU (copiada antes das etapas).
     const countBase = clusterListBase + c.clusterList;
+    // Os pedidos do quadro anterior no referencial deste (uma palavra por página virtual).
+    const requestBase = countBase + c.groups;
     return {
         keepBase,
         freeBase,
@@ -241,7 +249,8 @@ function layoutOf(c: Capacity): {
         groupBoxBase,
         clusterListBase,
         countBase,
-        words: countBase + c.groups,
+        requestBase,
+        words: requestBase + SHADOW_MAX_LEVELS * c.pagesPerLevel * c.pagesPerLevel,
     };
 }
 
@@ -280,6 +289,8 @@ class ShadowWork extends FlowWork {
                     // Um registro por grupo e o dos sprites (o último).
                     wordBuffer(ARGS, (c.groups + 1) * INDIRECT_WORDS * 4, 'indirect'),
                     wordBuffer(PAIRS, PAIR_CAPACITY * 4),
+                    // Os despachos indiretos pelas páginas sujas (o fundo e os pares; quatro palavras cada).
+                    wordBuffer(DISPATCH, 32, 'indirect'),
                     wordBuffer(SPRITES, c.spriteList * SPRITE_ENTRY_WORDS * 4),
                     // Os retângulos das instâncias e depois os das fontes de sprites (um `vec4f` cada), série de duas
                     // fatias: os de agora e os de antes.
@@ -350,6 +361,7 @@ function slotsOf(world: World, work: ShadowWork): ShadowSlots {
         caster: slot.singleton(ShadowMap.schema, { select }),
         world: slot.pool(Transform.worldSchema.name),
         matrices: slot.pool(ShadowMap.matrixSchema.name),
+        matricesSeries: slot.poolChannel(ShadowMap.matrixSchema.name),
         casters: slot.entities({
             all: [Geometry, Transform],
             groups: {
@@ -450,11 +462,14 @@ const PAGE_STEPS = [
     'sp_pairs_main',
     'sp_clusters_main',
     'sp_cluster_box_main',
+    'sp_requests_main',
 ] as const;
 /** A etapa das listas dos grupos em aglomerados (despachada por grupo, com a região dele). */
 const CLUSTERS_STEP = PAGE_STEPS.indexOf('sp_clusters_main');
 /** A etapa da caixa da geometria de um grupo em aglomerados pelas dos aglomerados (por grupo, com a região dele). */
 const CLUSTER_BOX_STEP = PAGE_STEPS.indexOf('sp_cluster_box_main');
+/** A etapa dos pedidos do quadro anterior no referencial deste (antes da tabela). */
+const REQUESTS_STEP = PAGE_STEPS.indexOf('sp_requests_main');
 
 /** Opções do `ShadowFlow`. */
 export interface ShadowFlowOptions {
@@ -632,7 +647,9 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         const atlas = bound.slots.atlas;
         const view = this.resources.textureViewOf(this.work, RASTER);
         const args = this.resources.bufferOf(this.work, ARGS);
+        const dispatch = this.resources.bufferOf(this.work, DISPATCH);
         if (view === undefined || args?.subkind !== 'indirect') return;
+        if (dispatch?.subkind !== 'indirect') return;
         const c = this.work.capacity;
         const physical = c.atlasPages * c.atlasPages;
         const entries = SHADOW_MAX_LEVELS * c.pagesPerLevel * c.pagesPerLevel;
@@ -645,7 +662,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 pass.dispatch.invocations(Math.max(1, invocations), WORKGROUP_SIZE);
             };
             // O início do quadro (os contadores, as caixas vazias) e as caixas das geometrias, cada uma no seu grupo.
-            run(0, Math.max(STATE_WORDS, physical, this.groupCount));
+            run(0, Math.max(STATE_WORDS, physical, this.groupCount, entries));
             // O grupo em aglomerados pronto tem a caixa pelas dos aglomerados (abaixo), sem varrer os vértices.
             for (const b of this.boundsGroupsOf) {
                 if (this.clusterPlans.get(b.group)?.ready === true) continue;
@@ -684,16 +701,24 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 });
                 pass.dispatch.workgroups(1);
             });
+            run(REQUESTS_STEP, entries);
             run(2, entries);
             // As filas: um grupo de trabalho por nível.
             once(3, SHADOW_MAX_LEVELS);
             once(4, 1);
             once(5, 1);
             // O fundo das sujas: um grupo por posição da lista.
-            once(6, SHADOW_PAGE_BUDGET);
-            run(7, SHADOW_PAGE_BUDGET * this.instanceCount);
+            // Pelas páginas sujas do quadro (os despachos escritos pela alocação): sem página suja, nada roda.
+            const dirty = (index: number, offset: number): void => {
+                const step = steps[index]!;
+                pass.bind.setPipeline(step.spec);
+                step.bindTo(pass.bind);
+                pass.dispatch.workgroupsIndirect(dispatch, offset);
+            };
+            dirty(6, 0);
+            dirty(7, 16);
             once(8, 1);
-            run(9, SHADOW_PAGE_BUDGET * this.instanceCount);
+            dirty(9, 16);
             // As listas dos grupos em aglomerados: uma invocação por aglomerado, com a região do grupo.
             const clusters = steps[CLUSTERS_STEP];
             for (const [group, plan] of this.clusterPlans) {
@@ -1197,6 +1222,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         const groups = buffer(GROUPS);
         const args = buffer(ARGS);
         const pairs = buffer(PAIRS);
+        const dispatch = buffer(DISPATCH);
         const spriteList = buffer(SPRITES);
         if (
             params === undefined
@@ -1204,6 +1230,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             || groups === undefined
             || args === undefined
             || pairs === undefined
+            || dispatch === undefined
             || spriteList === undefined
         )
             return false;
@@ -1213,6 +1240,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             groups,
             args,
             pairs,
+            dispatch,
             spriteList,
             this.groupDraws.generation,
             this.boundsGroups.generation,
@@ -1230,6 +1258,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                     [R.groups, src(groups)],
                     [R.args, src(args)],
                     [R.pairs, src(pairs)],
+                    [R.dispatch, src(dispatch)],
                     [R.pairsRead, src(pairs)],
                     [R.group, this.groupDraws.source()],
                     // A região do grupo nas listas dos aglomerados (`sp_clusters_main`).
@@ -1524,6 +1553,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             groupBoxBase: layout.groupBoxBase,
             spriteRecord: this.work.capacity.groups,
             spriteCap: this.work.capacity.spriteList,
+            requestBase: layout.requestBase,
         };
         const key = JSON.stringify(values);
         if (key !== this.paramsKey) {

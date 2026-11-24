@@ -15,7 +15,11 @@
 //   - penumbra: a borda reta de uma placa a 0,5 m do chão sob uma direcional a 45° da vertical com disco de raio angular
 //     θ (PCSS, spec 034 T061): na média de 64 quadros do antisserrilhado acumulado, a largura de 10 % a 90 % da borda no
 //     chão contra a do disco coberto por uma reta (h tan θ / cos² 45° × (s₉₀ − s₁₀)) e o meio dela na projeção da borda;
-//     com θ = 0, a borda dura.
+//     com θ = 0, a borda dura;
+//   - sun-travel: esferas sobre o chão sob uma direcional com sombra que gira em volta de y (o sol ao longo do dia) por
+//     180 quadros, a 0,36° e a 0,02° por quadro, em volta da origem e longe dela — o último quadro (a luz ainda
+//     girando) contra o da mesma cena com a luz parada na direção final: a sombra da luz que gira tem de ser a mesma da
+//     luz parada.
 // Para rodar: `npm run smoke -- lighting [--query case=furnace]`. Resultado: `LIGHTING SMOKE PASSED` ou `FAIL: …`.
 import {
     Application,
@@ -35,7 +39,7 @@ import {
     SurfaceFunction,
     Transform,
 } from 'clayflow/web';
-import { capture, settle } from './support/extensionScenes';
+import { capture, nextGpuFrame, settle } from './support/extensionScenes';
 import { hdrAt, readHdrTexture, temporalVariance, type HdrImage } from './support/imageMeasures';
 import { ambientParamsUniform, evalParams } from '../elements/material/reference/closure';
 import { cookTorrance, normalize3, type Vec3 } from '../elements/material/reference/bsdf';
@@ -625,6 +629,7 @@ const CASES: Record<string, () => Promise<void>> = {
     'specular-aa': caseSpecularAa,
     'sprites-lit': caseSpritesLit,
     penumbra: casePenumbra,
+    'sun-travel': caseSunTravel,
 };
 
 /** Fração do disco de raio 1 com x < s (o disco coberto por uma borda reta em s). */
@@ -743,6 +748,129 @@ async function casePenumbra(): Promise<void> {
         width <= 0.004,
         `penumbra: θ = 0 — borda de ${(1000 * width).toFixed(2)} mm (dura: ≤ 4 mm)`,
     );
+}
+
+/** Direção da luz do caso `sun-travel` no azimute `a` (rad), a 45° da vertical. */
+const sunTravelDirection = (a: number): [number, number, number, number] => [
+    Math.SQRT1_2 * Math.sin(a),
+    -Math.SQRT1_2,
+    Math.SQRT1_2 * Math.cos(a),
+    0,
+];
+
+/**
+ * O alvo HDR do caso `sun-travel` depois de `frames` quadros com a luz girando `step` rad por quadro até o azimute
+ * `end` (com `step` 0, parada nele).
+ */
+async function sunTravelImage(
+    end: number,
+    step: number,
+    frames: number,
+    center: readonly [number, number],
+): Promise<HdrImage> {
+    const [cx, cz] = center;
+    const { app, canvas } = await createApp(640, 400);
+    noAmbient(app);
+    app.world.insert(
+        new Camera({ fov: Math.PI / 3, near: 0.1, far: 40 }).add(
+            new Transform({
+                position: [cx, 3.5, cz + 7, 1],
+                rotation: Transform.lookRotation([cx, 3.5, cz + 7], [cx, 0, cz], [0, 1, 0]),
+            }),
+        ),
+    );
+    app.world.insert(
+        new PlaneGeometry({ size: [40, 40] })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [cx, 0, cz, 1] }))
+            .add(new MaterialFunction({ code: DIFFUSE_ONLY, lobes: ['diffuse'] })),
+    );
+    const light = new DirectionalLight({
+        direction: sunTravelDirection(end - step * frames),
+        intensity: 3,
+        castShadow: true,
+        angularRadius: 0.00466,
+    });
+    app.world.insert(light);
+    for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * 2 * Math.PI;
+        const r = 1.2 + 0.9 * (i % 3);
+        app.world.insert(
+            new SphereGeometry({ radius: 0.35 })
+                .add(new StandardMaterial({ albedo: [0.6, 0.6, 0.6, 1] }))
+                .add(
+                    new Transform({
+                        position: [cx + r * Math.cos(a), 0.35, cz + r * Math.sin(a), 1],
+                    }),
+                ),
+        );
+    }
+    await settle(app, 600);
+    for (let i = 1; i <= frames; i++) {
+        light.data.direction = sunTravelDirection(end - step * (frames - i));
+        if (i > 1) await nextGpuFrame(app);
+        app.step(1 / 60);
+    }
+    const texture = app.resources.textureOf(app.defaults.targets, 'color');
+    if (texture === undefined) throw new Error('alvo HDR não alocado');
+    const hdr = await readHdrTexture(app, texture);
+    dispose(app, canvas);
+    return hdr;
+}
+
+async function caseSunTravel(): Promise<void> {
+    const end = 0.6;
+    // Em volta da origem e longe dela (a âncora das páginas é a origem do mundo: longe, a página de um ponto muda mais
+    // de um quadro para o outro); 0,36° por quadro e, a luz lenta, 0,02° e 0,002° (o cache das páginas não recomeça em
+    // todo quadro). Duas contagens de quadros: o último cai nas duas fatias da série do referencial e em fases
+    // diferentes do cache.
+    for (const [name, center, runs] of [
+        [
+            'origem',
+            [0, 0],
+            [
+                [0.36, 180],
+                [0.36, 179],
+                [0.02, 180],
+                [0.02, 177],
+                [0.002, 180],
+                [0.002, 177],
+            ],
+        ],
+        [
+            'longe',
+            [300, -200],
+            [
+                [0.36, 180],
+                [0.002, 177],
+            ],
+        ],
+    ] as const) {
+        const still = await sunTravelImage(end, 0, 60, center);
+        for (const [d, frames] of runs) {
+            const step = (d * Math.PI) / 180;
+            const moving = await sunTravelImage(end, step, frames, center);
+            // O chão aceso (o difuso branco sob a luz a 45°): a escala das diferenças.
+            const lit = (3 * Math.SQRT1_2) / Math.PI;
+            let sum = 0;
+            let wrong = 0;
+            const n = still.width * still.height;
+            for (let i = 0; i < n; i++) {
+                const e = Math.abs(moving.data[i * 4]! - still.data[i * 4]!) / lit;
+                sum += e;
+                if (e > 0.25) wrong++;
+            }
+            const mean = sum / n;
+            const far = wrong / n;
+            log(
+                `sun-travel: ${name}, ${d}° por quadro, ${frames} quadros — diferença média ${(100 * mean).toFixed(4)} % do chão aceso; ${(100 * far).toFixed(4)} % dos pixels a mais de 25 %`,
+            );
+            check(
+                mean <= 0.0005 && far <= 0.0005,
+                `sun-travel: ${name}, ${d}° por quadro, ${frames} quadros — a sombra da luz que gira difere da parada: média ${(100 * mean).toFixed(4)} %, ${(100 * far).toFixed(4)} % dos pixels a mais de 25 %`,
+            );
+        }
+    }
 }
 
 async function main(): Promise<void> {

@@ -3,18 +3,40 @@
 // espaço, os níveis ativos (do primeiro, de meio lado `firstLevelRadius`, até cobrir o plano distante da câmera), a meia
 // faixa de profundidade de uma página (o plano distante) e a sequência do antisserrilhado (a rotação da penumbra e o
 // deslocamento das amostras dentro do texel). O referencial do quadro anterior (atraso 1 da série) diz se o cache das
-// páginas vale: a luz, o primeiro nível, as páginas por nível e o atlas iguais, e a série contínua — senão `direction.w`
-// = 1 e o estágio de sombra recomeça as páginas.
+// páginas vale: a luz na direção do cache (até `SHADOW_CACHE_TURN`), o primeiro nível, as páginas por nível e o atlas
+// iguais, e a série contínua — senão `direction.w` = 1 e o estágio de sombra recomeça as páginas. Enquanto vale, o
+// referencial é o da direção do cache.
 // As entradas estão em `shadow_matrix_eye.wgsl` (a câmera ativa, pelo pool das matrizes) e `shadow_matrix_origin.wgsl`
 // (sem câmera: os níveis em volta da origem e a vista-projeção zero).
 // Requer: structs Light, ShadowMap, ShadowMatrix, ShadowRecord, ShadowMatrixInstance, ShadowMatrixParams.
+
+/**
+ * Quanto a direção da luz pode se afastar da do cache das páginas sem ele recomeçar (rad): 10⁻⁴ (0,006°) desloca a
+ * sombra 0,1 mm por metro entre quem a projeta e quem a recebe — abaixo do texel do nível mais fino. Além disso, a
+ * sombra é redesenhada na direção de agora.
+ */
+const SHADOW_CACHE_TURN: f32 = 1.0e-4;
 
 /** O referencial da luz `i` da lista com a câmera em `eye` e a vista-projeção `view_projection`. */
 fn shadow_matrix_write(i: u32, eye: vec3f, view_projection: mat4x4f) {
     if (i >= shadow_params.count) { return; }
     let r = shadow_records[shadow_list[shadow_params.first + i].record];
     let map = shadow_maps[r.shadowSlot];
-    let dir = normalize(lights[r.lightSlot].direction.xyz);
+    let light = normalize(lights[r.lightSlot].direction.xyz);
+    let previous = shadow_matrices_previous[r.shadowSlot];
+    // A direção com que as páginas do cache foram desenhadas (não a do quadro anterior): a luz que gira devagar não
+    // acumula desvio quadro a quadro — passado o limiar desde ela (`SHADOW_CACHE_TURN`), o cache recomeça com a direção
+    // de agora.
+    let turn = light - previous.cacheDirection.xyz;
+    let same = shadow_params.previousValid != 0u
+        && dot(turn, turn) < SHADOW_CACHE_TURN * SHADOW_CACHE_TURN
+        && previous.firstLevelRadius == map.firstLevelRadius
+        && previous.pagesPerLevel == map.pagesPerLevel
+        && previous.atlasPages == map.atlasPages;
+    // Enquanto o cache vale, o referencial é o das páginas dele: as páginas, os retângulos das instâncias e a leitura da
+    // imagem no mesmo plano da luz (com o da direção de agora, cada quadro abaixo do limiar moveria todos os retângulos
+    // e sujaria todas as páginas, lidas num plano que não é o do desenho delas).
+    let dir = select(light, previous.cacheDirection.xyz, same);
     let up = select(vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0), abs(dir.y) > 0.99);
     let x = normalize(cross(up, dir));
     let y = cross(dir, x);
@@ -28,20 +50,12 @@ fn shadow_matrix_write(i: u32, eye: vec3f, view_projection: mat4x4f) {
     let camera = (view * vec4f(eye, 1.0)).xyz;
     let far = max(shadow_params.far, map.firstLevelRadius);
     let levels = u32(clamp(ceil(log2(far / map.firstLevelRadius)) + 1.0, 1.0, f32(SV_MAX_LEVELS)));
-    let previous = shadow_matrices_previous[r.shadowSlot];
-    // A direção com que as páginas do cache foram desenhadas (não a do quadro anterior): a luz que gira devagar não
-    // acumula desvio quadro a quadro — passado o limiar desde ela, o cache recomeça com a direção de agora.
-    let same = shadow_params.previousValid != 0u
-        && dot(previous.cacheDirection.xyz, dir) > 0.999999
-        && previous.firstLevelRadius == map.firstLevelRadius
-        && previous.pagesPerLevel == map.pagesPerLevel
-        && previous.atlasPages == map.atlasPages;
     var m: ShadowMatrix;
     m.lightView = view;
     m.viewProjection = view_projection;
     m.camera = vec4f(camera, f32(levels));
     m.direction = vec4f(dir, select(1.0, 0.0, same));
-    m.cacheDirection = vec4f(select(dir, previous.cacheDirection.xyz, same), 0.0);
+    m.cacheDirection = vec4f(dir, 0.0);
     m.kernelRotation = shadow_params.kernelRotation;
     m.texelJitter = shadow_params.texelJitter;
     m.firstLevelRadius = map.firstLevelRadius;
