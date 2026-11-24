@@ -390,7 +390,7 @@ const glints = defineNode({
  * unidade de `p` ao longo e através, crescendo de passada em passada), cada uma com a direção variando de lugar para
  * lugar até `spread` radianos (um ruído largo de `bend_scale` ondas por unidade de `p` desloca os riscos: levemente
  * curvos, cruzando-se em ângulos pequenos), e os riscos fundos isolados — uma célula em `deep` (0 a 1) de duas grades
- * alongadas, cada sulco com ângulo e fundura próprios. Saídas: `value` (os finos em [-1, 1] menos os fundos, até −2,5), o
+ * alongadas, cada sulco com ângulo e fundura próprios. Saídas: `value` (os finos em [-1, 1] menos os fundos, até −1,8), o
  * `gradient`, `direction` (a direção dos riscos em `p`, unitária: a tangente do lobo anisotrópico) e `deep` (o risco
  * fundo em [0, 1]).
  */

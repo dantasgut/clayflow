@@ -75,6 +75,7 @@ const NAMES = [
     'carPaintFlake',
     'woodAsh',
     'woodAshBrushed',
+    'woodPineFine',
     'roofTile',
     'roofSlate',
     'paper',
@@ -95,7 +96,7 @@ function inner(name: MaterialName): Record<string, string> {
 }
 
 describe('Materials (spec 011, US5)', () => {
-    it('a biblioteca tem os 72 materiais, cada um um nó registrado sem ligação obrigatória', () => {
+    it('a biblioteca tem os 73 materiais, cada um um nó registrado sem ligação obrigatória', () => {
         expect(Object.keys(Materials).sort()).toEqual([...NAMES].sort());
         for (const name of NAMES) {
             const def = nodes.material[name];
@@ -328,7 +329,7 @@ describe('Materials (spec 011, US5)', () => {
         expect(value('plasticGloss', 'roughness')).toBeLessThanOrEqual(0.1);
         expect(value('metalPolished', 'roughness')).toBeLessThanOrEqual(0.1);
         expect(value('metalPolished', 'anisotropy')).toBe(0);
-        expect(value('metalBrushed', 'anisotropy')).toBeGreaterThanOrEqual(0.2);
+        expect(value('metalBrushed', 'anisotropy')).toBeGreaterThanOrEqual(0.1);
         // Metais: F0 alto (o alumínio do OpenPBR); subsuperfície: o vermelho espalha mais longe.
         const f0 = nodes.material.metalPolished.params.color!.default as number[];
         f0.forEach((v, k) => {
@@ -563,6 +564,7 @@ describe('Materials (spec 011, US5)', () => {
             leafMatte: 'pattern.veins',
             woodAsh: 'relief.woodAsh',
             woodAshBrushed: 'relief.woodAshBrushed',
+            woodPineFine: 'relief.woodPineFine',
             roofTile: 'pattern.shingles',
             roofSlate: 'pattern.shingles',
             cork: 'pattern.cells',
@@ -591,6 +593,7 @@ describe('Materials (spec 011, US5)', () => {
             'leafDry',
             'woodAsh',
             'woodAshBrushed',
+            'woodPineFine',
         ] as const) {
             expect(has(name, 'surface.reliefNormal'), name).toBe(true);
             expect(nodes.material[name].params.scale).toEqual({ type: 'f32', default: 1 });
@@ -645,7 +648,7 @@ describe('Materials (spec 011, US5)', () => {
         expect(Materials.metalBrushed().lobeMask & LOBES.transmission).toBe(0);
         // O acabamento acetinado: o lobo é largo e só moderadamente alongado (as passadas cruzadas alargam-no também
         // ao longo da escova); a tangente é a direção dos riscos no ponto.
-        expect(nodes.material.metalBrushed.params.anisotropy!.default).toBeGreaterThanOrEqual(0.2);
+        expect(nodes.material.metalBrushed.params.anisotropy!.default).toBeGreaterThanOrEqual(0.1);
         expect(nodes.material.metalBrushed.params.roughness!.default).toBeGreaterThanOrEqual(0.3);
         expect(subgraphOrigin(nodes.material.metalBrushed)!.graph.links).toEqual(
             expect.arrayContaining([
@@ -659,6 +662,21 @@ describe('Materials (spec 011, US5)', () => {
         );
         expect(nodes.material.woodAshBrushed.params.furrow_depth!.default).toBeLessThanOrEqual(1.5);
         expect(nodes.material.woodAsh.params.furrow_depth!.default).toBe(0);
+        // O pinho de veio fino: subsuperfície de raio curto (mais longo no vermelho), relevo sutil em milímetros,
+        // com anéis e nós, sem poros; mais amarelo que o freixo.
+        const pine = nodes.material.woodPineFine.params;
+        const reach = pine.radius!.default as number[];
+        expect(reach[0]).toBeGreaterThan(reach[2]!);
+        expect(reach[0]).toBeLessThanOrEqual(1.5);
+        expect(pine.ring_height!.default).toBeGreaterThanOrEqual(0.2);
+        expect(pine.ring_height!.default).toBeLessThanOrEqual(0.5);
+        expect(pine.pore_depth!.default).toBe(0);
+        expect(Materials.woodPineFine().lobeMask & LOBES.subsurface).toBe(LOBES.subsurface);
+        expect(has('woodPineFine', 'pattern.rings')).toBe(true);
+        expect(has('woodPineFine', 'bsdf.subsurface')).toBe(true);
+        const honey = rgb('woodPineFine', 'color');
+        const cream = rgb('woodAsh', 'color');
+        expect(honey[0]! / honey[2]!).toBeGreaterThan(cream[0]! / cream[2]!);
         // A folha é parede fina (a luz de trás atravessa) sob a cutícula de rugosidade variável (lisa no meio das
         // almofadas, fosca nas vênulas), com o relevo em milímetros; a seca é mais fosca e a fosca não tem realce.
         for (const name of ['leaf', 'leafMatte', 'leafDry'] as const) {

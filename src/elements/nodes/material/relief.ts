@@ -737,7 +737,7 @@ export function leafVeins(v: LeafPatterns): Record<string, number | number[]> {
         seed: v.seed,
         irregular: 0.3,
         taper: 0.65,
-        ladder: 17,
+        ladder: 22,
     };
 }
 
@@ -775,7 +775,14 @@ function leafRelief(
         new NodeGraph({
             nodes: {
                 ...patternSpace(),
-                veins: pattern.veins.with({ ...leafVeins(v), fine: 0 }),
+                // No relevo, só a central e as secundárias, com o dobro da largura da cor (o sulco fino demais para a
+                // malha fazia riscos de sombra no rasante); as terciárias ficam na cor.
+                veins: pattern.veins.with({
+                    ...leafVeins(v),
+                    fine: 0,
+                    ladder: 0,
+                    thickness: 0.04,
+                }),
                 // As mesmas nervuras com seis vezes a largura: o vale em que cada uma corre.
                 valley: pattern.veins.with({
                     ...leafVeins(v),
@@ -905,12 +912,19 @@ export const ASH_GROOVE = { low: 0.3, high: -0.3 };
  * levantada (`fiber`, mm) e os sulcos da escova (`furrow`, mm: a fibra macia do lenho inicial arrancada em canais ao
  * longo do veio; no lenho tardio, quase nada).
  */
-function ashRelief(name: string, h: { ring: number; pore: number; fiber: number; furrow: number }) {
+function ashRelief(
+    name: string,
+    h: { ring: number; pore: number; fiber: number; furrow: number },
+    wood: { offset: readonly [number, number]; rings: Record<string, number | number[]> } = {
+        offset: ASH_OFFSET,
+        rings: ASH_RINGS,
+    },
+) {
     return Subgraph.point(
         new NodeGraph({
             nodes: {
-                ...patternSpace(ASH_OFFSET),
-                rings: pattern.rings.with(ASH_RINGS),
+                ...patternSpace(wood.offset),
+                rings: pattern.rings.with(wood.rings),
                 fiber: pattern.grain.with(ASH_FIBER),
                 pore: pattern.grain.with(ASH_PORE),
                 pit: pattern.threshold.with(ASH_PIT),
@@ -995,6 +1009,41 @@ const woodAshBrushed = ashRelief('relief.woodAshBrushed', {
     furrow: 1.1,
 });
 
+/** O deslocamento do padrão do pinho de veio fino no uv. */
+export const PINE_FINE_OFFSET = [0.63, -0.47] as const;
+
+/**
+ * Os anéis do pinho de veio fino (`pattern.rings`): 105 por unidade do padrão — linhas finas e próximas, de largura
+ * irregular e ondulação suave —, o corte passando perto da medula numa faixa (as "catedrais" fechadas e as ilhas) e os
+ * nós (2,4 células por unidade do padrão, um em três de cada dez: o olho de anéis apertados, com o veio desviando).
+ */
+export const PINE_FINE_RINGS = {
+    scale: 105,
+    depth: 0.1,
+    distortion: 0.2,
+    distortion_scale: [1.1, 2.6],
+    irregularity: 1,
+    waviness: 0.02,
+    waviness_scale: [1.8, 4.5],
+    seed: 19,
+    knots: 2.4,
+    knot_size: 0.035,
+    knot_rings: 7,
+};
+
+/**
+ * `relief.woodPineFine` — o relevo do pinho de veio fino escovado de leve: o lenho tardio (as linhas escuras, duras)
+ * saliente e o inicial um pouco afundado (`ring_height`, 0,45 mm entre os dois — os anéis apertados do nó saem em
+ * relevo com ele), os sulcos rasos onde a escova tirou a fibra macia (`furrow_depth`, 0,25 mm) e a fibra levantada
+ * (`fiber_height`, 0,05 mm); sem poros (`pore_depth`, 0: é conífera). Medidas estimadas (uma tábua de pinho escovada
+ * de leve tem de 0,2 a 0,5 mm entre o lenho tardio e o inicial). Parâmetros: os de `relief.woodAsh`.
+ */
+const woodPineFine = ashRelief(
+    'relief.woodPineFine',
+    { ring: 0.45, pore: 0, fiber: 0.05, furrow: 0.25 },
+    { offset: PINE_FINE_OFFSET, rings: PINE_FINE_RINGS },
+);
+
 /**
  * Relevos dos materiais prontos (spec 011): sub-grafos de ponto que devolvem o relevo (`vec3f`: altura em milímetros e
  * as derivadas no uv) da amostra de superfície — a entrada de `surface.reliefNormal` no material e de
@@ -1017,4 +1066,5 @@ export const relief = {
     leafDry,
     woodAsh,
     woodAshBrushed,
+    woodPineFine,
 } as const;

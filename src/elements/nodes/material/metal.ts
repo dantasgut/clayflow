@@ -112,10 +112,10 @@ const STEEL_F82 = [0.76, 0.76, 0.81] as const;
  * `material.metalBrushed` — aço inoxidável escovado (o acabamento acetinado, de lixa passada à mão): cinza-chumbo,
  * sem imagem de espelho — reflete a metade da luz (F0 0,56), e o tom vem do que está em volta: escuro onde reflete o
  * ambiente escuro, claro nas manchas das fontes de luz. Os riscos são os de `pattern.brush`: quatro passadas de riscos
- * finos ao longo de u, cada uma com a direção variando alguns graus de lugar para lugar (`spread`, 0,11 rad: levemente
+ * finos ao longo de u, cada uma com a direção variando alguns graus de lugar para lugar (`spread`, 0,2 rad: levemente
  * curvos, cruzando-se em ângulos pequenos), de comprimento e fundura variados, e os riscos fundos isolados (`deep`: uma
- * célula em nove), mais as faixas largas das passadas da lixa (`pattern.grain`). O lobo é largo e anisotrópico
- * (`anisotropy`, 0,25; rugosidade de `roughness`, 0,33, a `scratch_roughness`, 0,47, de risco para risco e mais nos
+ * célula em trinta, curtos), mais as faixas largas das passadas da lixa (`pattern.grain`). O lobo é largo e anisotrópico
+ * (`anisotropy`, 0,15; rugosidade de `roughness`, 0,33, a `scratch_roughness`, 0,47, de risco para risco e mais nos
  * fundos), com a tangente na direção dos riscos no ponto (`pattern.brush.direction`): a luz de uma fonte larga (uma
  * janela, um painel: `RectLight`) aparece como uma mancha grande e macia, esticada através da escova, e os riscos
  * inclinam a normal (`relief`, a altura em unidades do padrão) e quebram a mancha em fios claros e escuros. O reflexo
@@ -127,7 +127,13 @@ export const metalBrushed = Subgraph.point(
     new NodeGraph({
         nodes: {
             ...patternSpace(),
-            scratch: pattern.brush.with({ scale: [2.2, 300], spread: 0.11, deep: 0.11, seed: 6 }),
+            scratch: pattern.brush.with({
+                scale: [3, 380],
+                spread: 0.2,
+                bend_scale: [0.5, 1],
+                deep: 0.035,
+                seed: 6,
+            }),
             pass: pattern.grain.with({ scale: [0.6, 38], octaves: 3, gain: 0.6, seed: 16 }),
             both: math.add,
             rough: map.range.with({ in_min: -1.6, in_max: 1, out_min: 0.33, out_max: 0.47 }),
@@ -135,11 +141,11 @@ export const metalBrushed = Subgraph.point(
             rougher: math.add,
             along: surface.direction,
             relief: surface.bump.with({ strength: 0.001 }),
-            pass_relief: surface.bump.with({ strength: 0.0006 }),
+            pass_relief: surface.bump.with({ strength: 0.0003 }),
             metal: bsdf.conductor.with({
                 color: [...STEEL_F0],
                 edge_tint: [...STEEL_F82],
-                anisotropy: 0.25,
+                anisotropy: 0.15,
             }),
             out: closure.normal,
         },

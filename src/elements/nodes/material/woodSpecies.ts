@@ -24,6 +24,8 @@ import {
     ASH_PIT,
     ASH_PORE,
     ASH_RINGS,
+    PINE_FINE_OFFSET,
+    PINE_FINE_RINGS,
     BIRCH_DASH,
     BIRCH_EDGE,
     BIRCH_LENTICELS,
@@ -538,12 +540,55 @@ export const woodFloorHerringbone = species('material.woodFloorHerringbone', {
  * Sub-grafo de um freixo cru: a cor, o veio e os vasos (os de `material.woodAsh`), o corpo de subsuperfície e o lobo
  * da interface alongado pela fibra, com o relevo em milímetros de `reliefNode` na normal.
  */
-function ash(name: string, reliefNode: NodeDefinition): NodeDefinition {
+/** Valores de uma madeira crua com subsuperfície (a cor, o veio, os traços ao longo da fibra, o espalhamento). */
+interface RawWoodValues {
+    readonly offset: readonly [number, number];
+    readonly rings: Record<string, number | number[]>;
+    /** O lenho inicial, o tardio e o nível do anel em que o tardio começa. */
+    readonly color: Rgb3;
+    readonly late: Rgb3;
+    readonly low: number;
+    /** Os traços ao longo da fibra (os vasos escuros do freixo, as bolsas de resina claras do pinho) e a cobertura. */
+    readonly pore_color: Rgb3;
+    readonly pore: number;
+    /** O quanto os traços aparecem do lenho inicial ao tardio (`map.range` sobre o anel). */
+    readonly early: Record<string, number>;
+    /** A amplitude das faixas largas de tom e o miolo dos nós. */
+    readonly broad: number;
+    readonly knot_color: Rgb3;
+    readonly radius: Rgb3;
+    readonly roughness: number;
+    readonly anisotropy: number;
+}
+type Rgb3 = readonly [number, number, number];
+
+/** O freixo cru. */
+const ASH_WOOD: RawWoodValues = {
+    offset: ASH_OFFSET,
+    rings: ASH_RINGS,
+    color: [0.66, 0.53, 0.37],
+    late: [0.5, 0.36, 0.21],
+    low: 0.68,
+    pore_color: [0.2, 0.13, 0.07],
+    pore: 0.75,
+    early: ASH_EARLY,
+    broad: 0.1,
+    knot_color: [0.2, 0.12, 0.06],
+    radius: [1.1, 0.7, 0.35],
+    roughness: 0.62,
+    anisotropy: 0.6,
+};
+
+function ash(
+    name: string,
+    reliefNode: NodeDefinition,
+    v: RawWoodValues = ASH_WOOD,
+): NodeDefinition {
     return Subgraph.point(
         new NodeGraph({
             nodes: {
-                ...patternSpace(ASH_OFFSET),
-                rings: pattern.rings.with(ASH_RINGS),
+                ...patternSpace(v.offset),
+                rings: pattern.rings.with(v.rings),
                 fiber: pattern.grain.with(ASH_FIBER),
                 thread: pattern.grain.with({ scale: [7, 300], octaves: 2, seed: 44 }),
                 pore: pattern.grain.with(ASH_PORE),
@@ -551,13 +596,18 @@ function ash(name: string, reliefNode: NodeDefinition): NodeDefinition {
                 figure: pattern.grain.with({ scale: [1.1, 8], octaves: 3, gain: 0.55, seed: 45 }),
                 broad: pattern.grain.with({ scale: [0.45, 2.4], octaves: 3, gain: 0.55, seed: 46 }),
                 tone: color.ramp.with({
-                    color_a: [0.66, 0.53, 0.37],
-                    color_b: [0.5, 0.36, 0.21],
-                    low: 0.68,
+                    color_a: [...v.color],
+                    color_b: [...v.late],
+                    low: v.low,
                     high: 1,
                 }),
                 year: map.range.with({ out_min: 0.93, out_max: 1.07 }),
-                wide: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.9, out_max: 1.1 }),
+                wide: map.range.with({
+                    in_min: -0.5,
+                    in_max: 0.5,
+                    out_min: 1 - v.broad,
+                    out_max: 1 + v.broad,
+                }),
                 band: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.93, out_max: 1.07 }),
                 streak: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.88, out_max: 1.12 }),
                 hair: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.93, out_max: 1.07 }),
@@ -567,14 +617,21 @@ function ash(name: string, reliefNode: NodeDefinition): NodeDefinition {
                 shade: math.mul,
                 lit: math.scale3,
                 // Os vasos abertos: escuros no fundo, só no lenho inicial.
-                early: map.range.with(ASH_EARLY),
-                hollow: map.range.with({ out_min: 0.75, out_max: 0 }),
+                early: map.range.with(v.early),
+                hollow: map.range.with({ out_min: v.pore, out_max: 0 }),
                 pore_mask: math.mul,
-                pore_color: math.value3.with({ value: [0.2, 0.13, 0.07] }),
+                pore_color: math.value3.with({ value: [...v.pore_color] }),
                 pored: math.mix3,
+                // O miolo dos nós, escuro.
+                knot_color: math.value3.with({ value: [...v.knot_color] }),
+                knotted: math.mix3,
                 world: math.value.with({ value: 1 }),
-                body: bsdf.subsurface.with({ radius: [1.1, 0.7, 0.35] }),
-                specular: bsdf.dielectric.with({ ior: 1.5, roughness: 0.62, anisotropy: 0.6 }),
+                body: bsdf.subsurface.with({ radius: [...v.radius] }),
+                specular: bsdf.dielectric.with({
+                    ior: 1.5,
+                    roughness: v.roughness,
+                    anisotropy: v.anisotropy,
+                }),
                 sum: closure.add,
                 tile: math.value2.with({ value: [1, 1] }),
                 height: reliefNode,
@@ -610,7 +667,10 @@ function ash(name: string, reliefNode: NodeDefinition): NodeDefinition {
                 ['lit.value', 'pored.a'],
                 ['pore_color.value', 'pored.b'],
                 ['pore_mask.value', 'pored.t'],
-                ['pored.value', 'body.color'],
+                ['pored.value', 'knotted.a'],
+                ['knot_color.value', 'knotted.b'],
+                ['rings.knot', 'knotted.t'],
+                ['knotted.value', 'body.color'],
                 ['world.value', 'body.scale'],
                 ['uv.du', 'specular.tangent'],
                 ['specular.value', 'sum.a'],
@@ -631,6 +691,7 @@ function ash(name: string, reliefNode: NodeDefinition): NodeDefinition {
                 ['tone.color_a', 'color'],
                 ['tone.color_b', 'late_color'],
                 ['pore_color.value', 'pore_color'],
+                ['knot_color.value', 'knot_color'],
                 ['specular.roughness', 'roughness'],
                 ['specular.anisotropy', 'anisotropy'],
                 ['body.radius', 'radius'],
@@ -676,6 +737,36 @@ export const woodAsh = ash('material.woodAsh', relief.woodAsh);
  * os de `woodAsh`.
  */
 export const woodAshBrushed = ash('material.woodAshBrushed', relief.woodAshBrushed);
+
+/**
+ * `material.woodPineFine` — pinho claro de veio fino, cru (fosco, sem verniz), escovado de leve: amarelo-mel
+ * (`color`), com muitas linhas de veio finas e próximas, quase paralelas, de ondulação suave e largura irregular (105
+ * anéis por unidade do padrão, o lenho tardio castanho-alaranjado: `late_color`), faixas largas de tom mais claras e
+ * mais escuras por cima delas, as "catedrais" fechadas e as ilhas onde o corte passa perto da medula, os nós — o olho
+ * oval de anéis apertados e miolo escuro (`knot_color`), com o veio desviando em volta —, as bolsas de resina em
+ * riscos claros e curtos ao longo da fibra (`pore_color`) e a fibra fina. O corpo é subsuperfície (`radius`, (1,2;
+ * 0,75; 0,35) mm, mais longo no vermelho: estimado, da ordem de 1 mm como o do freixo — sem medida publicada do
+ * pinho): o aspecto macio e quente, e o fundo dos sulcos mais claro. O relevo é o de `relief.woodPineFine`, em
+ * milímetros — o lenho tardio saliente (`ring_height`, 0,45), os sulcos rasos da escova (`furrow_depth`, 0,25), a
+ * fibra (`fiber_height`, 0,05) —, na normal; com `Displacements.woodPineFine()` na entidade de uma
+ * `ParametricSurface`, na geometria. A escala do veio e dos nós é a do padrão (`pattern_scale`: a contagem dos anéis
+ * e dos nós é a mesma na cor e no relevo). Parâmetros: os de `woodAsh`.
+ */
+export const woodPineFine = ash('material.woodPineFine', relief.woodPineFine, {
+    offset: PINE_FINE_OFFSET,
+    rings: PINE_FINE_RINGS,
+    color: [0.6, 0.4, 0.17],
+    late: [0.4, 0.21, 0.07],
+    low: 0.45,
+    pore_color: [0.82, 0.66, 0.38],
+    pore: 0.8,
+    early: { in_min: 0, in_max: 1, out_min: 0.55, out_max: 0.55 },
+    broad: 0.26,
+    knot_color: [0.2, 0.09, 0.03],
+    radius: [1.2, 0.75, 0.35],
+    roughness: 0.58,
+    anisotropy: 0.5,
+});
 
 /**
  * `material.barkBirch` — casca de bétula: lisa, branca e acetinada (`color`; a betulina, rugosidade 0,45), manchada de

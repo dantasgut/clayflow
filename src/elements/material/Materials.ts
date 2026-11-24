@@ -60,6 +60,7 @@ export type MaterialName =
     | 'woodOakVarnished'
     | 'woodAsh'
     | 'woodAshBrushed'
+    | 'woodPineFine'
     | 'woodFloorPlanks'
     | 'woodFloorHerringbone'
     | 'bark'
@@ -108,7 +109,7 @@ function factory(definition: NodeDefinition): MaterialFactory {
  * uma máscara, ligar a rugosidade a um ruído), use o nó `nodes.material.<nome>` num `NodeGraph` próprio.
  *
  * Madeira: `woodRaw`, `woodRough`, `woodVarnishedGloss`, `woodVarnishedMatte`, as espécies `woodOak`, `woodWalnut`,
- * `woodPine`, `woodMahogany`, `woodOakVarnished`, `woodAsh` (clara, fosca, com subsuperfície), `woodAshBrushed` (a mesma, escovada a fundo: sulcos de 1 mm), os assoalhos `woodFloorPlanks` e `woodFloorHerringbone`, as cascas `bark`, `barkPine` e `barkBirch` e a cortiça
+ * `woodPine`, `woodMahogany`, `woodOakVarnished`, `woodAsh` (clara, fosca, com subsuperfície), `woodAshBrushed` (a mesma, escovada a fundo: sulcos de 1 mm), `woodPineFine` (pinho claro de veio fino, com nós, subsuperfície e relevo), os assoalhos `woodFloorPlanks` e `woodFloorHerringbone`, as cascas `bark`, `barkPine` e `barkBirch` e a cortiça
  * `cork` (aglomerada) e `corkStopper` (a rolha). Folhas: `leaf`, `leafMatte`, `leafDry`. Telhados: `roofTile`, `roofSlate`. Tecidos: `cotton`, `wool`, `velvet`, `silk`, `denim`,
  * `sheerFabric`. Dielétricos opacos: `leather`, `rubber`, `ceramic`, `porcelain`, `plasticMatte`, `plasticGloss`,
  * `paper`. Metais: `metalPolished`, `gold`, `copper`, `brass`, `chrome`, `metalBrushed`, `metalHammered`,
@@ -188,6 +189,7 @@ export const Materials: Readonly<Record<MaterialName, MaterialFactory>> = Object
     woodOakVarnished: factory(material.woodOakVarnished),
     woodAsh: factory(material.woodAsh),
     woodAshBrushed: factory(material.woodAshBrushed),
+    woodPineFine: factory(material.woodPineFine),
     woodFloorPlanks: factory(material.woodFloorPlanks),
     woodFloorHerringbone: factory(material.woodFloorHerringbone),
     bark: factory(material.bark),

@@ -218,7 +218,7 @@ export function patternBrush(
     let gouge = 0;
     if (deep > 0) {
         for (let k = 0; k < 2; k++) {
-            const gx = fit(f32(scale[0]! * f32(1.5 + k)), wrap[0]!, 1);
+            const gx = fit(f32(scale[0]! * f32(3 + 2 * k)), wrap[0]!, 1);
             const gy = fit(f32(scale[1]! * f32(0.17 + 0.08 * k)), wrap[1]!, 1);
             const g = brushGouge(
                 [f32(f32(p[0]! * gx[0]) + 0.5 * k), f32(p[1]! * gy[0])],
@@ -227,9 +227,9 @@ export function patternBrush(
                 deep,
             );
             const b = width > 0 ? band(width * 5 * Math.abs(gy[0])) : 1;
-            out[0]! -= 1.5 * b * g[0];
-            out[1]! -= 1.5 * b * g[1] * gx[0];
-            out[2]! -= 1.5 * b * g[2] * gy[0];
+            out[0]! -= 0.8 * b * g[0];
+            out[1]! -= 0.8 * b * g[1] * gx[0];
+            out[2]! -= 0.8 * b * g[2] * gy[0];
             gouge = Math.max(gouge, b * g[0]);
         }
     }
@@ -841,14 +841,14 @@ export function patternVeins(
             Math.round((ladder * len) / Math.sqrt(1 + sl * sl)) / len,
             (ladder * sl) / Math.sqrt(1 + sl * sl),
         ];
-        const tt = run[0] * xb + run[1] * ay + phase + 0.6 * wn[0];
+        const tt = run[0] * xb + run[1] * ay + phase + 0.18 * wn[0];
         const gt: V2 = [
-            run[0] + 0.6 * 2 * wn[1] * gs[0],
-            run[1] + 0.6 * (2 * wn[1] * gs[1] + 0.25 * ladder * wn[2]),
+            run[0] + 0.18 * 2 * wn[1] * gs[0],
+            run[1] + 0.18 * (2 * wn[1] * gs[1] + 0.25 * ladder * wn[2]),
         ];
         const ft = tt - Math.floor(tt) - 0.5;
         const glt = Math.max(Math.hypot(gt[0], gt[1]), 1e-6);
-        const w3 = 0.2 * w0;
+        const w3 = 0.3 * w0;
         const t3 = clamp01(Math.abs(ft) / glt / w3);
         m3 = 1 - smooth(t3);
         const k3 = (-6 * t3 * (1 - t3) * (ft >= 0 ? 1 : -1)) / glt / w3;
@@ -871,7 +871,7 @@ export function patternVeins(
     }
     const k1 = width > 0 ? band((width * fy[0]) / Math.min(sp, 1)) : 1;
     const k3 = width > 0 ? band(width * fy[0] * Math.max(ladder, 1 / Math.min(sp, 1))) : 1;
-    const main = Math.max(m0, m1, 0.35 * k3 * m3);
+    const main = Math.max(m0, m1, 0.5 * k3 * m3);
     let height = k1 * m0;
     let gradient: V2 = [k1 * g0[0], k1 * g0[1]];
     if (0.7 * k1 * m1 > height) {

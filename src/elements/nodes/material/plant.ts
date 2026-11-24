@@ -289,7 +289,7 @@ function leafOf(
                 brown: math.value3.with({ value: [...v.spot] }),
                 light: math.value3.with({ value: [...v.through] }),
                 // O limbo: cada aréola com o seu tom (± 9 %) e as manchas largas (± 18 %).
-                areole: map.range.with({ out_min: 0.91, out_max: 1.09 }),
+                areole: map.range.with({ out_min: 0.95, out_max: 1.05 }),
                 blotch: map.range.with({
                     in_min: -0.6,
                     in_max: 0.6,
@@ -306,8 +306,8 @@ function leafOf(
                 spot: map.range.with({ in_min: 0.42, in_max: 0.56, out_min: 0, out_max: v.spots }),
                 spotted: math.mix3,
                 // As nervuras mais claras: a central e as secundárias cheias, a rede de vênulas só de leve.
-                ribbed: map.range.with({ out_min: 0, out_max: 0.42 }),
-                netted: map.range.with({ out_min: 0, out_max: 0.3 }),
+                ribbed: map.range.with({ out_min: 0, out_max: 0.34 }),
+                netted: map.range.with({ out_min: 0, out_max: 0.14 }),
                 paler: math.add,
                 veined: math.mix3,
                 body: bsdf.diffuse.with({ roughness: 0.5 }),

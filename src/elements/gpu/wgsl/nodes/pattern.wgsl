@@ -899,7 +899,7 @@ fn node_pattern_areoles(p: vec2f, width: f32, wrap: vec2f, scale: f32, jitter: f
  * vênulas são as bordas arredondadas das aréolas (`node_pattern_round`) de `fine` células por unidade de `p` (0:
  * sem). Saídas: `height` em [0, 1] — 1 na crista da nervura central, 0,7 na das secundárias, 0,4 na das terciárias,
  * 0,35 na das vênulas, 0 no limbo —, com o gradiente ∂/∂p (com `irregular`, sem a variação da inclinação ao longo da
- * nervura); `main` as nervuras central, secundárias e terciárias (estas a 0,35) em [0, 1]; `across` a distância à
+ * nervura); `main` as nervuras central, secundárias e terciárias (estas a 0,5) em [0, 1]; `across` a distância à
  * nervura central (0 nela, 1 na margem da lâmina); `cell` o valor em [0, 1] da aréola. Abaixo do pixel as nervuras
  * somem (a altura e o gradiente a zero, `cell` a 0,5), as vênulas antes das principais.
  */
@@ -959,11 +959,11 @@ fn node_pattern_veins(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, veins: f3
         // Os degraus atravessam as secundárias: tt cresce ao longo da direção em que elas saem (um número inteiro de
         // degraus no comprimento da lâmina: fecha no período).
         let run = vec2f(round(ladder * len / sqrt(1.0 + sl * sl)) / len, ladder * sl / sqrt(1.0 + sl * sl));
-        let tt = run.x * xb + run.y * ay + phase + 0.6 * wn.x;
-        let gt = run + 0.6 * (2.0 * wn.y * gs + vec2f(0.0, 0.25 * ladder * wn.z));
+        let tt = run.x * xb + run.y * ay + phase + 0.18 * wn.x;
+        let gt = run + 0.18 * (2.0 * wn.y * gs + vec2f(0.0, 0.25 * ladder * wn.z));
         let ft = tt - floor(tt) - 0.5;
         let glt = max(length(gt), 1e-6);
-        let w3 = 0.2 * w0;
+        let w3 = 0.3 * w0;
         let t3 = clamp(abs(ft) / glt / w3, 0.0, 1.0);
         m3 = 1.0 - t3 * t3 * (3.0 - 2.0 * t3);
         let dt3 = select(-1.0, 1.0, ft >= 0.0) * gt / glt / w3;
@@ -990,7 +990,7 @@ fn node_pattern_veins(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, veins: f3
     // O detalhe das principais pela largura do pixel em espaços entre secundárias.
     let k1 = select(1.0, node_pattern_band(width * fr.y / min(sp, 1.0)), width > 0.0);
     let k3 = select(1.0, node_pattern_band(width * fr.y * max(ladder, 1.0 / min(sp, 1.0))), width > 0.0);
-    let main = max(max(m0, m1), 0.35 * k3 * m3);
+    let main = max(max(m0, m1), 0.5 * k3 * m3);
     var height = k1 * m0;
     var gradient = k1 * g0;
     if (0.7 * k1 * m1 > height) {
@@ -1066,7 +1066,7 @@ fn node_pattern_brush_gouge(q: vec2f, per: vec2f, seed: u32, chance: f32) -> vec
  * dos riscos oscila até `spread` (radianos) — os riscos são levemente curvos e os de passadas diferentes se cruzam em
  * ângulos pequenos. Cada risco é um trecho do ruído alongado: comprimento e fundura variam. Por cima, os riscos fundos
  * isolados: uma célula em `deep` de duas grades alongadas tem um sulco com ângulo e fundura próprios (até ± 14° na
- * grade), que morre nas pontas. Saídas: `value` (a altura: os riscos finos em [-1, 1] menos os fundos, até −2,5), o
+ * grade), que morre nas pontas. Saídas: `value` (a altura: os riscos finos em [-1, 1] menos os fundos, até −1,8), o
  * `gradient` ∂/∂p, `direction` — a direção dos riscos em `p` no ponto (unitária; a tangente do lobo anisotrópico) — e
  * `deep`, o risco fundo em [0, 1]. Abaixo do pixel os riscos vão à média (a anisotropia do lobo os representa).
  */
@@ -1097,12 +1097,12 @@ fn node_pattern_brush(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, spread: f
     var gouge = 0.0;
     if (deep > 0.0) {
         for (var k = 0u; k < 2u; k++) {
-            let gx = node_pattern_fit(scale.x * (1.5 + f32(k)), wrap.x, 1.0);
+            let gx = node_pattern_fit(scale.x * (3.0 + 2.0 * f32(k)), wrap.x, 1.0);
             let gy = node_pattern_fit(scale.y * (0.17 + 0.08 * f32(k)), wrap.y, 1.0);
             let gr = vec2f(gx.x, gy.x);
             let g = node_pattern_brush_gouge(p * gr + vec2f(0.5 * f32(k), 0.0), vec2f(gx.y, gy.y), seed + 32u + k, deep);
             let band = select(1.0, node_pattern_band(width * 5.0 * abs(gr.y)), width > 0.0);
-            out -= 1.5 * band * vec3f(g.x, g.yz * gr);
+            out -= 0.8 * band * vec3f(g.x, g.yz * gr);
             gouge = max(gouge, band * g.x);
         }
     }
