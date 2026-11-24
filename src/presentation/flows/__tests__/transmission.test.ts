@@ -209,11 +209,10 @@ describe('ForwardFlow — transmissivos (spec 011)', () => {
             const motion = passes.find((p) => p.label === 'RefractionMotionFlow')!;
             expect(motion.target.colorAttachments).toEqual([
                 { view: rs.textureViewOf(s.targets!, 'motion'), loadOp: 'load', storeOp: 'store' },
-                // A máscara reativa, limpa a cada quadro.
+                // A máscara reativa: limpa pela resolução que a lê; aqui o máximo com o que outro estágio marcou.
                 {
                     view: rs.textureViewOf(s.targets!, 'reactive'),
-                    loadOp: 'clear',
-                    clearValue: [0, 0, 0, 0],
+                    loadOp: 'load',
                     storeOp: 'store',
                 },
             ]);
@@ -223,7 +222,13 @@ describe('ForwardFlow — transmissivos (spec 011)', () => {
             // Só azul e alfa (o rg é o movimento da superfície do vidro).
             expect(pipeline.fragment?.targets).toEqual([
                 { format: 'rgba16float', writeMask: 0xc },
-                { format: 'r8unorm' },
+                {
+                    format: 'r8unorm',
+                    blend: {
+                        color: { srcFactor: 'one', dstFactor: 'one', operation: 'max' },
+                        alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'max' },
+                    },
+                },
             ]);
         },
     );

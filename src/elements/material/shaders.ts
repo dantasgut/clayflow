@@ -7,7 +7,7 @@ import {
     sceneLightingReady,
     sceneTransmittedLightingReady,
 } from '../scene/points/lighting';
-import { sceneFogReady, sceneWetnessReady } from '../scene/points/media';
+import { SCENE_FOG_BACKGROUND, sceneFogReady, sceneWetnessReady } from '../scene/points/media';
 import { closure, closureEval, subsurface } from './pbr/shaders';
 import {
     camerasResource,
@@ -151,6 +151,8 @@ export const forwardBackground = wgslModule({
     name: 'forward_background',
     source: forwardBackgroundSource,
     requires: [
+        SCENE_FOG_BACKGROUND.module,
+        color,
         cameraSpace,
         viewSpace,
         sceneBackgroundReady,

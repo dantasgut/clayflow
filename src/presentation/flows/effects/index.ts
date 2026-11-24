@@ -1,4 +1,4 @@
-export { Bloom } from './Bloom';
+export { Bloom, type BloomOptions } from './Bloom';
 export { Blur } from './Blur';
 export { Vignette } from './Vignette';
 export { ChromaticAberration } from './ChromaticAberration';

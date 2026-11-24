@@ -61,6 +61,8 @@ describe('PostFlow — apresentação', () => {
         const passes = s.step().filter((p) => p.label.startsWith('PostFlow'));
         expect(passes.map((p) => p.label)).toEqual([
             'PostFlow.temporalResolve',
+            // A máscara reativa lida, limpa para o quadro seguinte.
+            'PostFlow.reactiveClear',
             'PostFlow.present',
         ]);
         const fragments = pipelines(s.creates());
@@ -131,7 +133,12 @@ describe('PostFlow — apresentação', () => {
         const passes = s.step().filter((p) => p.label.startsWith('PostFlow'));
         expect(passes.map((p) => p.label)).toEqual([
             'PostFlow.temporalResolve',
+            // A máscara reativa lida, limpa para o quadro seguinte.
+            'PostFlow.reactiveClear',
             'PostFlow.temporalSharpen',
+            // O espalhamento da lente (spec 041): a pirâmide de 7 níveis (descida e subida) antes do passe principal.
+            ...[1, 2, 3, 4, 5, 6, 7].map((i) => `PostFlow.Bloom:down${i}`),
+            ...[6, 5, 4, 3, 2, 1].map((i) => `PostFlow.Bloom:up${i}`),
             'PostFlow.Bloom',
             'PostFlow.present',
         ]);
@@ -145,7 +152,13 @@ describe('PostFlow — apresentação', () => {
         post!.addEffect(new Bloom());
         s.step();
         const passes = s.step().filter((p) => p.label.startsWith('PostFlow'));
-        expect(passes.map((p) => p.label)).toEqual(['PostFlow.Bloom', 'PostFlow.present']);
+        expect(passes.map((p) => p.label)).toEqual([
+            // O espalhamento da lente (spec 041): a pirâmide de 7 níveis (descida e subida) antes do passe principal.
+            ...[1, 2, 3, 4, 5, 6, 7].map((i) => `PostFlow.Bloom:down${i}`),
+            ...[6, 5, 4, 3, 2, 1].map((i) => `PostFlow.Bloom:up${i}`),
+            'PostFlow.Bloom',
+            'PostFlow.present',
+        ]);
         const bloom = pipelines(s.creates()).find((p) => p.fragment?.entryPoint === 'fs_bloom')!;
         expect(bloom.fragment!.targets[0]!.format).toBe('rgba16float');
         const ping = s

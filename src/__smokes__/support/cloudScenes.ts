@@ -13,7 +13,18 @@ import {
     type TextureSpec,
 } from 'clayflow/web';
 import { halfToFloat } from './imageMeasures';
+import { readBuffer } from './extensionScenes';
 import type { CloudVolume } from '../../elements/media/clouds/reference/cloudModel';
+import type { ShadowAtlas } from '../../elements/media/clouds/reference/cloudShadowPages';
+import {
+    CLOUD_SCATTER_GLOBAL_WORDS,
+    CLOUD_SCATTER_HEADER_WORDS,
+    CLOUD_SCATTER_PAGE,
+    CLOUD_SCATTER_PROBE_WORDS,
+    CLOUD_SHADOW_SLOT_COUNT,
+    CLOUD_SHADOW_STATE_SLOT,
+    CloudShadowPageViewSchema,
+} from '../../elements/media/clouds/schemas';
 
 /** Uma cena de nuvens. */
 export interface CloudScene {
@@ -75,7 +86,14 @@ export async function cloudScene(o: CloudSceneOptions = {}): Promise<CloudScene>
     });
     const errors: string[] = [];
     app.events.on('engineError', (e) => errors.push(`${e.stage}: ${e.message}`));
-    if (o.profile !== undefined) app.defaults.renderer.profile = o.profile;
+    // O perfil da cena, ou o da página (`--query profile=low`: os casos de exatidão no perfil baixo, T035).
+    const pageProfile = new URLSearchParams(location.search).get('profile');
+    const profile =
+        o.profile
+        ?? (pageProfile === 'high' || pageProfile === 'medium' || pageProfile === 'low'
+            ? pageProfile
+            : undefined);
+    if (profile !== undefined) app.defaults.renderer.profile = profile;
     const sun = new DirectionalLight({
         direction: sunTravel(o.sunElevation ?? 60, o.sunAzimuth ?? 0),
         intensity: o.sunLux ?? 1000,
@@ -112,11 +130,11 @@ export function disposeCloudScene(s: CloudScene): void {
 export async function readTexture(
     app: Application,
     texture: TextureSpec,
-    format: 'rgba8unorm' | 'rgba16float',
+    format: 'rgba8unorm' | 'rgba16float' | 'rgba32float',
 ): Promise<{ width: number; height: number; depth: number; data: Float32Array }> {
     const { width, height } = texture;
     const depth = texture.depthOrArrayLayers ?? 1;
-    const texel = format === 'rgba8unorm' ? 4 : 8;
+    const texel = format === 'rgba8unorm' ? 4 : format === 'rgba16float' ? 8 : 16;
     const bytesPerRow = Math.ceil((width * texel) / 256) * 256;
     const staging = app.core.create<StagingBufferSpec>({
         kind: 'buffer',
@@ -137,15 +155,77 @@ export async function readTexture(
     const data = new Float32Array(width * height * depth * 4);
     const u8 = new Uint8Array(raw);
     const u16 = new Uint16Array(raw);
+    const f32 = new Float32Array(raw);
     for (let z = 0; z < depth; z++)
         for (let y = 0; y < height; y++)
             for (let x = 0; x < width * 4; x++) {
                 const o = (z * height + y) * width * 4 + x;
                 const row = z * height * bytesPerRow + y * bytesPerRow;
                 data[o] =
-                    format === 'rgba8unorm' ? u8[row + x]! / 255 : halfToFloat(u16[row / 2 + x]!);
+                    format === 'rgba8unorm'
+                        ? u8[row + x]! / 255
+                        : format === 'rgba16float'
+                          ? halfToFloat(u16[row / 2 + x]!)
+                          : f32[row / 4 + x]!;
             }
     return { width, height, depth, data };
+}
+
+/**
+ * O mapa visto do sol por páginas lido da GPU (spec 041, R11 revisto): o atlas, o sol do desenho de cada página física
+ * (os campos `sun_*` do registro da série `shadowPages`) e os mapas do quadro (o registro de estado
+ * `CLOUD_SHADOW_STATE_SLOT`: o degrau de onde, o para onde e o peso).
+ */
+export async function readShadowMap(app: Application, layer: CloudLayer): Promise<ShadowAtlas> {
+    const t = app.resources.textureOf(layer, 'shadow');
+    const b = app.resources.bufferOf(layer, 'shadowPages');
+    if (t === undefined || b === undefined) throw new Error('mapa visto do sol não alocado');
+    const atlas = await readTexture(app, t, 'rgba16float');
+    const raw = await readBuffer(app, b, 'cloud_shadow_pages');
+    const suns = new Float32Array(CLOUD_SHADOW_SLOT_COUNT * 3);
+    const words = CloudShadowPageViewSchema.stride / 4;
+    const sun = CloudShadowPageViewSchema.offsetOf('sun_x') / 4;
+    for (let i = 0; i < CLOUD_SHADOW_SLOT_COUNT; i++)
+        for (let c = 0; c < 3; c++) suns[i * 3 + c] = raw[i * words + sun + c]!;
+    const ints = new Int32Array(raw.buffer, raw.byteOffset, raw.length);
+    const state = CLOUD_SHADOW_STATE_SLOT * words;
+    const maps = {
+        leaving: ints[state + CloudShadowPageViewSchema.offsetOf('page_x') / 4]!,
+        entering: ints[state + CloudShadowPageViewSchema.offsetOf('page_y') / 4]!,
+        weight: raw[state + CloudShadowPageViewSchema.offsetOf('time') / 4]!,
+    };
+    return { ...atlas, suns, maps };
+}
+
+/**
+ * O cache de espalhamento lido da GPU como uma grade (x mais rápido, depois a altitude, depois z; 8 valores por sonda: a
+ * soma da parte do sol por unidade da luz do sol que chega à sonda, a contagem, a soma da parte do céu por unidade da
+ * irradiância do céu e uma livre — T074): as sondas das páginas da série por páginas `scatter` (T023; R11 revisto).
+ */
+export async function readScatterCache(
+    app: Application,
+    layer: CloudLayer,
+): Promise<{ width: number; height: number; depth: number; data: Float32Array }> {
+    const b = app.resources.bufferOf(layer, 'scatter');
+    if (b === undefined) throw new Error('cache de espalhamento não alocado');
+    const raw = await readBuffer(app, b, 'cloud_scatter_cache');
+    const [w, h, d] = layer.quality.scatter.size;
+    const P = CLOUD_SCATTER_PAGE;
+    const n = [w / P, h / P, d / P];
+    const pages = n[0]! * n[1]! * n[2]!;
+    const base = CLOUD_SCATTER_GLOBAL_WORDS + pages * CLOUD_SCATTER_HEADER_WORDS;
+    const W = CLOUD_SCATTER_PROBE_WORDS;
+    const data = new Float32Array(w * h * d * W);
+    for (let z = 0; z < d; z++)
+        for (let y = 0; y < h; y++)
+            for (let x = 0; x < w; x++) {
+                const p =
+                    Math.floor(x / P) + n[0]! * (Math.floor(y / P) + n[1]! * Math.floor(z / P));
+                const l = (x % P) + P * ((y % P) + P * (z % P));
+                const o = base + (p * P ** 3 + l) * W;
+                for (let c = 0; c < W; c++) data[((z * h + y) * w + x) * W + c] = raw[o + c]!;
+            }
+    return { width: w, height: h, depth: d, data };
 }
 
 /** Um volume da camada lido da GPU, na representação da referência. */

@@ -2,7 +2,10 @@
 // da câmera até a distância `d` (m) na direção de tela `uv` — a tabela 32³ até `SKY_AERIAL_RANGE` km (interpolada na
 // fatia pela raiz da distância; antes da primeira fatia, linear desde (0, 1)); além, o trecho que falta integrado como
 // a tabela (`sky_aerial_far`, que também serve sem a tabela às direções fora da tela: o panorama das nuvens).
-// Requer: SKY_AERIAL_RANGE, sky_atmosphere, sky_lookup, sky, sky_view_lut, sky_aerial_lut, sky_aerial_transmittance_lut, sky_sampler.
+// O trecho além da tabela multiplica a luz simples por `sky_aerial_far_visibility(dir, t_km)` (pronta, 1; nas nuvens, a
+// sombra delas pelo mapa visto do sol).
+// Requer: SKY_AERIAL_RANGE, sky_atmosphere, sky_lookup, sky, sky_view_lut, sky_aerial_lut, sky_aerial_transmittance_lut, sky_sampler,
+// sky_aerial_far_visibility.
 
 struct SkyAerial {
     scattered: vec3f,
@@ -47,7 +50,9 @@ fn sky_aerial_far(dir: vec3f, start_km: f32, start: SkyAerial, d_km: f32) -> Sky
         let step_t = exp(-m.extinction * dt);
         let integ = select(vec3f(dt), (1.0 - step_t) / max(m.extinction, vec3f(1e-12)), m.extinction > vec3f(0.0));
         let mu_s = dot(x, sun) / rx;
-        let single = (m.rayleigh * pr + vec3f(m.mie * pm)) * sky_transmittance(rx, mu_s);
+        // A luz simples × a visibilidade do sol ali (a sombra das nuvens no ar, como na tabela; pronta, 1).
+        let vis = sky_aerial_far_visibility(dir, a + (f32(k) + 0.5) * dt);
+        let single = (m.rayleigh * pr + vec3f(m.mie * pm)) * sky_transmittance(rx, mu_s) * vis;
         let multi = m.scattering * sky_multiscatter(rx, mu_s);
         lum += throughput * (single + multi) * integ;
         throughput *= step_t;

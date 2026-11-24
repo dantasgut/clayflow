@@ -93,7 +93,10 @@ describe('createGpuContext — capacidades', () => {
         });
         expect(capabilities.powerPreference).toBe('default');
         expect(capabilities.features).toEqual(['timestamp-query', 'float32-filterable']);
-        expect(capabilities.missingFeatures).toEqual([]);
+        expect(capabilities.missingFeatures).toEqual([
+            'texture-formats-tier1',
+            'texture-formats-tier2',
+        ]);
         expect(capabilities.limits.minUniformBufferOffsetAlignment).toBe(256);
         expect(capabilities.clampedLimits).toEqual([]);
     });
@@ -103,7 +106,12 @@ describe('createGpuContext — capacidades', () => {
         const { capabilities } = await createGpuContext(web);
         const desc = requestDevice.mock.calls[0]![0] as GPUDeviceDescriptor;
         expect(desc.requiredFeatures).toEqual([]);
-        expect(capabilities.missingFeatures).toEqual(['timestamp-query', 'float32-filterable']);
+        expect(capabilities.missingFeatures).toEqual([
+            'timestamp-query',
+            'float32-filterable',
+            'texture-formats-tier1',
+            'texture-formats-tier2',
+        ]);
     });
 
     it('isFallbackAdapter vem do adaptador', async () => {
@@ -158,7 +166,11 @@ describe('createGpuContext — DeviceOptions', () => {
         });
         const desc = requestDevice.mock.calls[0]![0] as GPUDeviceDescriptor;
         expect(desc.requiredFeatures).toEqual(['timestamp-query']);
-        expect(capabilities.missingFeatures).toEqual(['float32-filterable']);
+        expect(capabilities.missingFeatures).toEqual([
+            'float32-filterable',
+            'texture-formats-tier1',
+            'texture-formats-tier2',
+        ]);
     });
 
     it('limites de escala e de desenho no máximo que o adaptador informa (spec 038: sem teto escrito no motor)', async () => {

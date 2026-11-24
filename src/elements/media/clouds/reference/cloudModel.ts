@@ -80,6 +80,74 @@ export function profileLimits(t: number): [number, number, number, number] {
     return [0, 1, 2, 3].map((i) => mix(a[i]!, b[i]!, k)) as [number, number, number, number];
 }
 
+/**
+ * A água da torre (spec 041, R19): o fator da extinção na altitude `alt` (m) com o topo do tempo bom `fair` (m). Acima do
+ * topo do tempo bom a água adiabática cresce com a altura (~1–3 g/m³ no núcleo do cúmulo-nimbo contra ~0,3–0,5 no cúmulo
+ * raso): o fator vai de 1 a 1 + `gain` em `depth` metros; da glaciação em diante (`glaciation`, m: −20 °C a −38 °C na
+ * atmosfera padrão) os cristais de gelo maiores o levam ao do gelo da bigorna (`CLOUD_ANVIL.water`): o topo da torre e
+ * a bigorna, o mesmo meio. Sem o tempo (o topo do tempo bom é o da casca), 1.
+ */
+export const CLOUD_WATER = { gain: 2, depth: 3000, glaciation: [5500, 8500] } as const;
+
+export function towerWater(alt: number, fair: number): number {
+    const rise = clamp01((alt - fair) / CLOUD_WATER.depth);
+    const liquid = 1 + CLOUD_WATER.gain * rise;
+    // O gelo da torre é o da bigorna (o mesmo ar que sai pelo topo): um meio contínuo.
+    const ice = mix(1, CLOUD_ANVIL.water, rise);
+    return mix(liquid, ice, smoothstep(CLOUD_WATER.glaciation[0], CLOUD_WATER.glaciation[1], alt));
+}
+
+/**
+ * A bigorna do cúmulo-nimbo (spec 041, R19): a lâmina de gelo no nível de equilíbrio — `depth` metros com o topo
+ * `ceiling` metros abaixo da tropopausa (as torres mais fortes passam acima: o topo saliente) —, extinção `water` × a da
+ * camada (IWC ~0,1 g/m³, raio efetivo ~30 µm), levada pelo vento da alta troposfera.
+ */
+export const CLOUD_ANVIL = { depth: 2000, ceiling: 800, water: 0.25 } as const;
+
+/** O perfil vertical da bigorna na altitude `alt` (m) com a tropopausa `top` (m): base plana, topo arredondado. */
+export function anvilProfile(alt: number, top: number): number {
+    const x = (alt - (top - CLOUD_ANVIL.ceiling - CLOUD_ANVIL.depth)) / CLOUD_ANVIL.depth;
+    if (x <= 0 || x >= 1) return 0;
+    return smoothstep(0, 0.25, x) * (1 - smoothstep(0.7, 1, x));
+}
+
+/**
+ * A fração do caminho entre o topo do tempo bom e o do estado a que sobe a torre de tipo local `t`: a convecção trimodal
+ * (Johnson et al. 1999) — os rasos no topo do tempo bom, os congestos parados no congelamento (`CLOUD_CONGESTUS_REACH`
+ * do caminho), os cúmulos-nimbos na tropopausa.
+ */
+export const CLOUD_CONGESTUS_REACH = 0.4;
+
+export function towerReach(t: number): number {
+    return (
+        CLOUD_CONGESTUS_REACH * smoothstep(0.3, 0.65, t)
+        + (1 - CLOUD_CONGESTUS_REACH) * smoothstep(0.65, 0.95, t)
+    );
+}
+
+/**
+ * As térmicas da torre: pelo fBm de Worley da forma `low`, o desvio do tipo local (o alcance da bolha) e da cobertura
+ * local (a largura, crescendo com a fração `above` da subida acima do topo do tempo bom).
+ */
+export const CLOUD_TOWER_THERMAL = { reach: 0.5, width: 0.6, mean: 0.55 } as const;
+
+export function towerThermal(low: number, above: number): [number, number] {
+    const b = low - CLOUD_TOWER_THERMAL.mean;
+    return [CLOUD_TOWER_THERMAL.reach * b, CLOUD_TOWER_THERMAL.width * b * above];
+}
+
+/**
+ * A força da erosão das bordas na coluna de topo local `top` com o topo do tempo bom `fair`: `CLOUD_EROSION` no tempo bom
+ * e nas torres; sob a inversão baixada pela subsidência, sobe com a fração perdida da profundidade até
+ * `CLOUD_SHALLOW_EROSION` (os cúmulos rasos menores, não achatados).
+ */
+export const CLOUD_SHALLOW_EROSION = 0.9;
+
+export function shallowErosion(top: number, fair: number): number {
+    const lost = clamp01(1 - top / Math.max(fair, 1e-3));
+    return mix(CLOUD_EROSION, CLOUD_SHALLOW_EROSION, smoothstep(0, 0.4, lost));
+}
+
 /** O perfil de altura: a rampa de subida na base × a de descida no topo, em [0, 1]. */
 export function heightProfile(h: number, t: number): number {
     if (h < 0 || h > 1) return 0;
@@ -152,6 +220,68 @@ export function sampleVolume(v: CloudVolume, u: Vec3): Vec4 {
                 for (let c = 0; c < 4; c++) out[c]! += w * v.data[o + c]!;
             }
     return out as unknown as Vec4;
+}
+
+/**
+ * A pirâmide de níveis de detalhe de um volume periódico (spec 041, T074; espelho de `cloud_noise_level_main`): o nível
+ * `k + 1` é a média 2 × 2 × 2 do nível `k` (o lado par: os oito texels do bloco, sem borda — o volume é periódico),
+ * quantizada a 8 bits como a escrita no `rgba8unorm` (o nível seguinte parte do valor quantizado). Devolve `levels`
+ * volumes, o primeiro o próprio `v`.
+ */
+export function buildVolumeLevels(v: CloudVolume, levels: number, quantize = true): CloudVolume[] {
+    const out: CloudVolume[] = [v];
+    for (let k = 1; k < levels; k++) {
+        const src = out[k - 1]!;
+        const n = src.size >> 1;
+        if (n < 1) break;
+        const data = new Float32Array(n * n * n * 4);
+        for (let z = 0; z < n; z++)
+            for (let y = 0; y < n; y++)
+                for (let x = 0; x < n; x++) {
+                    const o = ((z * n + y) * n + x) * 4;
+                    for (let c = 0; c < 4; c++) {
+                        let s = 0;
+                        for (let d = 0; d < 8; d++) {
+                            const i =
+                                (((2 * z + (d >> 2)) * src.size + 2 * y + ((d >> 1) & 1)) * src.size
+                                    + 2 * x
+                                    + (d & 1))
+                                * 4;
+                            s += src.data[i + c]!;
+                        }
+                        data[o + c] = quantize ? Math.round((s / 8) * 255) / 255 : s / 8;
+                    }
+                }
+        out.push({ size: n, data });
+    }
+    return out;
+}
+
+/**
+ * Leitura trilinear com repetição no nível `lod` da pirâmide (`textureSampleLevel` com `repeat`, filtro linear e
+ * `mipmapFilter: 'linear'`): a mistura linear dos dois níveis vizinhos, `lod` preso em [0, níveis − 1].
+ */
+export function sampleVolumeLevel(levels: readonly CloudVolume[], u: Vec3, lod: number): Vec4 {
+    const l = Math.min(Math.max(lod, 0), levels.length - 1);
+    const k = Math.floor(l);
+    const f = l - k;
+    const a = sampleVolume(levels[k]!, u);
+    if (f <= 0 || k + 1 >= levels.length) return a;
+    const b = sampleVolume(levels[k + 1]!, u);
+    return [
+        a[0] + (b[0] - a[0]) * f,
+        a[1] + (b[1] - a[1]) * f,
+        a[2] + (b[2] - a[2]) * f,
+        a[3] + (b[3] - a[3]) * f,
+    ];
+}
+
+/**
+ * O nível de detalhe de uma amostra de comprimento `length` (m) num volume de `size` texels por período `scale` (m): a
+ * amostra cobre `length/texel` texels — `log2` disso, 0 abaixo de um texel (espelho de `cloud_volume_lod`).
+ */
+export function volumeLod(length: number, scale: number, size: number): number {
+    return length > 0 ? Math.max(Math.log2((length * size) / scale), 0) : 0;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -240,13 +370,22 @@ export interface CloudModel {
     readonly groundRadius: number;
     readonly base: number;
     readonly top: number;
-    /** Cobertura, tipo e densidade relativa no ponto horizontal (m) — o mapa de cobertura (ou os valores globais). */
-    readonly coverage: (x: number, z: number) => Vec3;
+    /**
+     * Cobertura, tipo, densidade relativa e (opcional) a fração de altura do topo das nuvens na casca no ponto horizontal
+     * (m) — o mapa de cobertura (ou os valores globais). Sem o quarto valor, o topo é o da casca (1).
+     */
+    readonly coverage: (x: number, z: number) => Vec3 | Vec4;
     /** Extinção (1/m) na densidade 1. */
     readonly density: number;
     readonly albedo: number;
     readonly shape: CloudVolume;
     readonly detail: CloudVolume;
+    /**
+     * As pirâmides de níveis de detalhe da forma e do detalhe (`buildVolumeLevels`, T074): as amostras longas da luz leem o
+     * nível pela largura delas. Sem elas, o volume inteiro em todo comprimento.
+     */
+    readonly shapeLevels?: readonly CloudVolume[];
+    readonly detailLevels?: readonly CloudVolume[];
     readonly shapeScale: number;
     readonly detailScale: number;
     /** Deslocamentos (m) da forma e do detalhe: `vento · tempo` (no detalhe, mais a deriva vertical). */
@@ -254,6 +393,14 @@ export interface CloudModel {
     readonly detailOffset: Vec3;
     /** Direção unitária do vento no plano (x, z) — a inclinação do topo. */
     readonly windDir: readonly [number, number];
+    /**
+     * O tempo (R19): o topo do tempo bom como fração da casca e o deslocamento (m, x e z) da bigorna. Com ele, o terceiro
+     * valor da cobertura é a cobertura da bigorna (a densidade relativa é 1) e o quarto, o topo do estado.
+     */
+    readonly weather?: {
+        readonly fairTop: number;
+        readonly anvilOffset: readonly [number, number];
+    };
 }
 
 /** Altitude (m acima do chão da cena) de um ponto. */
@@ -267,34 +414,219 @@ export function heightFraction(m: CloudModel, x: Vec3): number {
     return (altitude(m, x) - m.base) / (m.top - m.base);
 }
 
-/** Densidade relativa (≥ 0) da nuvem em `x` (a extinção é ela × `density`). */
-export function cloudDensity(m: CloudModel, x: Vec3): number {
-    const h = heightFraction(m, x);
-    if (h <= 0 || h >= 1) return 0;
-    const [c, t, dr] = m.coverage(x[0], x[2]);
-    if (c <= 0) return 0;
-    const H = heightProfile(h, t);
-    if (H <= 0) return 0;
-    const skew = CLOUD_SKEW * (m.top - m.base) * h;
-    const ps: Vec3 = [
-        (x[0] - m.shapeOffset[0] - m.windDir[0] * skew) / m.shapeScale,
-        (x[1] - m.shapeOffset[1]) / m.shapeScale,
-        (x[2] - m.shapeOffset[2] - m.windDir[1] * skew) / m.shapeScale,
-    ];
-    const s = sampleVolume(m.shape, ps);
-    const lowFbm = s[1] * 0.625 + s[2] * 0.25 + s[3] * 0.125;
-    const base = remap(s[0], lowFbm - 1, 1, 0, 1) * H;
-    const cov = c >= 1 ? base : remap(base, 1 - c, 1, 0, 1) * c;
-    if (cov <= 0) return 0;
+/** O fBm de Worley da forma (os canais G, B e A). */
+function shapeLow(s: Vec4): number {
+    return s[1] * 0.625 + s[2] * 0.25 + s[3] * 0.125;
+}
+
+/** A forma sem erosão da cobertura `c` com a amostra `s` do volume e o perfil `profile`. */
+function shapeCoverSample(s: Vec4, c: number, profile: number): number {
+    const lowFbm = shapeLow(s);
+    const base = remap(s[0], lowFbm - 1, 1, 0, 1) * profile;
+    return c >= 1 ? base : remap(base, 1 - c, 1, 0, 1) * c;
+}
+
+/** A forma sem erosão da cobertura `c` no ponto `ps` do volume com o perfil `profile`. */
+function shapeCover(m: CloudModel, ps: Vec3, c: number, profile: number, length = 0): number {
+    return shapeCoverSample(shapeAt(m, ps, length), c, profile);
+}
+
+/** A amostra da forma em `ps` com a largura `length` (m; o nível pela pirâmide, espelho de `cloud_shape_sample`). */
+function shapeAt(m: CloudModel, ps: Vec3, length: number): Vec4 {
+    if (m.shapeLevels === undefined || length <= 0) return sampleVolume(m.shape, ps);
+    return sampleVolumeLevel(m.shapeLevels, ps, volumeLod(length, m.shapeScale, m.shape.size));
+}
+
+/** A amostra do detalhe em `pd` com a largura `length` (m; espelho de `cloud_detail_sample`). */
+function detailAt(m: CloudModel, pd: Vec3, length: number): Vec4 {
+    if (m.detailLevels === undefined || length <= 0) return sampleVolume(m.detail, pd);
+    return sampleVolumeLevel(m.detailLevels, pd, volumeLod(length, m.detailScale, m.detail.size));
+}
+
+/**
+ * O peso de um canal do detalhe cuja oitava mais fina tem células de `cell` metros na pegada `fp` do pixel da marcha: 1
+ * com a célula de duas pegadas ou mais, 0 com uma ou menos (0 sem pegada: o detalhe inteiro).
+ */
+export function detailWeight(cell: number, fp: number): number {
+    return fp > 0 ? clamp01(cell / fp - 1) : 1;
+}
+
+/**
+ * A erosão das bordas pelo volume de detalhe na fração de altura local `hl`, com os canais B e A cedendo ao mais grosso
+ * quando a oitava mais fina deles (o período/32 e /64) fica abaixo da pegada `fp` (m).
+ */
+function erode(
+    m: CloudModel,
+    x: Vec3,
+    c: number,
+    hl: number,
+    fp: number,
+    strength = CLOUD_EROSION,
+    length = 0,
+): number {
     const pd: Vec3 = [
         (x[0] - m.detailOffset[0]) / m.detailScale,
         (x[1] - m.detailOffset[1]) / m.detailScale,
         (x[2] - m.detailOffset[2]) / m.detailScale,
     ];
-    const d = sampleVolume(m.detail, pd);
-    const hf = d[1] * 0.625 + d[2] * 0.25 + d[3] * 0.125;
-    const hfm = mix(hf, 1 - hf, clamp01(h * 10));
-    return Math.max(0, remap(cov, hfm * CLOUD_EROSION, 1, 0, 1)) * Math.max(0, dr);
+    const d = detailAt(m, pd, length);
+    const b = mix(d[1], d[2], detailWeight(m.detailScale / 32, fp));
+    const a = mix(b, d[3], detailWeight(m.detailScale / 64, fp));
+    const hf = d[1] * 0.625 + b * 0.25 + a * 0.125;
+    const hfm = mix(hf, 1 - hf, clamp01(hl * 10));
+    return Math.max(0, remap(c, hfm * strength, 1, 0, 1));
+}
+
+/** Trechos iguais do raio na ocupação da marcha (`CLOUD_RAY_BINS`). */
+export const CLOUD_RAY_BINS = 32;
+
+/**
+ * O trecho do raio em `t` na marcha da GPU, em f32 (espelho de `cloud_integrate`, T074): `floor((t − t0)/trecho)` limitado
+ * a [0, trechos − 1] e nunca abaixo do trecho do último pulo `atBin` — o `t` do pulo é a borda do trecho, e a conta em
+ * f32 pode sair um ULP abaixo dela (o trecho de antes, vazio: o pulo de volta à mesma borda, o passo gasto).
+ */
+export function rayBin(t: number, t0: number, bin: number, atBin = 0): number {
+    const f = Math.fround;
+    const k = Math.floor(f(f(f(t) - f(t0)) / f(bin)));
+    return Math.max(Math.min(Math.max(k, 0), CLOUD_RAY_BINS - 1), atBin);
+}
+
+/** O `t` do pulo para o trecho `k` (a borda dele), em f32. */
+export function rayBinStart(t0: number, bin: number, k: number): number {
+    const f = Math.fround;
+    return f(f(t0) + f(f(k) * f(bin)));
+}
+
+/** A folga da cobertura na faixa da coluna (`CLOUD_BAND_SLACK`). */
+export const CLOUD_BAND_SLACK = 0.05;
+
+/** A inversa do smoothstep em [0, 1]. */
+export function smoothstepInverse(y: number): number {
+    return 0.5 - Math.sin(Math.asin(Math.min(Math.max(1 - 2 * y, -1), 1)) / 3);
+}
+
+/**
+ * A faixa de altura (frações da casca: de baixo, de cima) em que a coluna de cobertura `c`, tipo `t` e topo `top` pode ter
+ * nuvem sem o tempo (espelho de `cloud_column_band`, T074): a forma `remap(base, 1 − c, 1)·c` com `base ≤ perfil` é nula
+ * onde o perfil fica em `1 − c` ou abaixo — a subida e a descida do perfil cortadas nesse nível (`slack` de folga na
+ * cobertura). Vazia (de baixo > de cima) sem cobertura.
+ */
+export function columnBand(
+    c: number,
+    t: number,
+    top = 1,
+    slack = CLOUD_BAND_SLACK,
+): [number, number] {
+    if (c <= 0) return [1, 0];
+    const th = 1 - c - slack;
+    if (th <= 0) return [0, top];
+    const l = profileLimits(t);
+    const s = smoothstepInverse(th);
+    const k = Math.min(top, 1);
+    return [(l[0] + (l[1] - l[0]) * s) * k, (l[2] + (l[3] - l[2]) * (1 - s)) * k];
+}
+
+/**
+ * O maior gradiente (1/m) dos campos da cobertura e do tipo (T074): o medido na f64 (`cloudModel.test.ts`, 400 000 pontos
+ * em ±200 km: 3,5·10⁻⁴ e 1,7·10⁻³) × 1,5 — a folga da medida por amostras e da leitura bilinear do mapa em níveis, que
+ * pode passar do gradiente do campo em até √2 na diagonal do texel.
+ */
+export const CLOUD_COVERAGE_GRADIENT = 5.3e-4;
+export const CLOUD_TYPE_GRADIENT = 2.6e-3;
+
+/**
+ * A faixa de altura (frações da casca) em que pode haver nuvem num trecho de `len` m do raio entre as colunas `a` e `b`
+ * (a cobertura e o tipo nas pontas; espelho de `cloud_column_band_span`, T074): o campo de gradiente até `G` passa no
+ * trecho, no máximo, de `(f0 + f1 + G·len)/2` e, no mínimo, de `(f0 + f1 − G·len)/2` — a faixa da cobertura mais alta do
+ * trecho (`columnBand`, a de baixo cai e a de cima sobe com a cobertura) com o tipo no intervalo do trecho (a de baixo,
+ * `l.y·s`, é a menor numa das pontas do intervalo: `l.y` sobe até o cúmulo e desce; a de cima sobe com o tipo). As pontas
+ * sozinhas (a faixa de antes) deixavam de fora a nuvem entre elas nos trechos de quilômetros do raio rente ao horizonte.
+ */
+export function columnBandSpan(
+    a: readonly [number, number],
+    b: readonly [number, number],
+    len: number,
+    top = 1,
+): [number, number] {
+    const c = Math.min((a[0] + b[0] + CLOUD_COVERAGE_GRADIENT * len) / 2, 1);
+    if (c <= 0) return [1, 0];
+    const t0 = clamp01((a[1] + b[1] - CLOUD_TYPE_GRADIENT * len) / 2);
+    const t1 = clamp01((a[1] + b[1] + CLOUD_TYPE_GRADIENT * len) / 2);
+    const lo = columnBand(c, t0, top);
+    const hi = columnBand(c, t1, top);
+    return [Math.min(lo[0], hi[0]), hi[1]];
+}
+
+/**
+ * Densidade relativa (≥ 0) da nuvem em `x` (a extinção é ela × `density`): a torre (o perfil até o topo local, a forma,
+ * a erosão e a água) e, com o tempo, a bigorna; a maior das duas. `footprint` (m): a pegada do pixel da marcha (o detalhe
+ * abaixo dela cede ao mais grosso; 0: o detalhe inteiro). `length` (m): a largura da amostra nas pirâmides de níveis de
+ * detalhe do modelo (`shapeLevels`, `detailLevels`; T074, a medida dos níveis na luz); 0 ou sem pirâmide: o volume inteiro.
+ */
+export function cloudDensity(
+    m: CloudModel,
+    x: Vec3,
+    footprint = 0,
+    detail = true,
+    length = 0,
+): number {
+    const h = heightFraction(m, x);
+    if (h <= 0 || h >= 1) return 0;
+    const cv = m.coverage(x[0], x[2]);
+    const [c0, t, dr] = cv;
+    const w = m.weather;
+    const alt = m.base + h * (m.top - m.base);
+    let result = 0;
+    if (c0 > 0) {
+        const fair = w?.fairTop ?? 1;
+        let top = cv.length > 3 ? (cv as Vec4)[3] : 1;
+        let cx = c0;
+        const skew = CLOUD_SKEW * (m.top - m.base) * h;
+        const ps: Vec3 = [
+            (x[0] - m.shapeOffset[0] - m.windDir[0] * skew) / m.shapeScale,
+            (x[1] - m.shapeOffset[1]) / m.shapeScale,
+            (x[2] - m.shapeOffset[2] - m.windDir[1] * skew) / m.shapeScale,
+        ];
+        // A amostra da forma: antes do perfil na torre (as térmicas), depois dele nas outras colunas (como o shader).
+        const tower = w !== undefined && top > fair;
+        let s: Vec4 | undefined = tower ? shapeAt(m, ps, length) : undefined;
+        if (tower) {
+            // As térmicas da torre (R19): o tipo e a cobertura locais variam com as bolhas da forma.
+            const [dt, dc] = towerThermal(shapeLow(s!), clamp01((h - fair) / (top - fair)));
+            top = fair + (top - fair) * towerReach(t + dt);
+            cx = clamp01(cx + dc);
+        }
+        // A fração de altura local: o perfil vai da base ao topo das nuvens no ponto (o tempo, R19), não ao da casca.
+        const hl = top >= 1 ? h : h / Math.max(top, 1e-3);
+        const H = hl < 1 ? heightProfile(hl, t) : 0;
+        if (H > 0 && cx > 0) {
+            s ??= shapeAt(m, ps, length);
+            const c = shapeCoverSample(s, cx, H);
+            const k =
+                towerWater(alt, m.base + fair * (m.top - m.base))
+                * (w === undefined ? Math.max(0, dr) : 1);
+            const strength = w === undefined ? CLOUD_EROSION : shallowErosion(top, fair);
+            if (c > 0) result = (detail ? erode(m, x, c, hl, footprint, strength, length) : c) * k;
+        }
+    }
+    if (w !== undefined && dr > 0) {
+        const H = anvilProfile(alt, m.top);
+        if (H > 0) {
+            const pa: Vec3 = [
+                (x[0] - w.anvilOffset[0]) / m.shapeScale,
+                x[1] / m.shapeScale,
+                (x[2] - w.anvilOffset[1]) / m.shapeScale,
+            ];
+            const c = shapeCover(m, pa, dr, H, length);
+            if (c > 0)
+                result = Math.max(
+                    result,
+                    (detail ? erode(m, x, c, 1, footprint, CLOUD_EROSION, length) : c)
+                        * CLOUD_ANVIL.water,
+                );
+        }
+    }
+    return result;
 }
 
 /** Interseção do raio com a esfera de raio `r` centrada em (0, −R, 0): [t0, t1] ou nada. */
@@ -387,14 +719,20 @@ export interface CloudLighting {
     readonly sunAt?: (x: Vec3) => Vec3;
     /** A profundidade ótica até o sol num ponto; sem: a integral até a saída da casca. */
     readonly sunDepth?: (x: Vec3) => number;
+    /**
+     * O cache de espalhamento (T023, R8): o feixe do sol com o pico de frente transmitido (`e^(−kT·τ)`, δ-M) espalhado pela
+     * fase completa, e no lugar das oitavas ≥ 1 e do ambiente local a luz das sondas, que recebe essa estimativa local
+     * (`prior`, na mesma unidade: radiância) para a mistura pela contagem de caminhos.
+     */
+    readonly scatter?: { readonly kT: number; readonly light: (x: Vec3, prior: Vec3) => Vec3 };
 }
 
 /**
  * A profundidade ótica até o sol pelo cone curto do shader (`cloud_sun_depth`): `steps` trechos de comprimento
- * `espessura/48 · 0,5 · 1,5^i`, a densidade no meio de cada um, e o resto até a saída da casca integrado.
+ * `espessura/48 · 0,5 · 1,5^i` (a espessura do tempo bom), a densidade no meio de cada um, e o resto até a saída da casca integrado.
  */
 export function coneSunDepth(m: CloudModel, x: Vec3, sun: Vec3, steps = 6): number {
-    const base = (m.top - m.base) / 48;
+    const base = ((m.top - m.base) * (m.weather?.fairTop ?? 1)) / 48;
     let tau = 0;
     let t = 0;
     for (let i = 0; i < steps; i++) {
@@ -411,6 +749,35 @@ export function coneSunDepth(m: CloudModel, x: Vec3, sun: Vec3, steps = 6): numb
     return tau * m.density + opticalDepth(m, end, sun, 128);
 }
 
+/** O parâmetro de assimetria das gotículas na transmitância difusa (duas correntes). */
+export const CLOUD_DIFFUSE_ASYMMETRY = 0.85;
+
+/** A transmitância difusa de uma camada sem absorção de profundidade ótica `tau`: `1/(1 + ¾(1 − g)τ)` (Bohren 1987). */
+export function diffuseTransmittance(tau: number): number {
+    return 1 / (1 + 0.75 * (1 - CLOUD_DIFFUSE_ASYMMETRY) * tau);
+}
+
+/**
+ * O ambiente local da estimativa das oitavas em `x` (R19): o céu e o chão pela fração de altura; o céu pela maior das
+ * transmitâncias difusas da coluna acima (a cobertura local × o trecho até o topo da coluna) e
+ * do caminho até o sol (`tauSun`: a parede da torre vê o céu e o chão de lado), as duas pela mesma.
+ * Espelho de `cloud_ambient_local` e `cloud_ambient_occlusion`.
+ */
+export function ambientLocal(m: CloudModel, x: Vec3, light: CloudLighting, tauSun: number): Vec3 {
+    const h = clamp01(heightFraction(m, x));
+    const cv = m.coverage(x[0], x[2]);
+    let column = cv[0] > 0 ? (cv.length > 3 ? (cv as Vec4)[3] : 1) : 0;
+    if (m.weather !== undefined && cv[2] > 0) column = 1;
+    const above = Math.max(m.base + column * (m.top - m.base) - altitude(m, x), 0);
+    const occ = diffuseTransmittance(Math.max(cv[0], 0) * above * m.density);
+    const seen = Math.max(occ, diffuseTransmittance(tauSun));
+    const up = h * seen;
+    const floor = (1 - h) * seen;
+    return [0, 1, 2].map(
+        (c) => light.ambientUp[c]! * up + light.ambientDown[c]! * floor,
+    ) as unknown as Vec3;
+}
+
 /** Resultado de uma marcha: luz espalhada (rgb), transmitância e profundidade média ponderada pela opacidade (m). */
 export interface CloudMarch {
     readonly scattered: Vec3;
@@ -422,7 +789,8 @@ export interface CloudMarch {
  * Marcha de referência da camada pelo modelo de oitavas (o que o shader aproxima com passos grossos e a autossombra
  * curta): `steps` passos por trecho da casca até `tMax`, a profundidade ótica até o sol integrada até a saída da casca
  * com `sunSteps` passos, o ambiente pela fração de altura (céu em cima, chão embaixo), a integral analítica por passo
- * (Hillaire 2016: `S·(1 − e^(−σt·dt))/σt`).
+ * (Hillaire 2016: `S·(1 − e^(−σt·dt))/σt`). `pixel` (rad): o ângulo do pixel da marcha da GPU — a pegada do detalhe na
+ * amostra da vista (`cloudDensity`); 0, o detalhe inteiro.
  */
 export function marchCloud(
     m: CloudModel,
@@ -434,6 +802,7 @@ export function marchCloud(
     octaves: CloudOctaves,
     steps = 256,
     sunSteps = 64,
+    pixel = 0,
 ): CloudMarch {
     let T = 1;
     const L = [0, 0, 0];
@@ -445,19 +814,32 @@ export function marchCloud(
         for (let i = 0; i < steps; i++) {
             const t = a + (i + 0.5) * dt;
             const x: Vec3 = [o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t];
-            const rho = cloudDensity(m, x);
+            const rho = cloudDensity(m, x, t * pixel);
             if (rho <= 0) continue;
             const sigmaT = rho * m.density;
             const tau = light.sunDepth?.(x) ?? opticalDepth(m, x, light.sunDir, sunSteps);
-            const sun = octaveScattering(sigmaT, m.albedo, tau, cosTheta, phase, octaves);
-            const h = clamp01(heightFraction(m, x));
             const sunLight = light.sunAt?.(x) ?? light.sun;
             const stepT = Math.exp(-sigmaT * dt);
             const integ = (1 - stepT) / sigmaT;
-            for (let c = 0; c < 3; c++) {
-                const amb =
-                    sigmaT * m.albedo * (light.ambientUp[c]! * h + light.ambientDown[c]! * (1 - h));
-                L[c]! += T * (sun * sunLight[c]! + amb) * integ;
+            if (light.scatter !== undefined) {
+                const single = Math.exp(-light.scatter.kT * tau) * jdePhase(cosTheta, phase);
+                const higher =
+                    octaveScattering(1, 1, tau, cosTheta, phase, octaves)
+                    - Math.exp(-tau) * jdePhase(cosTheta, phase);
+                const amb = ambientLocal(m, x, light, tau);
+                const prior = [0, 1, 2].map(
+                    (c) => higher * sunLight[c]! + amb[c]!,
+                ) as unknown as Vec3;
+                const J = light.scatter.light(x, prior);
+                for (let c = 0; c < 3; c++)
+                    L[c]! += T * sigmaT * m.albedo * (single * sunLight[c]! + J[c]!) * integ;
+            } else {
+                const sun = octaveScattering(sigmaT, m.albedo, tau, cosTheta, phase, octaves);
+                const ambient = ambientLocal(m, x, light, tau);
+                for (let c = 0; c < 3; c++) {
+                    const amb = sigmaT * m.albedo * ambient[c]!;
+                    L[c]! += T * (sun * sunLight[c]! + amb) * integ;
+                }
             }
             const alpha = T * (1 - stepT);
             depthSum += alpha * t;
@@ -482,33 +864,84 @@ export type ShadowTexel = readonly number[];
 /** Nós por coluna (o volume da GPU: 4 camadas × 4 canais). */
 export const SHADOW_KNOTS = 16;
 
+/** O espaçamento (m) do pente do mapa no nível 0 (`CLOUD_SHADOW_SPACING`): os níveis são `2ⁿ` vezes ele. */
+export const SHADOW_SPACING = 1;
+/** O nível mais fino do pente (`CLOUD_SHADOW_MIN_LEVEL`): `2⁶` vezes o espaçamento do nível 0. */
+export const SHADOW_MIN_LEVEL = 6;
+
 /**
- * Texel do mapa ao longo do raio que desce do sol a partir de `o` (acima da camada) na direção `dir` (do sol para
- * baixo), pelo primeiro trecho da casca em `steps` passos (múltiplo de `knots`): τ ao fim de cada trecho.
+ * Texel do mapa ao longo do raio que desce do sol a partir de `o` (do lado do sol, fora da camada) na direção `dir` (do
+ * sol para baixo), pelo primeiro trecho da casca: τ ao fim de cada um dos `knots` trechos iguais. Espelho de
+ * `cloud_shadow_main`: as amostras são um pente fixo no mundo — nos planos perpendiculares ao sol a `m·Δ` da origem do
+ * mundo (`σ = −p·dir`), cada uma no meio da sua célula `[mΔ − Δ/2, mΔ + Δ/2]` recortada ao trecho —, com
+ * `Δ = SHADOW_SPACING·2ⁿ` o menor com no máximo `steps` amostras no trecho (nunca abaixo do nível `SHADOW_MIN_LEVEL`); o pente de `2Δ` (as amostras pares) é o do
+ * nível seguinte, e o texel mistura os dois pela posição do comprimento na oitava (contínuo no ângulo do sol: o pente
+ * em frações do trecho escorregava pela nuvem com o sol baixo).
  */
 export function shadowTexel(
     m: CloudModel,
     o: Vec3,
     dir: Vec3,
-    steps = 64,
+    steps = 192,
     knots = SHADOW_KNOTS,
 ): ShadowTexel {
-    const out = new Array<number>(knots).fill(0);
+    const fine = new Array<number>(knots).fill(0);
+    const coarse = new Array<number>(knots).fill(0);
     const segs = shellSegments(m, o, dir, Infinity);
-    if (segs.length === 0) return out;
+    if (segs.length === 0) return fine;
     const [start, end] = segs[0]!;
-    const dt = (end - start) / steps;
-    const per = steps / knots;
-    let tau = 0;
-    for (let i = 0; i < steps; i++) {
-        const t = start + (i + 0.5) * dt;
-        tau +=
-            cloudDensity(m, [o[0] + dir[0] * t, o[1] + dir[1] * t, o[2] + dir[2] * t])
-            * m.density
-            * dt;
-        if ((i + 1) % per === 0) out[(i + 1) / per - 1] = tau;
+    // σ do ponto a `t` da origem: a distância ao plano pela origem do mundo perpendicular ao sol.
+    const sigmaO = -(o[0] * dir[0] + o[1] * dir[1] + o[2] * dir[2]);
+    const hi = sigmaO - start;
+    const lo = sigmaO - end;
+    const len = hi - lo;
+    const x = Math.max(Math.log2(len / (steps * SHADOW_SPACING)), SHADOW_MIN_LEVEL - 1);
+    const n = Math.max(Math.ceil(x), SHADOW_MIN_LEVEL);
+    const blend = x - (n - 1);
+    const dl = SHADOW_SPACING * 2 ** n;
+    const knotLen = len / knots;
+    const extinction = (s: number): number => {
+        const t = sigmaO - s;
+        return (
+            cloudDensity(m, [o[0] + dir[0] * t, o[1] + dir[1] * t, o[2] + dir[2] * t]) * m.density
+        );
+    };
+    const m0 = Math.floor(hi / dl) + 1;
+    let sumF = 0;
+    let sumC = 0;
+    let kf = 0;
+    let kc = 0;
+    for (let i = 0; i < steps + 4; i++) {
+        const k = m0 - i;
+        const s = k * dl;
+        if (s + dl <= lo) break;
+        let rf = 0;
+        const fa = Math.max(s - 0.5 * dl, lo);
+        const fb = Math.min(s + 0.5 * dl, hi);
+        if (fb > fa) {
+            rf = extinction(0.5 * (fa + fb));
+            while (kf < knots && hi - (kf + 1) * knotLen >= fa) {
+                fine[kf] = sumF + rf * (fb - (hi - (kf + 1) * knotLen));
+                kf++;
+            }
+            sumF += rf * (fb - fa);
+        }
+        if ((k & 1) === 0) {
+            const ca = Math.max(s - dl, lo);
+            const cb = Math.min(s + dl, hi);
+            if (cb > ca) {
+                const rc = ca > s - dl || cb < s + dl ? extinction(0.5 * (ca + cb)) : rf;
+                while (kc < knots && hi - (kc + 1) * knotLen >= ca) {
+                    coarse[kc] = sumC + rc * (cb - (hi - (kc + 1) * knotLen));
+                    kc++;
+                }
+                sumC += rc * (cb - ca);
+            }
+        }
     }
-    return out;
+    for (let k = kf; k < knots; k++) fine[k] = sumF;
+    for (let k = kc; k < knots; k++) coarse[k] = sumC;
+    return fine.map((f, k) => f + (coarse[k]! - f) * blend);
 }
 
 /** τ acumulado da entrada do lado do sol até o nó `k` (0…n) do texel. */

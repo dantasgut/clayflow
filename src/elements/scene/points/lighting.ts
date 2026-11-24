@@ -106,6 +106,17 @@ export const lightTransmissionReady = wgslModule({
 });
 
 /**
+ * `fn light_volume_visibility(light: u32, p: vec3f) -> vec3f` — o que tapa a luz `light` num ponto de um meio
+ * participante (spec 041, R21: o ar dos froxels), além do próprio meio contínuo e da sombra da geometria
+ * (`light_visibility`): as nuvens, a névoa dos volumes. Quem chama acumula no tempo (os froxels), e o contribuinte pode
+ * dar uma amostra por quadro da penumbra no lugar da média dela; pronto: nada tapa (1).
+ */
+export const lightVolumeVisibilityReady = wgslModule({
+    name: 'light_volume_visibility_ready',
+    source: 'fn light_volume_visibility(light: u32, p: vec3f) -> vec3f {\n    return vec3f(1.0);\n}',
+});
+
+/**
  * `fn scene_environment(dir: vec3f) -> vec3f` — a radiância do ambiente vinda da direção `dir` (unitária, mundo): o que
  * um raio que escapa da cena vê (spec 033: o céu físico); pronto: nada (0).
  */
@@ -231,6 +242,23 @@ export const lightVisibilityPoint: ContributionPoint = {
 };
 
 /** Transmissão da luz: o produto dos contribuintes, em ordem. */
+/** O que tapa a luz num ponto de meio participante: o produto dos contribuintes. */
+export const lightVolumeVisibilityPoint: ContributionPoint = {
+    name: 'light_volume_visibility',
+    ready: lightVolumeVisibilityReady,
+    functionName: 'light_volume_visibility',
+    combine: (modules) =>
+        memo(`volume_vis:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `light_volume_visibility:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn light_volume_visibility(light: u32, p: vec3f) -> vec3f {\n    return ${modules
+                    .map((_, k) => `light_volume_visibility_${k}(light, p)`)
+                    .join(' * ')};\n}`,
+            }),
+        ),
+};
+
 export const lightTransmissionPoint: ContributionPoint = {
     name: 'light_transmission',
     ready: lightTransmissionReady,

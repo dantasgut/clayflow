@@ -112,6 +112,7 @@ export function countingCore(): {
         reconfigureCanvas: vi.fn(),
         requestRecover: vi.fn(() => Promise.resolve()),
         onDeviceLost: vi.fn(() => () => undefined),
+        onUncapturedError: vi.fn(() => () => undefined),
         shutdown: vi.fn(),
         memoryUsage: vi.fn(() => ({ bufferBytes: 0, textureBytes: 0, totalBytes: 0, top: [] })),
         canvasFormat: 'bgra8unorm',

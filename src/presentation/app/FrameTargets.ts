@@ -36,8 +36,18 @@ export interface FrameTargetsData {
 /** Formato da cor da cena (spec 011): ponto flutuante de 16 bits por canal — nada é cortado em [0, 1] antes da apresentação. */
 export const SCENE_COLOR_FORMAT: GPUTextureFormat = 'rgba16float';
 
-/** Formato do alvo da luz que chega (spec 034): a direta e a total, demoduladas. */
-export const LIGHT_FORMAT: GPUTextureFormat = 'rg16float';
+/**
+ * Formato do alvo da luz que chega (spec 034): a direta e a total, demoduladas (r, g; b e a sem uso). Quatro canais
+ * (spec 041, T074): o `rg16float` não tem storage de leitura e escrita em formato nenhum do WebGPU, e a composição das
+ * nuvens por compute sobre a lista de blocos lê e escreve a luz no mesmo despacho.
+ */
+export const LIGHT_FORMAT: GPUTextureFormat = 'rgba16float';
+
+/**
+ * Unidade do alvo da radiância acima do teto da cor (`overflow`, spec 041): ele guarda o excesso dividido por ela (o disco
+ * do sol, ~10⁹ nits, cabe no meio-float de 16 bits, máx. 65504).
+ */
+export const OVERFLOW_UNIT = 65536;
 
 /**
  * Alvos da cena do quadro (Camada 4): a cor (`color`, HDR em `rgba16float`, lida pelo pós e pela apresentação) e a
@@ -68,7 +78,12 @@ export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
             {
                 id: 'color',
                 role: 'texture',
-                textureShape: { format: SCENE_COLOR_FORMAT, sizeFromCanvas: true },
+                // Composta por compute nos blocos com nuvem (spec 041, T074), quando o device permite.
+                textureShape: {
+                    format: SCENE_COLOR_FORMAT,
+                    sizeFromCanvas: true,
+                    storage: 'read-write',
+                },
             },
             // Vetores de movimento (spec 034): o deslocamento em uv do ponto de cada pixel desde o quadro anterior (rg) e
             // o do que está atrás dele (ba: difere de rg só sob um transmissivo, cuja cor é a do que está atrás),
@@ -86,7 +101,11 @@ export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
                       {
                           id: 'reactive',
                           role: 'texture' as const,
-                          textureShape: { format: 'r8unorm' as const, sizeFromCanvas: true },
+                          textureShape: {
+                              format: 'r8unorm' as const,
+                              sizeFromCanvas: true,
+                              storage: 'read-write' as const,
+                          },
                       },
                       // A luz que chega ao ponto de cada pixel (spec 034), sem a textura (a radiância refletida sobre a
                       // refletância do fechamento): r a direta, g toda (a direta mais a rebatida). Escrita pelo passe
@@ -95,10 +114,24 @@ export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
                       {
                           id: 'light',
                           role: 'texture' as const,
-                          textureShape: { format: LIGHT_FORMAT, sizeFromCanvas: true },
+                          textureShape: {
+                              format: LIGHT_FORMAT,
+                              sizeFromCanvas: true,
+                              storage: 'read-write' as const,
+                          },
                       },
                   ]
                 : []),
+            // A radiância acima do teto da cor (spec 041): o meio-float guarda até 65504 e o disco do sol tem ~10⁹ nits —
+            // quem desenha uma fonte mais forte que o alvo põe aqui o excesso (em unidades de `OVERFLOW_UNIT`), já
+            // atenuado pelo que está na frente dela; o espalhamento da lente (o `Bloom`) soma a energia inteira e limpa o
+            // alvo depois de ler. Alocado quando alguém o pede.
+            {
+                id: 'overflow',
+                role: 'texture',
+                allocation: 'onDemand',
+                textureShape: { format: SCENE_COLOR_FORMAT, sizeFromCanvas: true },
+            },
             {
                 id: 'depth',
                 role: 'texture',

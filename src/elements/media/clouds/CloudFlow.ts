@@ -1,5 +1,5 @@
 import type { BindingSource, BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
-import type { Frame } from '../../../scene/contracts/gpu';
+import type { Frame, IndirectBufferSpec } from '../../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../../scene/contracts/ResourceDirectory';
 import { Flow } from '../../../scene/flows/Flow';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
@@ -17,13 +17,29 @@ import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { Sky } from '../../scene/sky/Sky';
 import { CloudLayer } from './CloudLayer';
 import {
+    CLOUD_TILE,
     cloudHistorySlots,
+    cloudLightArgsKernel,
+    cloudLightList,
+    cloudLightSamplesKernel,
+    cloudMarchComposeKernel,
     cloudMarchKernel,
     cloudOutputs,
     cloudReconstructKernel,
     cloudResources,
+    cloudTiles,
+    cloudTilesKernel,
     cloudUpsampleKernel,
+    cloudWindAtPoint,
+    cloudWindWeather,
 } from './shaders';
+import { bindPoints } from '../../../scene/shaders/bindPoints';
+
+/** Ids dos pipelines da lista dos blocos com nuvem e dos argumentos do despacho da composição (T074). */
+const TILES_ID = 'cloud_tiles';
+const TILE_ARGS_ID = 'cloud_tile_args';
+/** Ids dos pipelines do passe da luz das amostras da marcha e dos argumentos do despacho indireto dele (T074). */
+const LIGHT_ARGS_ID = 'cloud_light_args';
 
 /** Slots do estágio da marcha das nuvens. */
 export interface CloudSlots extends SlotMap {
@@ -40,10 +56,12 @@ type Ctx = TransitionContext<CloudSlots>;
 
 /**
  * CloudFlow — as nuvens na tela (spec 041, R1, R2; fase `forward`, depois da água — a última superfície que escreve
- * profundidade — e antes da composição do céu): a marcha de um pixel por bloco 2 × 2 do alvo de ¼ (Bayer), a
- * reconstrução temporal pela série da marcha (o canal temporal da 037: lida pelo atraso 1, escrita no atraso 0 e
- * girada) e o aumento para a tela pela profundidade, que o `SkyCompositeFlow` compõe. Os pipelines seguem as amostras
- * da profundidade da cena. Sem `Sky`, nada.
+ * profundidade — e antes da composição do céu): a marcha de um pixel por bloco 2 × 2 do alvo de ¼ (Bayer) — a marcha
+ * grava as amostras com nuvem na lista do quadro, o passe da luz calcula uma por invocação por despacho indireto e a
+ * composição soma as de cada raio (T074) —, a reconstrução temporal pela série da marcha (o canal temporal da 037: lida pelo atraso 1, escrita no atraso 0 e
+ * girada) e o aumento para a tela pela profundidade, que o `SkyCompositeFlow` compõe. O aumento marca os blocos da
+ * tela em que a composição muda a cor, e a lista deles e os argumentos do despacho indireto da composição saem da GPU
+ * (T074: numa sala fechada, zero blocos). Os pipelines seguem as amostras da profundidade da cena. Sem `Sky`, nada.
  */
 export class CloudFlow extends Flow<CloudSlots, 'idle'> {
     readonly type = 'CloudFlow';
@@ -55,9 +73,23 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
     private readonly resources: ResourceDirectory;
     private views: readonly unknown[] = [];
     private march: string | undefined;
+    /** A composição da marcha (a soma da luz das amostras de cada raio e o que está na frente da nuvem). */
+    private compose: string | undefined;
+    /** O passe da luz das amostras da marcha (o raio relido: segue as amostras da profundidade da cena). */
+    private light: string | undefined;
     private upsample: string | undefined;
-    private prepared = false;
+    private reconstruct: string | undefined;
+    /** O passe por bloco do histórico nos marchados (o mesmo módulo da reconstrução). */
+    private check: string | undefined;
     private active = false;
+    /** Os pipelines da lista dos blocos preparados. */
+    private tilesPrepared = false;
+    /** A camada das ligações privadas. */
+    private layer: CloudLayer | undefined;
+    /** As palavras da lista dos blocos com nuvem (T074): o despacho indireto da composição. */
+    private tileArgs: IndirectBufferSpec | undefined;
+    /** As palavras da lista da luz das amostras da marcha (T074): o despacho indireto do passe da luz. */
+    private lightArgs: IndirectBufferSpec | undefined;
 
     /** `targets`: o schema dos alvos do quadro (`FrameTargets`), de onde vem a profundidade da cena. */
     constructor(ctx: FlowContext, targets: StructSchema) {
@@ -79,7 +111,14 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
                 },
                 slotsResolved: 'ignore',
                 entitiesChanged: 'ignore',
-                slotChanged: 'ignore',
+                // A camada redescrita (o perfil mudou o tamanho dos alvos): as saídas privadas são religadas às texturas novas
+                // antes de os grupos serem refeitos (o `framePrepare` viria depois, com o grupo já pedindo a vista destruída).
+                slotChanged: {
+                    to: 'idle',
+                    run: (_e, c) => {
+                        this.prepare(c);
+                    },
+                },
                 slotLost: 'ignore',
                 pipelinesCompiled: 'ignore',
                 pipelineRejected: 'ignore',
@@ -93,14 +132,30 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
     /** A marcha, a reconstrução (a série gira) e o aumento. */
     dispatch(frame: Frame, bound: BoundFlow<CloudSlots>): void {
         if (!this.active || this.march === undefined || this.upsample === undefined) return;
+        if (this.compose === undefined || this.lightArgs === undefined) return;
         const march = bound.pipelines.get(this.march);
-        const reconstruct = bound.pipelines.get('cloud_reconstruct');
+        const compose = bound.pipelines.get(this.compose);
+        if (this.light === undefined) return;
+        const light = bound.pipelines.get(this.light);
+        const lightArgs = bound.pipelines.get(LIGHT_ARGS_ID);
+        const lightIndirect = this.lightArgs;
+        if (this.reconstruct === undefined || this.check === undefined) return;
+        const reconstruct = bound.pipelines.get(this.reconstruct);
+        const check = bound.pipelines.get(this.check);
         const upsample = bound.pipelines.get(this.upsample);
         if (
             march?.role !== 'compute'
             || !march.ready
+            || compose?.role !== 'compute'
+            || !compose.ready
+            || light?.role !== 'compute'
+            || !light.ready
+            || lightArgs?.role !== 'compute'
+            || !lightArgs.ready
             || reconstruct?.role !== 'compute'
             || !reconstruct.ready
+            || check?.role !== 'compute'
+            || !check.ready
             || upsample?.role !== 'compute'
             || !upsample.ready
         )
@@ -109,11 +164,32 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
         if (depth === undefined) return;
         const w = depth.texture.width;
         const h = depth.texture.height;
-        const quarter = [Math.ceil(w / 2), Math.ceil(h / 2)];
-        const blocks = [Math.ceil(w / 4), Math.ceil(h / 4)];
+        // O alvo reconstruído (S pixels da tela por texel, pelo perfil) e um bloco 2 × 2 dele por invocação da marcha.
+        const scale = (bound.slots.cloud.resource as CloudLayer).quality.marchScale;
+        const quarter = [Math.ceil(w / scale), Math.ceil(h / scale)];
+        const blocks = [Math.ceil(w / (2 * scale)), Math.ceil(h / (2 * scale))];
         frame.compute('CloudFlow.march', (pass) => {
             pass.bind.setPipeline(march.spec);
             march.bindTo(pass.bind);
+            pass.dispatch.invocations(blocks[0]! * blocks[1]!, WORKGROUP_SIZE.value);
+            pass.bind.setPipeline(lightArgs.spec);
+            lightArgs.bindTo(pass.bind);
+            pass.dispatch.workgroups(1);
+        });
+        // A luz das amostras que a marcha listou, uma por invocação, e a soma delas por raio.
+        frame.compute('CloudFlow.light', (pass) => {
+            pass.bind.setPipeline(light.spec);
+            light.bindTo(pass.bind);
+            pass.dispatch.workgroupsIndirect(lightIndirect, 0);
+        });
+        frame.compute('CloudFlow.compose', (pass) => {
+            pass.bind.setPipeline(compose.spec);
+            compose.bindTo(pass.bind);
+            pass.dispatch.invocations(blocks[0]! * blocks[1]!, WORKGROUP_SIZE.value);
+        });
+        frame.compute('CloudFlow.check', (pass) => {
+            pass.bind.setPipeline(check.spec);
+            check.bindTo(pass.bind);
             pass.dispatch.invocations(blocks[0]! * blocks[1]!, WORKGROUP_SIZE.value);
         });
         frame.compute('CloudFlow.reconstruct', (pass) => {
@@ -123,37 +199,155 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
         });
         bound.slots.cloudMarch.written();
         bound.slots.cloudMarchDepth.written();
+        // Um grupo por bloco de `CLOUD_TILE`² pixels (o aumento marca os blocos com nuvem); a lista e os argumentos.
+        const tiles = Math.ceil(w / CLOUD_TILE.value) * Math.ceil(h / CLOUD_TILE.value);
+        const group = CLOUD_TILE.value * CLOUD_TILE.value;
         frame.compute('CloudFlow.upsample', (pass) => {
             pass.bind.setPipeline(upsample.spec);
             upsample.bindTo(pass.bind);
-            pass.dispatch.invocations(w * h, WORKGROUP_SIZE.value);
+            pass.dispatch.invocations(tiles * group, group);
+        });
+        const list = bound.pipelines.get(TILES_ID);
+        const args = bound.pipelines.get(TILE_ARGS_ID);
+        if (list?.role !== 'compute' || !list.ready || args?.role !== 'compute' || !args.ready)
+            return;
+        frame.compute('CloudFlow.tiles', (pass) => {
+            pass.bind.setPipeline(list.spec);
+            list.bindTo(pass.bind);
+            pass.dispatch.invocations(tiles, WORKGROUP_SIZE.value);
+            pass.bind.setPipeline(args.spec);
+            args.bindTo(pass.bind);
+            pass.dispatch.workgroups(1);
         });
     }
 
     override dispose(): void {}
 
+    /** Solta os pipelines e as ligações (sem céu nada roda). */
+    private release(c: Ctx): void {
+        this.active = false;
+        if (this.reconstruct !== undefined) c.release(this.reconstruct);
+        if (this.check !== undefined) c.release(this.check);
+        if (this.march !== undefined) c.release(this.march);
+        if (this.compose !== undefined) c.release(this.compose);
+        if (this.light !== undefined) c.release(this.light);
+        if (this.upsample !== undefined) c.release(this.upsample);
+        this.compose = undefined;
+        this.light = undefined;
+        this.reconstruct = undefined;
+        this.check = undefined;
+        this.march = undefined;
+        this.upsample = undefined;
+        this.views = [];
+        this.tileArgs = undefined;
+        this.lightArgs = undefined;
+        if (this.tilesPrepared) {
+            c.release(TILES_ID);
+            c.release(TILE_ARGS_ID);
+            c.release(LIGHT_ARGS_ID);
+        }
+        this.tilesPrepared = false;
+    }
+
+    /**
+     * A reconstrução e o passe por bloco do histórico nos marchados (sem e com amostras), com o vento do tempo no lugar
+     * `cloud_wind_at` quando há tempo.
+     */
+    private prepareReconstruct(c: Ctx, id: string, multisampled: boolean, weather: boolean): void {
+        const kernel = multisampled
+            ? cloudReconstructKernel.multisampled
+            : cloudReconstructKernel.single;
+        const shader = weather
+            ? bindPoints(kernel, new Map([[cloudWindAtPoint, cloudWindWeather]]))
+            : kernel;
+        if (this.check !== undefined) c.release(this.check);
+        const check = id.replace('cloud_reconstruct', 'cloud_check');
+        c.prepare({ id: check, role: 'compute', shader, entryPoints: ['cloud_check_main'] });
+        c.prepare({ id, role: 'compute', shader, entryPoints: ['cloud_reconstruct_main'] });
+        this.check = check;
+        this.reconstruct = id;
+    }
+
     private prepare(c: Ctx): void {
         const cloud = c.bound.slots.cloud.resource as CloudLayer;
         const depth = c.bound.slots.sceneDepth;
-        this.active = c.bound.slots.sky !== undefined && depth !== undefined;
+        if (c.bound.slots.sky === undefined) {
+            // O céu saiu: os pipelines (que leem o uniforme dele) saem junto — nenhum fica esperando, e o motor fica
+            // pronto; voltando, são preparados de novo.
+            this.release(c);
+            return;
+        }
+        // Outra camada (a troca, o A/B do tempo): as ligações privadas eram das saídas da anterior — soltas antes de o
+        // grupo ser refeito.
+        if (cloud !== this.layer) {
+            this.release(c);
+            this.layer = cloud;
+        }
+        this.active = depth !== undefined;
         if (!this.active || depth === undefined) return;
-        for (const id of ['trace', 'traceDepth', 'march', 'marchDepth', 'view'])
+        for (const id of [
+            'trace',
+            'traceDepth',
+            'check',
+            'checkNoise',
+            'march',
+            'marchDepth',
+            'view',
+            'tiles',
+            'tileList',
+            'tileArgs',
+            'ray',
+            'lightList',
+            'lightArgs',
+        ])
             this.resources.ensureAllocated(cloud, id);
-        const views = (['trace', 'traceDepth', 'view'] as const).map((id) =>
-            c.bound.slots.cloud.textureViewOf(id),
-        );
-        if (views.some((v) => v === undefined)) {
-            this.active = false;
+        const views = (
+            [
+                'trace',
+                'traceDepth',
+                'view',
+                'check',
+                'checkNoise',
+                'tiles',
+                'tileList',
+                'ray',
+                'lightList',
+            ] as const
+        ).map((id) => c.bound.slots.cloud.textureViewOf(id));
+        const args = this.resources.bufferOf(cloud, 'tileArgs');
+        this.tileArgs = args?.subkind === 'indirect' ? args : undefined;
+        const lightArgs = this.resources.bufferOf(cloud, 'lightArgs');
+        this.lightArgs = lightArgs?.subkind === 'indirect' ? lightArgs : undefined;
+        if (
+            views.some((v) => v === undefined)
+            || this.tileArgs === undefined
+            || this.lightArgs === undefined
+        ) {
+            // As saídas ainda não alocadas (a camada entrou ou foi redescrita): nada ligado a uma vista que não existe.
+            this.release(c);
             return;
         }
         const multisampled = (depth.texture.sampleCount ?? 1) > 1;
-        const sources = [...views, depth.view];
+        const sources = [...views, depth.view, this.tileArgs, this.lightArgs];
         if (sources.some((v, k) => v !== this.views[k])) {
             c.bind(
                 new Map<WgslResource, BindingSource>([
                     [cloudOutputs.trace, views[0]!],
                     [cloudOutputs.traceDepth, views[1]!],
                     [cloudOutputs.view, views[2]!],
+                    [cloudOutputs.check, views[3]!],
+                    [cloudOutputs.checkNoise, views[4]!],
+                    [cloudTiles.marksOut, views[5]!],
+                    [cloudTiles.marks, views[5]!],
+                    [cloudTiles.listOut, views[6]!],
+                    [cloudTiles.args, this.tileArgs],
+                    [cloudLightList.rayOut, views[7]!],
+                    [cloudLightList.ray, views[7]!],
+                    [cloudLightList.listOut, views[8]!],
+                    [cloudLightList.listRw, views[8]!],
+                    [cloudLightList.list, views[8]!],
+                    [cloudLightList.args, this.lightArgs],
+                    [cloudLightList.argsRead, this.lightArgs],
                     [
                         multisampled ? cloudResources.sceneDepthMs : cloudResources.sceneDepth,
                         depth.view,
@@ -162,27 +356,70 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
             );
             this.views = sources;
         }
-        if (!this.prepared) {
+        if (!this.tilesPrepared) {
+            this.tilesPrepared = true;
             c.prepare({
-                id: 'cloud_reconstruct',
+                id: TILES_ID,
                 role: 'compute',
-                shader: cloudReconstructKernel,
-                entryPoints: ['cloud_reconstruct_main'],
+                shader: cloudTilesKernel,
+                entryPoints: ['cloud_tiles_main'],
             });
-            this.prepared = true;
+            c.prepare({
+                id: TILE_ARGS_ID,
+                role: 'compute',
+                shader: cloudTilesKernel,
+                entryPoints: ['cloud_tile_args_main'],
+            });
+            c.prepare({
+                id: LIGHT_ARGS_ID,
+                role: 'compute',
+                shader: cloudLightArgsKernel,
+                entryPoints: ['cloud_light_args_main'],
+            });
         }
         const variant = multisampled ? 'ms' : '1';
         const marchId = `cloud_march:${variant}`;
+        // Com o tempo (R19), a reconstrução reprojeta pelo vento do quadrado do tempo no ponto da nuvem (o estado do tempo
+        // anda com ele); sem, pelo vento uniforme da camada.
+        const weather = cloud.weather !== undefined;
+        const reconstructId = `cloud_reconstruct:${variant}${weather ? ':weather' : ''}`;
+        if (marchId === this.march && reconstructId !== this.reconstruct) {
+            if (this.reconstruct !== undefined) c.release(this.reconstruct);
+            this.prepareReconstruct(c, reconstructId, multisampled, weather);
+        }
         if (marchId !== this.march) {
             if (this.march !== undefined) c.release(this.march);
+            if (this.compose !== undefined) c.release(this.compose);
+            if (this.light !== undefined) c.release(this.light);
+            if (this.reconstruct !== undefined) c.release(this.reconstruct);
             if (this.upsample !== undefined) c.release(this.upsample);
             this.march = marchId;
+            this.light = `cloud_light_samples:${variant}`;
+            this.compose = `cloud_march_compose:${variant}`;
             this.upsample = `cloud_upsample:${variant}`;
+            // A reconstrução lê a profundidade da cena (a superfície de cada texel), como a marcha e o aumento.
+            this.prepareReconstruct(c, reconstructId, multisampled, weather);
             c.prepare({
                 id: this.march,
                 role: 'compute',
                 shader: multisampled ? cloudMarchKernel.multisampled : cloudMarchKernel.single,
                 entryPoints: ['cloud_march_main'],
+            });
+            c.prepare({
+                id: this.light,
+                role: 'compute',
+                shader: multisampled
+                    ? cloudLightSamplesKernel.multisampled
+                    : cloudLightSamplesKernel.single,
+                entryPoints: ['cloud_light_samples_main'],
+            });
+            c.prepare({
+                id: this.compose,
+                role: 'compute',
+                shader: multisampled
+                    ? cloudMarchComposeKernel.multisampled
+                    : cloudMarchComposeKernel.single,
+                entryPoints: ['cloud_march_compose_main'],
             });
             c.prepare({
                 id: this.upsample,

@@ -12,6 +12,10 @@
 // arestas das células).
 // Com `DisplacementFunction` (spec 011), os vértices são os deslocados (`surface_displaced_at`), com o passo da malha
 // de cada um como largura do filtro; a geometria diferencial é a da superfície sem o deslocamento.
+// As vistas além da câmera ativa (spec 041, R20; `adapt.view` = 1) usam o orçamento, os prefixos e a emissão daqui com
+// o nível pelo critério da vista (`surface_adapt_view.wgsl`): a emissão só refaz os retalhos marcados (`.w` = 1 depois
+// da marcação da vista), sem geometria diferencial nem arame. A palavra `.x` do retalho guarda o nível efetivo (bits
+// 0–7) e o pedido antes do viés (bits 8–15).
 // Requer: structs SurfaceParams, SurfaceDiff, SurfaceAdaptParams, CameraMatrices, WorldTransform; surface_displaced_at;
 // surface_jet; surface_forms (os registros das funções `surface` e `space` chegam com os módulos delas).
 
@@ -57,6 +61,58 @@ fn adapt_world() -> mat4x4f {
     return w;
 }
 
+// Segmentos por lado que o retalho `idx` pede pela curvatura (erro de corda abaixo de `adapt.tolerance`) e, com a câmera
+// do slot `camera_slot` (`ADAPT_NONE`: sem câmera), pelo tamanho na imagem dela (fração `adapt.screen` da altura).
+fn adapt_camera_segments(idx: u32, camera_slot: u32) -> f32 {
+    let pi = idx % adapt.patches_u;
+    let qi = idx / adapt.patches_u;
+    let data = surface_fn_params(surface_params.record_slot);
+    let up = vec3f(0.0, 1.0, 0.0);
+    let t = surface_params.time;
+    var kappa = 0.0;
+    var corners: array<vec3f, 4>;
+    // O passo do retalho inteiro: o relevo mais fino que ele não entra na medida do tamanho.
+    let patch_spacing = vec2f(1.0 / f32(adapt.patches_u), 1.0 / f32(adapt.patches_v));
+    let fus = array<f32, 4>(0.0, 1.0, 0.0, 1.0);
+    let fvs = array<f32, 4>(0.0, 0.0, 1.0, 1.0);
+    for (var c = 0u; c < 4u; c++) {
+        let uv = adapt_uv(pi, qi, fus[c], fvs[c]);
+        corners[c] = surface_displaced_at(uv.u, uv.v, uv.su, uv.sv, patch_spacing, t, data, up).position;
+        let f = adapt_forms(uv, data).curvature;
+        kappa = max(kappa, max(abs(f.z), abs(f.w)));
+    }
+    let mid = adapt_uv(pi, qi, 0.5, 0.5);
+    let center = surface_displaced_at(mid.u, mid.v, mid.su, mid.sv, patch_spacing, t, data, up).position;
+    let fc = adapt_forms(mid, data).curvature;
+    kappa = max(kappa, max(abs(fc.z), abs(fc.w)));
+    let size = max(
+        max(distance(corners[0], corners[1]), distance(corners[2], corners[3])),
+        max(distance(corners[0], corners[2]), distance(corners[1], corners[3])),
+    );
+    let w = adapt_world();
+    let scale = max(max(length(w[0].xyz), length(w[1].xyz)), length(w[2].xyz));
+    let world_size = size * scale;
+    // Erro de corda: n ≥ L·√(κ/(8τ)) com κ em mundo (κ local / escala).
+    var n = world_size * sqrt(kappa / max(scale, 1e-12) / (8.0 * max(adapt.tolerance, 1e-9)));
+    if (camera_slot != ADAPT_NONE) {
+        let cam = adapt_cameras[camera_slot];
+        let center_world = (w * vec4f(center, 1.0)).xyz;
+        let d = max(distance(center_world, cam.position.xyz) - 0.5 * world_size, 1e-3);
+        // Fração da altura da imagem que o retalho ocupa: tamanho / distância · cot(fov/2) / 2.
+        let fraction = world_size / d * cam.projection[1][1] * 0.5;
+        n = max(n, fraction / max(adapt.screen, 1e-6));
+    }
+    return max(n, 1.0);
+}
+
+// Nível para `n` segmentos por lado (o menor com 2^l ≥ n), até o máximo; `n` não finito: o máximo.
+fn adapt_level_of(n: f32, fallback: u32) -> u32 {
+    if (n == n) {
+        return min(u32(ceil(log2(min(n, exp2(f32(adapt.max_level)))) - 1e-4)), adapt.max_level);
+    }
+    return fallback;
+}
+
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn surface_adapt_level_main(
     @builtin(global_invocation_id) gid3: vec3u,
@@ -67,48 +123,7 @@ fn surface_adapt_level_main(
     if (idx >= count) { return; }
     var level = adapt.max_level;
     if (adapt.force_max == 0u) {
-        let pi = idx % adapt.patches_u;
-        let qi = idx / adapt.patches_u;
-        let data = surface_fn_params(surface_params.record_slot);
-        let up = vec3f(0.0, 1.0, 0.0);
-        let t = surface_params.time;
-        var kappa = 0.0;
-        var corners: array<vec3f, 4>;
-        // O passo do retalho inteiro: o relevo mais fino que ele não entra na medida do tamanho.
-        let patch_spacing = vec2f(1.0 / f32(adapt.patches_u), 1.0 / f32(adapt.patches_v));
-        let fus = array<f32, 4>(0.0, 1.0, 0.0, 1.0);
-        let fvs = array<f32, 4>(0.0, 0.0, 1.0, 1.0);
-        for (var c = 0u; c < 4u; c++) {
-            let uv = adapt_uv(pi, qi, fus[c], fvs[c]);
-            corners[c] = surface_displaced_at(uv.u, uv.v, uv.su, uv.sv, patch_spacing, t, data, up).position;
-            let f = adapt_forms(uv, data).curvature;
-            kappa = max(kappa, max(abs(f.z), abs(f.w)));
-        }
-        let mid = adapt_uv(pi, qi, 0.5, 0.5);
-        let center = surface_displaced_at(mid.u, mid.v, mid.su, mid.sv, patch_spacing, t, data, up).position;
-        let fc = adapt_forms(mid, data).curvature;
-        kappa = max(kappa, max(abs(fc.z), abs(fc.w)));
-        let size = max(
-            max(distance(corners[0], corners[1]), distance(corners[2], corners[3])),
-            max(distance(corners[0], corners[2]), distance(corners[1], corners[3])),
-        );
-        let w = adapt_world();
-        let scale = max(max(length(w[0].xyz), length(w[1].xyz)), length(w[2].xyz));
-        let world_size = size * scale;
-        // Erro de corda: n ≥ L·√(κ/(8τ)) com κ em mundo (κ local / escala).
-        var n = world_size * sqrt(kappa / max(scale, 1e-12) / (8.0 * max(adapt.tolerance, 1e-9)));
-        if (adapt.camera_slot != ADAPT_NONE) {
-            let cam = adapt_cameras[adapt.camera_slot];
-            let center_world = (w * vec4f(center, 1.0)).xyz;
-            let d = max(distance(center_world, cam.position.xyz) - 0.5 * world_size, 1e-3);
-            // Fração da altura da imagem que o retalho ocupa: tamanho / distância · cot(fov/2) / 2.
-            let fraction = world_size / d * cam.projection[1][1] * 0.5;
-            n = max(n, fraction / max(adapt.screen, 1e-6));
-        }
-        n = max(n, 1.0);
-        if (n == n) {
-            level = min(u32(ceil(log2(n) - 1e-4)), adapt.max_level);
-        }
+        level = adapt_level_of(adapt_camera_segments(idx, adapt.camera_slot), level);
     }
     adapt_patches[idx] = vec4u(level, 0u, 0u, 0u);
     atomicAdd(&adapt_hist[level], 1u);
@@ -155,7 +170,7 @@ fn surface_adapt_scan_main(@builtin(local_invocation_index) t: u32) {
     let bias = atomicLoad(&adapt_hist[ADAPT_BIAS]);
     var own = vec3u(0u);
     for (var i = start; i < stop; i++) {
-        let l = adapt_patches[i].x;
+        let l = adapt_patches[i].x & 0xFFu;
         own += adapt_counts(select(0u, l - bias, l > bias));
     }
     adapt_sums[t] = own;
@@ -170,9 +185,9 @@ fn surface_adapt_scan_main(@builtin(local_invocation_index) t: u32) {
     }
     var base = adapt_sums[t] - own;
     for (var i = start; i < stop; i++) {
-        let l = adapt_patches[i].x;
+        let l = adapt_patches[i].x & 0xFFu;
         let le = select(0u, l - bias, l > bias);
-        adapt_patches[i] = vec4u(le, base.x, base.y, base.z);
+        adapt_patches[i] = vec4u(le | (l << 8u), base.x, base.y, base.z);
         base += adapt_counts(le);
     }
     if (t == 255u) {
@@ -206,7 +221,7 @@ fn adapt_neighbor(pi: i32, qi: i32, own: u32) -> u32 {
         if (adapt.periodic_v == 0u) { return own; }
         q = (q + pv) % pv;
     }
-    return adapt_patches[u32(q) * adapt.patches_u + u32(p)].x;
+    return adapt_patches[u32(q) * adapt.patches_u + u32(p)].x & 0xFFu;
 }
 
 // O retalho (pi, qi) existe (dentro do domínio, ou com a volta dos periódicos)?
@@ -235,7 +250,9 @@ fn surface_adapt_emit_main(
     let j = cell_local % side;
     let k = cell_local / side;
     let pd = adapt_patches[pid];
-    let l = pd.x;
+    // A vista refaz só os retalhos marcados (os demais seguem como estão no buffer da vista).
+    if (adapt.view != 0u && pd.w == 0u) { return; }
+    let l = pd.x & 0xFFu;
     let n = 1u << l;
     if (j > n || k > n) { return; }
     let pi = pid % adapt.patches_u;
@@ -276,7 +293,7 @@ fn surface_adapt_emit_main(
         adapt_vertices[o].u = uv.su;
         adapt_vertices[o].v = uv.sv;
     }
-    surface_diff[adapt.diff_first + vi] = adapt_forms(uv, data);
+    if (adapt.view == 0u) { surface_diff[adapt.diff_first + vi] = adapt_forms(uv, data); }
     if (j < n && k < n) {
         let a = vi;
         let b = a + 1u;
@@ -290,6 +307,7 @@ fn surface_adapt_emit_main(
         adapt_indices[ib + 3u] = b;
         adapt_indices[ib + 4u] = d;
         adapt_indices[ib + 5u] = c;
+        if (adapt.view != 0u) { return; }
         let eb = pd.w + 6u * cell;
         adapt_edges[eb] = a;
         adapt_edges[eb + 1u] = b;

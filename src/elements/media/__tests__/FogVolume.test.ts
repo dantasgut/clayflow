@@ -11,8 +11,12 @@ import {
 } from '../../raytrace/points';
 import { Camera } from '../../scene/Camera';
 import { DirectionalLight } from '../../scene/DirectionalLight';
-import { lightTransmissionPoint } from '../../scene/points/lighting';
-import { sceneFogPoint } from '../../scene/points/media';
+import { lightTransmissionPoint, lightVolumeVisibilityPoint } from '../../scene/points/lighting';
+import {
+    sceneFogPoint,
+    sceneNearFogPoint,
+    sceneNearMediumDepthPoint,
+} from '../../scene/points/media';
 import { Transform } from '../../scene/Transform';
 import { DensityFunction } from '../../extension/DensityFunction';
 import { FogVolume } from '../FogVolume';
@@ -96,6 +100,11 @@ describe('FogVolume (spec 033, T055)', () => {
             'scatter',
             'current',
             'history',
+            'reach',
+            'state',
+            'dispatch',
+            'reachMax',
+            'open',
             'ambient',
             'sampler',
         ]);
@@ -109,12 +118,18 @@ describe('FogVolume (spec 033, T055)', () => {
         const contributions = froxels.getSceneContributions();
         expect(contributions.map((c) => c.point)).toEqual([
             sceneFogPoint,
+            sceneNearFogPoint,
             rayVolumeTransmittancePoint,
             rayMediaTransmittancePoint,
             rayVolumeScatterPoint,
             lightTransmissionPoint,
+            lightVolumeVisibilityPoint,
+            sceneNearMediumDepthPoint,
         ]);
         expect(contributions.map((c) => c.build(() => undefined))).toEqual([
+            undefined,
+            undefined,
+            undefined,
             undefined,
             undefined,
             undefined,
@@ -123,25 +138,38 @@ describe('FogVolume (spec 033, T055)', () => {
         ]);
         froxels.setActive(true);
         const modules = contributions.map((c) => c.build(() => undefined)!);
-        expect(composeWgsl(modules[0]!).spec.source).toContain('fn scene_fog(p: vec3f) -> vec4f');
+        expect(composeWgsl(modules[0]!).spec.source).toContain(
+            'fn scene_fog(p: vec3f) -> SceneFog',
+        );
+        // Os meios perto da câmera (spec 041, R21): a mesma leitura; sem o meio contínuo na grade, alcance 0.
         expect(composeWgsl(modules[1]!).spec.source).toContain(
+            'fn scene_near_fog(p: vec3f) -> SceneNearFog',
+        );
+        expect(composeWgsl(modules[2]!).spec.source).toContain(
             'fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32, time: f32) -> vec3f',
         );
         // O espalhamento nos raios (T058): a amostra no trecho com o peso, o albedo e a anisotropia.
         // Só a névoa, para a pilha da refração (T075): a transmitância dos volumes de névoa, sem os da cena.
-        expect(composeWgsl(modules[2]!).spec.source).toContain(
+        expect(composeWgsl(modules[3]!).spec.source).toContain(
             'fn ray_media_transmittance(origin: vec3f, dir: vec3f, t_max: f32) -> vec3f',
         );
-        expect(composeWgsl(modules[3]!).spec.source).toContain(
+        expect(composeWgsl(modules[4]!).spec.source).toContain(
             'fn ray_volume_scatter(origin: vec3f, dir: vec3f, t_max: f32, u: f32) -> RayVolumeScatter',
         );
-        expect(composeWgsl(modules[4]!).spec.source).toContain(
+        expect(composeWgsl(modules[5]!).spec.source).toContain(
             'fn light_transmission(light: u32, p: vec3f) -> vec3f',
         );
+        // Até onde a grade integra o meio contínuo no quadro (spec 041, T074): só com ele na grade.
+        expect(contributions[7]!.build(() => undefined)).toBeUndefined();
+        froxels.setMedium(true);
+        expect(composeWgsl(contributions[7]!.build(() => undefined)!).spec.source).toContain(
+            'fn scene_near_medium_depth(camera: u32) -> f32',
+        );
+        froxels.setMedium(false);
         // Com uma função de densidade: a composição troca a pronta pelo `switch`.
         const fn = new DensityFunction({ code: NOISE, params: { k: 'f32' } });
         froxels.setDensityFunctions([fn.composite!]);
-        const withFn = composeWgsl(contributions[1]!.build(() => undefined)!).spec.source;
+        const withFn = composeWgsl(contributions[2]!.build(() => undefined)!).spec.source;
         expect(withFn).toContain(`case 1u: { return ${fn.composite!.functionName}(`);
     });
 

@@ -51,10 +51,10 @@ const BEHIND_ONLY = 0x4 | 0x8;
  * no quadro anterior, o ponto que o caminho traçado do pixel achou (`Refraction.hit`), pelas matrizes de mundo do
  * objeto atingido e pelas duas câmeras. Sem ele, o ba sob o vidro era o do opaco atrás na linha reta, não o do conteúdo
  * refratado ou refletido. E, como a lente desloca e inverte a imagem do que está atrás e o pixel também mostra caminhos
- * secundários, a máscara reativa (`FrameTargets.reactive`, limpa a cada quadro): onde o gradiente temporal da refração
- * (`Refraction.gradient`) diz que a cena mudou em volta do pixel, a resolução temporal recomeça o histórico. Só com o
- * antisserrilhado temporal; no quadro em que o traçado não produziu, só limpa a máscara. O traçado não sabe de
- * movimento.
+ * secundários, a máscara reativa (`FrameTargets.reactive`, limpa pela resolução temporal que a lê; mistura pelo
+ * máximo com o que outros estágios marcam): onde o gradiente temporal da refração (`Refraction.gradient`) diz que a cena
+ * mudou em volta do pixel, a resolução temporal recomeça o histórico. Só com o antisserrilhado temporal; no quadro em
+ * que o traçado não produziu, nada. O traçado não sabe de movimento.
  */
 export class RefractionMotionFlow extends Flow<RefractionMotionSlots, 'idle'> {
     readonly type = 'RefractionMotionFlow';
@@ -110,23 +110,17 @@ export class RefractionMotionFlow extends Flow<RefractionMotionSlots, 'idle'> {
             || mask === undefined
         )
             return;
-        const reactive = {
-            view: mask.view,
-            loadOp: 'clear' as const,
-            clearValue: [0, 0, 0, 0] as const,
-            storeOp: 'store' as const,
-        };
+        // A máscara é limpa pela resolução temporal que a lê (`PostFlow`); aqui o máximo com o que outro estágio marcou.
+        const reactive = { view: mask.view, loadOp: 'load' as const, storeOp: 'store' as const };
         const prepared = bound.pipelines.get(this.pipeline);
         const color = { view: motion.view, loadOp: 'load' as const, storeOp: 'store' as const };
         if (
             !this.resources.isProduced(refraction, 'radiance')
             || prepared?.role !== 'render'
             || !prepared.ready
-        ) {
+        )
             // Nada traçado neste quadro: nenhum pixel recomeça por aqui.
-            frame.render({ colorAttachments: [reactive] }, 'RefractionMotionFlow.clear', () => {});
             return;
-        }
         const target: RenderTarget = { colorAttachments: [color, reactive] };
         frame.render(target, 'RefractionMotionFlow', (pass) => {
             pass.bind.setPipeline(prepared.spec);
@@ -177,7 +171,13 @@ export class RefractionMotionFlow extends Flow<RefractionMotionSlots, 'idle'> {
             cullMode: 'none',
             colorTargets: [
                 { format: 'rgba16float', writeMask: BEHIND_ONLY },
-                { format: 'r8unorm' },
+                {
+                    format: 'r8unorm',
+                    blend: {
+                        color: { srcFactor: 'one', dstFactor: 'one', operation: 'max' },
+                        alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'max' },
+                    },
+                },
             ],
         });
     }

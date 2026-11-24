@@ -15,6 +15,12 @@ import displacementFnReadySource from '../gpu/wgsl/kernels/displacement_fn_ready
 import surfaceEvalSource from '../gpu/wgsl/kernels/surface_eval.wgsl?raw';
 import surfaceEvalDiffSource from '../gpu/wgsl/kernels/surface_eval_diff.wgsl?raw';
 import surfaceAdaptSource from '../gpu/wgsl/kernels/surface_adapt.wgsl?raw';
+import surfaceAdaptViewSource from '../gpu/wgsl/kernels/surface_adapt_view.wgsl?raw';
+import surfaceAdaptViewCameraSource from '../gpu/wgsl/kernels/surface_adapt_view_camera.wgsl?raw';
+import surfaceAdaptLightSource from '../gpu/wgsl/kernels/surface_adapt_light.wgsl?raw';
+import { shadowVirtual } from '../gpu/shaders/math';
+import { shadowMatricesResource } from '../scene/resources';
+import { ShadowMap } from '../scene/ShadowMap';
 import { Camera } from '../scene/Camera';
 import { Transform } from '../scene/Transform';
 import surfaceFormsSource from '../gpu/wgsl/kernels/surface_forms.wgsl?raw';
@@ -27,6 +33,9 @@ import { combineSpaceFunctions } from '../extension/combineSpace';
 import { surfaceSampleType } from '../material/point/types/shaders';
 import { MeshVertexSchema } from './MeshVertexSchema';
 import { SurfaceAdaptParamsSchema, SurfaceDiffSchema, SurfaceParamsSchema } from './SurfaceSchemas';
+
+/** O slot da série dos níveis das vistas no `SurfaceFlow` (spec 041, R20). */
+export const SURFACE_VIEW_LEVELS_SLOT = 'levels';
 
 // Recursos da avaliação de superfícies (spec 031): todos privados do `SurfaceFlow` (por pipeline: cada superfície tem os
 // seus). Os registros das funções `surface` e `space` chegam com os módulos delas (pool da forma de cada uma, R8).
@@ -81,6 +90,25 @@ export const surfaceResources = Object.freeze({
         schema: Transform.worldSchema,
         arena: 'gpu',
     }),
+    /**
+     * As vistas (spec 041, R20): a série dos níveis de todas as vistas (spec 037; um `vec4u` por retalho de cada vista —
+     * a fatia do quadro e a do anterior, pelo slot `levels` do `SurfaceFlow`) e o despacho indireto da emissão da vista.
+     */
+    adaptLevels: wgslResource({
+        name: 'adapt_levels',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'vec4u', array: true },
+        frequency: 'stage',
+        provider: { slot: SURFACE_VIEW_LEVELS_SLOT, lag: 0 },
+    }),
+    adaptLevelsPrevious: wgslResource({
+        name: 'adapt_levels_previous',
+        binding: { storage: 'read' },
+        type: { wgsl: 'vec4u', array: true },
+        frequency: 'stage',
+        provider: { slot: SURFACE_VIEW_LEVELS_SLOT, lag: 1 },
+    }),
+    adaptViewDispatch: priv('adapt_view_dispatch', 'read_write', { wgsl: 'u32', array: true }),
 });
 const R = surfaceResources;
 
@@ -247,6 +275,28 @@ export const surfaceAdapt = wgslModule({
     ],
 });
 
+/** A marcação dos retalhos e o despacho da emissão de uma vista (spec 041, R20), sobre a malha adaptativa. */
+export const surfaceAdaptView = wgslModule({
+    name: 'surface_adapt_view',
+    source: surfaceAdaptViewSource,
+    requires: [surfaceAdapt, R.adaptLevels, R.adaptLevelsPrevious, R.adaptViewDispatch],
+});
+
+/** O nível dos retalhos numa vista de câmera (spec 041, R20): o critério da câmera ativa com a câmera da vista. */
+export const surfaceAdaptViewCamera = wgslModule({
+    name: 'surface_adapt_view_camera',
+    source: surfaceAdaptViewCameraSource,
+    requires: [surfaceAdaptView],
+});
+
+/** O nível dos retalhos na vista da luz (spec 041, R20): o erro em texels do nível do mapa de sombra virtual. */
+export const surfaceAdaptLight = wgslModule({
+    name: 'surface_adapt_light',
+    source: surfaceAdaptLightSource,
+    requires: [surfaceAdaptView, shadowVirtual, shadowMatricesResource],
+    structs: [ShadowMap.matrixSchema],
+});
+
 /**
  * Ponto `surface` (spec 009): `fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f` e, opcionais,
  * as derivadas `surface_du`/`surface_dv` (mesma assinatura). Pronto: plano, esfera, toro, terreno por ruído.
@@ -270,7 +320,14 @@ export const surfacePoint = wgslPoint({
     ],
     paramsAlias: 'SurfaceFnParams',
     ready: surfaceFnReady,
-    hosts: () => [surfaceEval, surfaceEvalDiff, surfaceAdapt],
+    hosts: () => [
+        surfaceEval,
+        surfaceEvalDiff,
+        surfaceAdapt,
+        surfaceAdaptView,
+        surfaceAdaptViewCamera,
+        surfaceAdaptLight,
+    ],
 });
 
 /**

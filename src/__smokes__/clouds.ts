@@ -5,23 +5,63 @@
 // `scene/reference/atmosphere.ts`. Casos (`--query case=<nome>`):
 //   - noise-volumes: os volumes de forma e de detalhe contra o grafo padrão avaliado pela referência u32 (2/255);
 //   - ambient: as irradiâncias do céu e do chão contra a integral da radiância do céu da referência (≤ 5 %);
-//   - noon: a nuvem vista do chão (luz espalhada e transmitância por região) contra a marcha de referência (SC-001);
-//   - timing: o custo por passe das nuvens a 1280 × 720 no perfil alto (SC-005).
+//   - noon: a nuvem vista do chão (luz espalhada e transmitância por região) contra a marcha de referência (SC-001), com
+//     a luz das sondas do cache de espalhamento lida da GPU (`?settle=` quadros antes; `?dump=W` grava blocos da imagem);
+//   - scatter-cache: as sondas do cache de espalhamento (T023) contra caminhos f64 nas mesmas sondas (viés ≤ 5 %);
+//   - dusk-blocks: o mosaico nas nuvens escuras do pôr do sol, com o sol descendo depressa rente ao horizonte — o degrau
+//     na borda dos blocos 2 × 2 da reconstrução pelo degrau entre texels, o erro de alta frequência e o atraso da cor
+//     (matiz e brilho) contra a mesma cena parada e convergida;
+//   - timing: o custo por passe das nuvens a 1280 × 720 nos três perfis e no alto com o sol andando no ritmo real
+//     (`high-sun`, 360° por dia ≈ 0,004°/s, T074); registrados sem teto: o sol no ciclo de dia de um jogo
+//     (`high-sun-fast`, 0,25°/s, T080), o vento levando as nuvens (`high-wind`, o tempo simulado andando, 10 m/s) e o sol
+//     do lapso de tempo de vídeo (`high-sun-lapse`, 1,3°/s) (`?profiles=high_high-sun`) (SC-005);
+//   - pressure-wind: o vento das nuvens, a subida e a frente do quadrado do tempo contra a referência f64
+//     (`reference/cloudWeather.ts`) numa baixa gaussiana a 45° N, 45° S e no equador, e o mapa de cobertura pelo tempo
+//     contra o mapeamento da referência (SC-010, R19);
+//   - storm: a tempestade numa baixa — a torre do cúmulo-nimbo até a tropopausa e a bigorna (SC-011), e a vista dela
+//     contra a marcha de referência;
+//   - ground-shadow: a sombra das nuvens no chão visto pela câmera da `solposto-chao` (quadro 300, `?frame=`), o mapa
+//     visto do sol contra a integral f64 numa grade de 630 pontos de 60 m a 6 km, por faixa de distância;
+//   - storm-ground: a luz do sol no chão da câmera sob o tempo acelerado (a `tempestade` da rodada 7), quadro a quadro,
+//     contra a referência no mesmo quadro, e o deslocamento da sombra numa linha no rumo do vento;
+//   - front: a faixa de nuvens entre uma baixa e uma alta (Okubo–Weiss) e o céu limpo na subsidência da alta;
+//   - weather-timing: o custo do tempo (o estado e o mapa de cobertura por ele) a 1280 × 720 no perfil alto (SC-012);
+//   - interior-timing: o custo da camada com a câmera numa sala fechada (SC-005);
+//   - inside-timing: o custo da camada com a câmera dentro da nuvem, no perfil alto (SC-005, T074);
+//   - sky-timing: o custo novo do céu sem a camada (SC-009).
 // Para rodar: `npm run smoke -- clouds --headless --timeout 400`. Resultado: `CLOUDS SMOKE PASSED` ou `FAIL: …`.
-import { CLOUD_OCTAVES, type Application, type CloudLayer } from 'clayflow/web';
-import { settleFrames } from './support/extensionScenes';
+import {
+    CLOUD_OCTAVES,
+    CLOUD_SCATTER_EXTENT,
+    CLOUD_SCATTER_NEAR,
+    CLOUD_SCATTER_PAGE,
+    CLOUD_SCATTER_PRIOR,
+    CLOUD_SCATTER_SNAP,
+    CLOUD_SCATTER_WINDOW,
+    type Application,
+    type CloudLayer,
+    CloudLayer as CloudLayerClass,
+    Sky as SkyClass,
+    type Sky,
+} from 'clayflow/web';
+import { nextGpuFrame, readBuffer, settleFrames } from './support/extensionScenes';
 import {
     cloudScene,
     sunTravel,
     disposeCloudScene,
     readCloudVolume,
+    readScatterCache,
+    readShadowMap,
     readTexture,
     type CloudScene,
 } from './support/cloudScenes';
 import { readHdrTexture } from './support/imageMeasures';
+import { luminanceLinear } from './support/images';
 import {
     BoxGeometry,
     FogVolume,
+    Froxels,
+    FROXEL_RADIANCE_UNIT,
     graphArgument,
     NodeGraph,
     nodes,
@@ -31,17 +71,60 @@ import {
 import { materialGraph } from './support/materialScenes';
 import { noiseCellular3 } from '../elements/nodes/reference/noiseNodes';
 import {
+    coverageRingTexel,
+    coverageSample,
+    coverageTexelCenter,
+    coverageUsable,
+    coverageVolumeReader,
+    coverageWindow,
+    type CoverageLevels,
+} from '../elements/media/clouds/reference/cloudCoverageLevels';
+import {
+    altitude as altitudeOf,
     coneSunDepth,
     opticalDepth,
     shellSegments,
+    sphereSpan,
     coverageField,
     typeField,
+    cloudDensity,
     defaultShape,
     jdeParams,
     marchCloud,
     type CloudModel,
     type Vec3,
 } from '../elements/media/clouds/reference/cloudModel';
+import {
+    phaseTruncation,
+    scatterGridCenter,
+    scatterProbePosition,
+    scatterWalk,
+    type ScatterGrid,
+} from '../elements/media/clouds/reference/cloudScatter';
+import { deltaRng } from '../elements/lighting/reference/pathTracer';
+import {
+    CLOUD_SCATTER_PROBE_WORDS,
+    CLOUD_SUN_VOLUME_VALID_WORDS,
+    CLOUD_SUN_VOLUME_WORK_VALID,
+} from '../elements/media/clouds/schemas';
+import {
+    shadowColumnSun,
+    shadowFrameOf,
+    shadowLevel,
+    shadowPlane,
+    shadowKnotAt,
+    type ShadowAtlas,
+} from '../elements/media/clouds/reference/cloudShadowPages';
+import {
+    coriolis,
+    FREE_DRAG,
+    pressureStencil,
+    weatherAt,
+    anvilSource,
+    weatherClouds,
+    type WeatherParams,
+} from '../elements/media/clouds/reference/cloudWeather';
+import { luminance } from '../elements/math/reference/color';
 import {
     aerialPerspective,
     earthAtmosphere,
@@ -84,61 +167,57 @@ function ms(r: number, muS: number): Vec3 {
 
 const quantize = (v: number): number => Math.round(Math.min(1, Math.max(0, v)) * 255) / 255;
 
+/** O mapa de cobertura em níveis do quadro como a camada o empacota no uniforme (R21 rodada 19). */
+function coverageLevelsOf(layer: CloudLayer): CoverageLevels {
+    const p = layer.data.params[0]!;
+    return {
+        texel: p.coverageOffset![2]!,
+        levels: p.coveragePages![3]!,
+        eye: [p.coverageMap![0]!, p.coverageMap![1]!],
+    };
+}
+
 /** O modelo da referência com os volumes lidos da GPU e os valores da camada (a cobertura quantizada como no mapa). */
-async function referenceModel(s: CloudScene, layer: CloudLayer): Promise<CloudModel> {
+async function referenceModel(s: CloudScene, layer: CloudLayer, time = 0): Promise<CloudModel> {
     const shape = await readCloudVolume(s.app, layer, 'shape');
     const detail = await readCloudVolume(s.app, layer, 'detail');
+    // Com o tempo (R19) ou com a função de cobertura, o mapa de cobertura é o da GPU (a mesma representação dos dois lados;
+    // o mapa em si é conferido contra a referência do tempo no caso `pressure-wind` e contra a função no `user-graph`).
+    if (layer.weather !== undefined || layer.coverageFunction !== undefined)
+        return weatherReferenceModel(s, layer, shape, detail, time);
     const radii = s.sky.data.radii;
-    const half = layer.quality.coverageExtent / 2;
-    const MAP = 512;
-    // O centro do mapa: a câmera encaixada no texel (o empacotamento do `CloudNoiseFlow`).
-    const texel = (2 * half) / MAP;
-    const eye = s.camera.data.position;
-    const center = [
-        Math.round((eye[0] ?? 0) / texel) * texel,
-        Math.round((eye[2] ?? 0) / texel) * texel,
-    ];
-    const cache = new Map<number, [number, number]>();
-    const mapTexel = (x: number, z: number): [number, number] => {
-        const key = Math.round(x) * 1e7 + Math.round(z);
+    // O mapa de cobertura em níveis do quadro (o uniforme da camada) e, nos centros de texel, os campos quantizados a 8
+    // bits; a leitura pelos níveis como a GPU (`coverageSample`); fora do mapa, o campo no ponto.
+    const levels = coverageLevelsOf(layer);
+    const off = layer.data.params[0]!.coverageOffset!;
+    const cache = new Map<string, [number, number]>();
+    const c = layer.coverage;
+    const t = layer.type;
+    const texel = (k: number, i: number, j: number): [number, number] => {
+        const key = `${k}:${i}:${j}`;
         let v = cache.get(key);
         if (v === undefined) {
+            const [x, z] = coverageTexelCenter(levels, k, i, j);
             v = [quantize(coverageField(x, z, c, t)), quantize(typeField(x, z, t))];
             cache.set(key, v);
         }
         return v;
     };
-    const c = layer.coverage;
-    const t = layer.type;
+    // O anel de fora de cada janela leva o valor ao do nível seguinte, como o desenho da GPU.
+    const ringed = coverageRingTexel(levels, texel);
     const wind = layer.wind;
     const speed = Math.hypot(wind[0], wind[1]);
     return {
         groundRadius: ((radii[0] ?? 6360) + (radii[3] ?? 0.2)) * 1000,
         base: layer.base,
         top: layer.top,
-        // O campo da cobertura global como a GPU o lê: no mapa (512², centrado na câmera encaixada no texel), os
-        // centros de texel quantizados a 8 bits com filtro bilinear; fora dele, o campo no ponto.
         coverage: (x, z) => {
-            if (Math.abs(x - center[0]!) > half || Math.abs(z - center[1]!) > half)
-                return [coverageField(x, z, c, t), typeField(x, z, t), 1];
-            const fx = ((x - center[0]!) / (2 * half) + 0.5) * MAP - 0.5;
-            const fz = ((z - center[1]!) / (2 * half) + 0.5) * MAP - 0.5;
-            const x0 = Math.floor(fx);
-            const z0 = Math.floor(fz);
-            const at = (i: number, j: number): [number, number] => {
-                const ci = Math.min(MAP - 1, Math.max(0, i));
-                const cj = Math.min(MAP - 1, Math.max(0, j));
-                return mapTexel(
-                    center[0]! + ((ci + 0.5) / MAP - 0.5) * 2 * half,
-                    center[1]! + ((cj + 0.5) / MAP - 0.5) * 2 * half,
-                );
-            };
-            const ax = fx - x0;
-            const az = fz - z0;
-            const lerp = (k: 0 | 1): number =>
-                (at(x0, z0)[k] * (1 - ax) + at(x0 + 1, z0)[k] * ax) * (1 - az)
-                + (at(x0, z0 + 1)[k] * (1 - ax) + at(x0 + 1, z0 + 1)[k] * ax) * az;
-            return [lerp(0), lerp(1), 1];
+            const w: [number, number] = [x - off[0]!, z - off[1]!];
+            const v = coverageSample(levels, w, ringed, (p) => [
+                coverageField(p[0], p[1], c, t),
+                typeField(p[0], p[1], t),
+            ]);
+            return [v[0]!, v[1]!, 1];
         },
         density: layer.density,
         albedo: layer.albedo,
@@ -146,9 +225,63 @@ async function referenceModel(s: CloudScene, layer: CloudLayer): Promise<CloudMo
         detail,
         shapeScale: layer.shapeScale,
         detailScale: layer.detailScale,
-        shapeOffset: [0, 0, 0],
-        detailOffset: [0, 0, 0],
+        // Os deslocamentos do vento no tempo simulado do quadro (os casos de relógio parado: 0).
+        shapeOffset: layer.windOffsets(time).shape,
+        detailOffset: layer.windOffsets(time).detail,
         windDir: speed > 0 ? [wind[0] / speed, wind[1] / speed] : [1, 0],
+    };
+}
+
+/** O modelo da referência com o tempo: o mapa de cobertura lido da GPU (4 canais, bilinear) e, fora dele, o tempo bom. */
+async function weatherReferenceModel(
+    s: CloudScene,
+    layer: CloudLayer,
+    shape: CloudModel['shape'],
+    detail: CloudModel['detail'],
+    time: number,
+): Promise<CloudModel> {
+    const radii = s.sky.data.radii;
+    // Os deslocamentos do vento no tempo simulado (os casos de relógio parado: 0).
+    const offsets = layer.windOffsets(time);
+    const tex = s.app.resources.textureOf(layer, 'coverage');
+    if (tex === undefined) throw new Error('mapa de cobertura não alocado');
+    const map = await readTexture(s.app, tex, 'rgba8unorm');
+    // O mapa em níveis lido da GPU (4 canais, bilinear pelos níveis como a GPU); fora dele, o tempo bom.
+    const levels = coverageLevelsOf(layer);
+    const off = layer.data.params[0]!.coverageOffset!;
+    const read = coverageVolumeReader(map.data, 4);
+    const c = layer.coverage;
+    const t = layer.type;
+    const fairTop = Math.min(1, (layer.top - layer.base) / (layer.shellTop - layer.base));
+    const wind = layer.wind;
+    const speed = Math.hypot(wind[0], wind[1]);
+    return {
+        groundRadius: ((radii[0] ?? 6360) + (radii[3] ?? 0.2)) * 1000,
+        base: layer.base,
+        top: layer.shellTop,
+        coverage: (x, z) => {
+            const w: [number, number] = [x - off[0]!, z - off[1]!];
+            const v = coverageSample(levels, w, read, (p) =>
+                layer.weather === undefined
+                    ? [coverageField(p[0], p[1], c, t), typeField(p[0], p[1], t), 1, 0]
+                    : [coverageField(p[0], p[1], c, t), typeField(p[0], p[1], t), 0, fairTop],
+            );
+            // Sem o tempo (a função de cobertura): cobertura, tipo e densidade relativa.
+            if (layer.weather === undefined) return [v[0]!, v[1]!, v[2]!];
+            return [v[0]!, v[1]!, v[2]!, v[3]!];
+        },
+        density: layer.density,
+        albedo: layer.albedo,
+        shape,
+        detail,
+        shapeScale: layer.shapeScale,
+        detailScale: layer.detailScale,
+        shapeOffset: offsets.shape,
+        detailOffset: offsets.detail,
+        windDir: speed > 0 ? [wind[0] / speed, wind[1] / speed] : [1, 0],
+        ...(layer.weather === undefined
+            ? {}
+            : { weather: { fairTop, anvilOffset: offsets.anvil } }),
     };
 }
 
@@ -257,7 +390,122 @@ async function caseAmbient(): Promise<void> {
     finish(s);
 }
 
+/**
+ * A luz das sondas do cache de espalhamento como a marcha da GPU a lê (T023): a fatia do quadro lida da GPU (a mesma
+ * representação dos dois lados; as sondas são conferidas contra os caminhos da referência no caso `scatter-cache`),
+ * interpolada como o amostrador (trilinear, borda presa) na soma pré-multiplicada, misturada à estimativa local pelo
+ * peso `CLOUD_SCATTER_PRIOR`. Fora da grade, a estimativa local.
+ */
+async function scatterLookupOf(
+    s: CloudScene,
+    layer: CloudLayer,
+    model: CloudModel,
+): Promise<{ kT: number; light: (x: Vec3, prior: Vec3) => Vec3 } | undefined> {
+    // O cache que a marcha lê: a fatia do quadro filtrada no espaço (binomial 3 × 3 × 3).
+    const tex = s.app.resources.textureOf(layer, 'scatterFiltered');
+    if (tex === undefined) return undefined;
+    const grid = await readTexture(s.app, tex, 'rgba16float');
+    // As duas partes (T074): a do sol por unidade da luz do sol que chega ao ponto e a contagem na metade de baixo, a do
+    // céu por unidade da irradiância do céu na de cima; de volta à unidade da cena pelo sol e o céu do quadro.
+    const E = s.sky.data.sunIlluminance;
+    const amb = s.app.resources.textureOf(layer, 'ambient');
+    const up = amb === undefined ? [0, 0, 0] : (await readTexture(s.app, amb, 'rgba16float')).data;
+    const sd = s.sky.data.sunDirection;
+    const sl = Math.hypot(sd[0] ?? 0, sd[1] ?? 1, sd[2] ?? 0);
+    const sunDir: Vec3 = [(sd[0] ?? 0) / sl, (sd[1] ?? 1) / sl, (sd[2] ?? 0) / sl];
+    const R = model.groundRadius;
+    const atm = (x: Vec3): Vec3 => {
+        const r = Math.hypot(x[0], x[1] + R, x[2]);
+        const mu = (x[0] * sunDir[0] + (x[1] + R) * sunDir[1] + x[2] * sunDir[2]) / r;
+        return transmittanceToTop(atmosphere, atmosphere.bottomRadius + 0.2 + (r - R) / 1000, mu);
+    };
+    const eye = s.camera.data.position;
+    // A grade no referencial das nuvens (`scatterGridCenter`): a câmera menos o deslocamento do vento, encaixada.
+    const offset = layer.windOffsets(s.app.time.simulated).coverage;
+    const [cx, cz] = scatterGridCenter(
+        [eye[0] ?? 0, eye[2] ?? 0],
+        [offset[0], offset[1]],
+        CLOUD_SCATTER_SNAP,
+    );
+    const reach = Math.asinh(CLOUD_SCATTER_EXTENT / CLOUD_SCATTER_NEAR);
+    const size = [grid.width, grid.height / 2, grid.depth];
+    const trunc = phaseTruncation(jdeParams(layer.dropletDiameter));
+    // O índice na textura inteira (as duas metades na altura).
+    const at = (i: number, j: number, k: number, c: number): number =>
+        grid.data[((k * grid.height + j) * size[0]! + i) * 4 + c]!;
+    return {
+        kT: 1 - model.albedo * trunc.fc,
+        light: (x, prior) => {
+            const u = (Math.asinh((x[0] - cx) / CLOUD_SCATTER_NEAR) / reach + 1) / 2;
+            const w = (Math.asinh((x[2] - cz) / CLOUD_SCATTER_NEAR) / reach + 1) / 2;
+            if (u < 0 || u > 1 || w < 0 || w > 1) return prior;
+            const h = Math.min(
+                1,
+                Math.max(0, (altitudeOf(model, x) - model.base) / (model.top - model.base)),
+            );
+            // A altitude presa a meio texel dentro de cada metade, como a GPU.
+            const fy = Math.min(Math.max(h * size[1]!, 0.5), size[1]! - 0.5) - 0.5;
+            const f = [u * size[0]! - 0.5, fy, w * size[2]! - 0.5];
+            const b = f.map(Math.floor);
+            const q = [0, 0, 0, 0];
+            const k2 = [0, 0, 0];
+            for (let dz = 0; dz < 2; dz++)
+                for (let dy = 0; dy < 2; dy++)
+                    for (let dx = 0; dx < 2; dx++) {
+                        const wt =
+                            (dx ? f[0]! - b[0]! : 1 - f[0]! + b[0]!)
+                            * (dy ? f[1]! - b[1]! : 1 - f[1]! + b[1]!)
+                            * (dz ? f[2]! - b[2]! : 1 - f[2]! + b[2]!);
+                        const i = Math.min(size[0]! - 1, Math.max(0, b[0]! + dx));
+                        const j = Math.min(size[1]! - 1, Math.max(0, b[1]! + dy));
+                        const k = Math.min(size[2]! - 1, Math.max(0, b[2]! + dz));
+                        for (let c = 0; c < 4; c++) q[c]! += wt * at(i, j, k, c);
+                        for (let c = 0; c < 3; c++) k2[c]! += wt * at(i, j + size[1]!, k, c);
+                    }
+            const n0 = CLOUD_SCATTER_PRIOR;
+            const t = atm(x);
+            return [0, 1, 2].map(
+                (c) =>
+                    (q[c]! * (E[c] ?? 1) * Math.max(t[c]!, 1e-3)
+                        + k2[c]! * Math.max(up[c]!, 1e-9)
+                        + n0 * prior[c]!)
+                    / (Math.max(q[3]!, 0) + n0),
+            ) as unknown as Vec3;
+        },
+    };
+}
+
 // ── noon ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** O passo (m) da integral da visibilidade do sol no ar da referência (convergida a 0,1 % com o sol a 4°). */
+const VISIBILITY_STEP = 150;
+/** A profundidade ótica acima da qual a visibilidade do sol no ar da referência é zero (e^(−16) < 10⁻⁷). */
+const VISIBILITY_TAU_CAP = 16;
+
+/**
+ * A profundidade ótica das nuvens de `p` até o sol na visibilidade do ar da referência: por trecho da casca, passos de
+ * `VISIBILITY_STEP` m (ao menos 32); `steps` > 0 fixa os passos. Com 32 passos fixos o trecho de ~36 km até o sol a 4°
+ * ficava com passos de 1,1 km, e a média de `e^(−τ)` ao longo do raio de vista saía clara demais (o erro de amostragem de
+ * τ clareia, Jensen): na vista estreita do `sunset` (8°), a região mais escura 9,16 nits com 32 passos, 8,10 com 64, 7,88
+ * com 128, 7,81 com 256 e 7,80 com 1024 (rodada 14). Com o sol alto o trecho tem ~3 km: os mesmos 32 passos de antes.
+ */
+function visibilityDepth(model: CloudModel, p: Vec3, sun: Vec3, steps: number): number {
+    let tau = 0;
+    // Além de τ = 16 (e^(−τ) < 10⁻⁷) o resto da coluna não muda a visibilidade: a marcha para (o custo da referência com o
+    // sol baixo era o das colunas que cruzam os cúmulos inteiros).
+    const cap = VISIBILITY_TAU_CAP / model.density;
+    for (const [a, b] of shellSegments(model, p, sun, Infinity)) {
+        const n = steps > 0 ? steps : Math.max(32, Math.ceil((b - a) / VISIBILITY_STEP));
+        const dt = (b - a) / n;
+        for (let i = 0; i < n; i++) {
+            const t = a + (i + 0.5) * dt;
+            tau +=
+                cloudDensity(model, [p[0] + sun[0] * t, p[1] + sun[1] * t, p[2] + sun[2] * t]) * dt;
+            if (tau > cap) return tau * model.density;
+        }
+    }
+    return tau * model.density;
+}
 
 /** Compara a nuvem aumentada (`view`) com a marcha de referência num conjunto de regiões. */
 async function compareView(
@@ -269,10 +517,12 @@ async function compareView(
     sunElevation: number,
     cone = false,
     sunAzimuth = 0,
+    frames = 48,
 ): Promise<{ worstT: number; worstL: number; edgeRatio: number }> {
     const layer = s.layer!;
     const w = s.canvas.width;
     const h = s.canvas.height;
+    const marchScale = layer.quality.marchScale;
     const t = s.app.resources.textureOf(layer, 'view');
     const amb = s.app.resources.textureOf(layer, 'ambient');
     if (t === undefined || amb === undefined)
@@ -280,7 +530,7 @@ async function compareView(
     // A imagem convergida: a média de 48 quadros seguidos da nuvem apresentada (o ruído do deslocamento inicial da
     // marcha, que a média temporal integra, é medido à parte como cintilação no smoke `antialiasing`). Num quadro só,
     // a faixa de nuvens de 2–4 px rente ao horizonte variava a região até 12 % (`sunset`); com 48, ≤ 5 %.
-    const FRAMES = Number(new URLSearchParams(location.search).get('frames') ?? 48);
+    const FRAMES = Number(new URLSearchParams(location.search).get('frames') ?? frames);
     const first = await readTexture(s.app, t, 'rgba16float');
     const acc = new Float32Array(first.data.length);
     for (let k = 0; k < acc.length; k++) acc[k] = first.data[k]! / FRAMES;
@@ -290,8 +540,33 @@ async function compareView(
         for (let k = 0; k < acc.length; k++) acc[k]! += v.data[k]! / FRAMES;
     }
     const view = { ...first, data: acc };
+    // Diagnóstico (`?dump=W`): a luz apresentada (rgb, nits) em blocos de W × W·h/w, para comparar fora da página com o
+    // traçador.
+    const dump = Number(new URLSearchParams(location.search).get('dump') ?? 0);
+    if (dump > 0) {
+        const dh = Math.round((dump * h) / w);
+        const out: number[][] = [];
+        for (let by = 0; by < dh; by++)
+            for (let bx = 0; bx < dump; bx++) {
+                const c = [0, 0, 0, 0];
+                let n = 0;
+                for (let py = Math.floor((by * h) / dh); py < Math.floor(((by + 1) * h) / dh); py++)
+                    for (
+                        let px = Math.floor((bx * w) / dump);
+                        px < Math.floor(((bx + 1) * w) / dump);
+                        px++
+                    ) {
+                        const o = (py * w + px) * 4;
+                        for (let k = 0; k < 4; k++) c[k]! += view.data[o + k]!;
+                        n++;
+                    }
+                out.push(c.map((v) => +(v / n).toFixed(3)));
+            }
+        log(`${label}: blocos ${JSON.stringify(out)}`);
+    }
     const ambient = await readTexture(s.app, amb, 'rgba16float');
     const model = await referenceModel(s, layer);
+    const scatter = await scatterLookupOf(s, layer, model);
     const sun = sunToward(sunElevation, sunAzimuth);
     const lux = s.sun.data.intensity;
     const sunT = sunTransmittance(atmosphere, 0.2 + (layer.base + layer.top) / 2000, sun);
@@ -315,6 +590,8 @@ async function compareView(
         }
         return v;
     };
+    // Diagnóstico (`?vis=n`): passos fixos da visibilidade do sol no ar da referência (sem: pelo comprimento do trecho).
+    const visSteps = Number(new URLSearchParams(location.search).get('vis') ?? 0);
     // Diagnóstico (`?amb=k`): o ambiente da referência × k.
     const ambK = Number(new URLSearchParams(location.search).get('amb') ?? 1);
     const light = {
@@ -323,123 +600,216 @@ async function compareView(
         sun: [sunT[0] * lux, sunT[1] * lux, sunT[2] * lux] as Vec3,
         ambientUp: [0, 1, 2].map((c) => ambient.data[c]! * ambK) as unknown as Vec3,
         ambientDown: [4, 5, 6].map((c) => ambient.data[c]! * ambK) as unknown as Vec3,
+        ...(scatter === undefined ? {} : { scatter }),
     };
     const phase = jdeParams(layer.dropletDiameter);
     const octaves = { count: layer.quality.octaves, ...CLOUD_OCTAVES };
-    // Regiões de 60 × 68 px a 480 × 270: a média por região da SC-001 (o aumento de ¼ borra a borda em ~4 px).
+    // Regiões de 60 × 68 px a 480 × 270: a média por região da SC-001. A nuvem da GPU é a do alvo reconstruído (um texel
+    // por `marchScale`² pixels: ¼ da tela no perfil alto) aumentada pela bilinear com o peso da superfície
+    // (`cloud_upsample`): o pixel da tela é a média ponderada dos 4 texels vizinhos, e cada texel guarda a média da área
+    // dele (`cloud_previous_uv`). A referência compara na mesma representação (T055, rodada 21): por texel, a média dos
+    // raios na área dele; por região, os texels pesados como o aumento os pesa nos pixels da região. Na imagem nítida, a
+    // faixa clara de 1–2 px rente ao horizonte (as nuvens a 50–100 km, `sunset`) que cai na borda de uma região passava em
+    // parte à vizinha pelo aumento (perfil por linha de pixel da GPU igual ao da referência reduzida a ¼ e aumentada) —
+    // a resolução do perfil, não a luz. O erro contra a imagem nítida vai no registro (`nítida`).
     const cols = 8;
     const rows = 4;
+    const S = marchScale;
+    const marchTex = s.app.resources.textureOf(layer, 'march');
+    const tw = marchTex?.width ?? Math.ceil(w / S);
+    const th = marchTex?.height ?? Math.ceil(h / S);
+    // Os raios por texel: 1 (S²/4 no perfil baixo); nas linhas de texel rente ao horizonte (0–3° de elevação) a faixa das
+    // nuvens a 100 km tem 2–4 px de altura: 2 raios por linha de pixel.
+    const mx = Math.max(1, S / 2);
+    const sin3 = Math.sin((3 * Math.PI) / 180);
+    const texels = new Map<
+        number,
+        {
+            rgb: Vec3;
+            t: number;
+            depth: number;
+            raw: number;
+            air: number;
+            inside: { x: number; y: number; l: number; a: number }[];
+        }
+    >();
+    const texelOf = async (qx: number, qy: number) => {
+        const key = qy * tw + qx;
+        const known = texels.get(key);
+        if (known !== undefined) return known;
+        const elevAt = (py: number): number =>
+            pixelDir(qx * S + S / 2 - 0.5, py, w, h, eye, target, fov)[1];
+        const horizon = elevAt(qy * S + S - 0.5) < sin3 && elevAt(qy * S - 0.5) > -0.02;
+        const my = horizon ? 2 * S : mx;
+        const nn = mx * my;
+        let rgbSum = [0, 0, 0];
+        let tSum = 0;
+        let depthSum = 0;
+        let rawSum = 0;
+        let airSum = 0;
+        const inside: { x: number; y: number; l: number; a: number }[] = [];
+        // A referência de um texel rente ao horizonte leva dezenas de ms: cede ao navegador (o executor lê o registro).
+        if (horizon || key % 64 === 0) await new Promise((r) => setTimeout(r, 0));
+        for (let sy = 0; sy < my; sy++)
+            for (let sx = 0; sx < mx; sx++) {
+                const px = qx * S - 0.5 + ((sx + 0.5) / mx) * S;
+                const py = qy * S - 0.5 + ((sy + 0.5) / my) * S;
+                const d = pixelDir(px, py, w, h, eye, target, fov);
+                // O ângulo do pixel da marcha da GPU (S pixels da tela): a pegada do detalhe na amostra da vista.
+                const side = pixelDir(px + marchScale, py, w, h, eye, target, fov);
+                const pixel = Math.hypot(side[0] - d[0], side[1] - d[1], side[2] - d[2]);
+                const r = marchCloud(
+                    model,
+                    eye,
+                    d,
+                    Infinity,
+                    cone ? { ...light, sunDepth: (x) => coneSunDepth(model, x, sun) } : light,
+                    phase,
+                    octaves,
+                    256,
+                    64,
+                    pixel,
+                );
+                let c: Vec3 = r.scattered;
+                if (r.transmittance < 1) {
+                    // A atmosfera na frente da nuvem com a sombra das nuvens no ar (R18, os raios crepusculares): o
+                    // ponto do caminho (km do centro do planeta, a câmera em (0, R + altitude, 0)) volta ao da cena
+                    // pela distância percorrida, e a luz simples ali × a transmitância das nuvens até o sol.
+                    const alt = 0.2 + eye[1] / 1000;
+                    const visibility = (x: Vec3): number => {
+                        const t =
+                            Math.hypot(x[0], x[1] - (atmosphere.bottomRadius + alt), x[2]) * 1000;
+                        const p: Vec3 = [eye[0] + d[0] * t, eye[1] + d[1] * t, eye[2] + d[2] * t];
+                        return Math.exp(-visibilityDepth(model, p, sun, visSteps));
+                    };
+                    const a = aerialPerspective(
+                        atmosphere,
+                        alt,
+                        d,
+                        sun,
+                        r.depth / 1000,
+                        48,
+                        ms,
+                        visibility,
+                    );
+                    airSum +=
+                        ((1 - r.transmittance)
+                            * lux
+                            * (a.scattered[0] + a.scattered[1] + a.scattered[2]))
+                        / (3 * nn);
+                    c = [0, 1, 2].map(
+                        (k) =>
+                            c[k]! * a.transmittance[k]!
+                            + (1 - r.transmittance) * a.scattered[k]! * lux,
+                    ) as unknown as Vec3;
+                }
+                rgbSum = rgbSum.map((v, k) => v + c[k]! / nn);
+                tSum += r.transmittance / nn;
+                depthSum += (Number.isFinite(r.depth) ? r.depth : 0) / nn;
+                rawSum += (r.scattered[0] + r.scattered[1] + r.scattered[2]) / (3 * nn);
+                inside.push({
+                    x: Math.floor(px + 0.5),
+                    y: Math.floor(py + 0.5),
+                    l: (c[0] + c[1] + c[2]) / 3,
+                    // A fração da área do texel que o raio representa.
+                    a: 1 / nn,
+                });
+            }
+        const v = {
+            rgb: rgbSum as unknown as Vec3,
+            t: tSum,
+            depth: depthSum,
+            raw: rawSum,
+            air: airSum,
+            inside,
+        };
+        texels.set(key, v);
+        return v;
+    };
     let worstT = 0;
     let worstL = 0;
+    let worstSharp = 0;
     let peak = 0;
     const samples: {
         gT: number;
         rT: number;
         gL: number;
         rL: number;
+        sharp: number;
         depth: number;
         raw: number;
         air: number;
+        at: string;
     }[] = [];
     for (let j = 0; j < rows; j++)
         for (let i = 0; i < cols; i++) {
-            // A região (o bloco da grade): a média de todos os pixels da GPU e a de 32 × 32 raios da referência nele.
+            // A região (o bloco da grade): a média de todos os pixels da GPU e a dos texels da referência pesados como o
+            // aumento os pesa nos pixels dela.
             const x0 = Math.floor((i / cols) * w);
             const x1 = Math.floor(((i + 1) / cols) * w);
             const y0 = Math.floor((j / rows) * h);
             const y1 = Math.floor(((j + 1) / rows) * h);
-            let rgbSum = [0, 0, 0];
-            let rTSum = 0;
-            let depthSum = 0;
-            let rawSum = 0;
-            let airSum = 0;
             let gL = 0;
             let gT = 0;
+            const weights = new Map<number, number>();
+            const N = (x1 - x0) * (y1 - y0);
             for (let py = y0; py < y1; py++)
                 for (let px = x0; px < x1; px++) {
                     const o = (py * w + px) * 4;
                     gL += (view.data[o]! + view.data[o + 1]! + view.data[o + 2]!) / 3;
                     gT += view.data[o + 3]!;
-                }
-            gL /= (x1 - x0) * (y1 - y0);
-            gT /= (x1 - x0) * (y1 - y0);
-            // 32 × 32 raios por região: com 16 × 16, a média da referência numa região com borda de nuvem ou com a faixa
-            // fina do horizonte errava ela mesma (`far-cloud`, a mesma imagem da GPU: pior transmitância 0,027 → 0,007,
-            // pior luz 5,1 → 2,9 % com 32 × 32).
-            // Na região que contém o horizonte (rente a ele, a 0–3° de elevação), a faixa das nuvens a 100 km tem 2–4 px de
-            // altura: 2 raios por linha de pixel (com 32 linhas, a área da faixa na referência errava até a metade).
-            const n = 32;
-            const elev = (py: number): number =>
-                pixelDir((x0 + x1) / 2, py, w, h, eye, target, fov)[1];
-            const horizon = elev(y1) < Math.sin((3 * Math.PI) / 180) && elev(y0) > -0.02;
-            const ny = horizon ? 2 * (y1 - y0) : n;
-            const nn = n * ny;
-            // A referência de uma região leva segundos: o laço cede ao navegador (o executor lê o registro da página).
-            await new Promise((r) => setTimeout(r, 0));
-            for (let sy = 0; sy < ny; sy++)
-                for (let sx = 0; sx < n; sx++) {
-                    const px = x0 + ((sx + 0.5) / n) * (x1 - x0) - 0.5;
-                    const py = y0 + ((sy + 0.5) / ny) * (y1 - y0) - 0.5;
-                    const d = pixelDir(px, py, w, h, eye, target, fov);
-                    const r = marchCloud(
-                        model,
-                        eye,
-                        d,
-                        Infinity,
-                        cone ? { ...light, sunDepth: (x) => coneSunDepth(model, x, sun) } : light,
-                        phase,
-                        octaves,
-                        256,
-                        64,
-                    );
-                    let c: Vec3 = r.scattered;
-                    if (r.transmittance < 1) {
-                        const a = aerialPerspective(
-                            atmosphere,
-                            0.2 + eye[1] / 1000,
-                            d,
-                            sun,
-                            r.depth / 1000,
-                            48,
-                            ms,
-                        );
-                        airSum +=
-                            ((1 - r.transmittance)
-                                * lux
-                                * (a.scattered[0] + a.scattered[1] + a.scattered[2]))
-                            / (3 * nn);
-                        c = [0, 1, 2].map(
-                            (k) =>
-                                c[k]! * a.transmittance[k]!
-                                + (1 - r.transmittance) * a.scattered[k]! * lux,
-                        ) as unknown as Vec3;
+                    // Os 4 texels do aumento (`cloud_upsample`: o centro do pixel no alvo reconstruído, presos à borda).
+                    const cx = (px + 0.5) / S - 0.5;
+                    const cy = (py + 0.5) / S - 0.5;
+                    const bx = Math.floor(cx);
+                    const by = Math.floor(cy);
+                    for (let k = 0; k < 4; k++) {
+                        const ox = k & 1;
+                        const oy = k >> 1;
+                        const wgt = (ox ? cx - bx : 1 - (cx - bx)) * (oy ? cy - by : 1 - (cy - by));
+                        if (wgt <= 0) continue;
+                        const qx = Math.min(Math.max(bx + ox, 0), tw - 1);
+                        const qy = Math.min(Math.max(by + oy, 0), th - 1);
+                        const key = qy * tw + qx;
+                        weights.set(key, (weights.get(key) ?? 0) + wgt / N);
                     }
-                    rgbSum = rgbSum.map((v, k) => v + c[k]! / nn);
-                    rTSum += r.transmittance / nn;
-                    depthSum += (Number.isFinite(r.depth) ? r.depth : 0) / nn;
-                    rawSum += (r.scattered[0] + r.scattered[1] + r.scattered[2]) / (3 * nn);
                 }
-            const rgb = rgbSum as unknown as Vec3;
-            const r = {
-                transmittance: rTSum,
-                depth: depthSum,
-                scattered: [rawSum, rawSum, rawSum] as Vec3,
-            };
-            const rL = (rgb[0] + rgb[1] + rgb[2]) / 3;
+            gL /= N;
+            gT /= N;
+            const ref = { rgb: [0, 0, 0], t: 0, depth: 0, raw: 0, air: 0 };
+            let sharpL = 0;
+            let sharpN = 0;
+            for (const [key, wgt] of weights) {
+                const v = await texelOf(key % tw, Math.floor(key / tw));
+                for (let k = 0; k < 3; k++) ref.rgb[k]! += v.rgb[k]! * wgt;
+                ref.t += v.t * wgt;
+                ref.depth += v.depth * wgt;
+                ref.raw += v.raw * wgt;
+                ref.air += v.air * wgt;
+                for (const r of v.inside)
+                    if (r.x >= x0 && r.x < x1 && r.y >= y0 && r.y < y1) {
+                        sharpL += r.l * r.a;
+                        sharpN += r.a;
+                    }
+            }
+            const rL = (ref.rgb[0]! + ref.rgb[1]! + ref.rgb[2]!) / 3;
             peak = Math.max(peak, rL);
             samples.push({
                 gT,
-                rT: r.transmittance,
+                rT: ref.t,
                 gL,
                 rL,
-                depth: r.depth,
-                raw: (r.scattered[0] + r.scattered[1] + r.scattered[2]) / 3,
-                air: airSum,
+                sharp: sharpN > 0 ? sharpL / sharpN : rL,
+                depth: ref.depth,
+                raw: ref.raw,
+                air: ref.air,
+                at: `[${i},${j}]`,
             });
         }
     for (const x of samples) {
         worstT = Math.max(worstT, Math.abs(x.gT - x.rT));
         worstL = Math.max(worstL, Math.abs(x.gL - x.rL) / Math.max(x.rL, 0.1 * peak));
+        worstSharp = Math.max(worstSharp, Math.abs(x.gL - x.sharp) / Math.max(x.sharp, 0.1 * peak));
     }
     const cloudy = samples.filter((x) => x.rT < 0.95).length;
     // A razão da região mais clara pela mediana das regiões de nuvem espessa (o brilho da borda contra o sol), da
@@ -466,10 +836,10 @@ async function compareView(
         .sort((a, b) => Math.abs(b.gL / b.rL - 1) - Math.abs(a.gL / a.rL - 1))
         .slice(0, 4))
         log(
-            `${label}:   GPU ${x.gL.toFixed(2)} ref ${x.rL.toFixed(2)} (sem a atmosfera ${x.raw.toFixed(2)}, ar ${x.air.toFixed(2)}), T ${x.gT.toFixed(3)}/${x.rT.toFixed(3)}, nuvem a ${(x.depth / 1000).toFixed(1)} km`,
+            `${label}:   ${x.at} GPU ${x.gL.toFixed(2)} ref ${x.rL.toFixed(2)} (nítida ${x.sharp.toFixed(2)}; sem a atmosfera ${x.raw.toFixed(2)}, ar ${x.air.toFixed(2)}), T ${x.gT.toFixed(3)}/${x.rT.toFixed(3)}, nuvem a ${(x.depth / 1000).toFixed(1)} km`,
         );
     log(
-        `${label}: ${samples.length} regiões (${cloudy} com nuvem): pior transmitância ${worstT.toFixed(3)}, pior luz ${(worstL * 100).toFixed(1)} % (pico de referência ${peak.toFixed(1)} nits)`,
+        `${label}: ${samples.length} regiões (${cloudy} com nuvem): pior transmitância ${worstT.toFixed(3)}, pior luz ${(worstL * 100).toFixed(1)} % (contra a imagem nítida ${(worstSharp * 100).toFixed(1)} %; pico de referência ${peak.toFixed(1)} nits)`,
     );
     log(`${label}: razão borda/centro GPU sobre a referência ${edgeRatio.toFixed(3)}`);
     return { worstT, worstL, edgeRatio };
@@ -488,7 +858,8 @@ async function caseNoon(): Promise<void> {
         target,
         fov,
     });
-    await settleFrames(s.app, 90);
+    // O cache de espalhamento converge com os caminhos (`?settle=` para os diagnósticos).
+    await settleFrames(s.app, Number(new URLSearchParams(location.search).get('settle') ?? 600));
     const r = await compareView(s, 'noon', eye, target, fov, 60);
     if (new URLSearchParams(location.search).get('cone') === '1')
         await compareView(s, 'noon (cone)', eye, target, fov, 60, true);
@@ -503,89 +874,720 @@ async function caseNoon(): Promise<void> {
     finish(s);
 }
 
+// ── scatter-cache ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * O cache de espalhamento (T023): as sondas da GPU (a média dos caminhos de cada uma, depois de convergir com a câmera
+ * parada) contra a média de caminhos da referência f64 nas mesmas sondas (`scatterWalk` sobre os volumes lidos da GPU,
+ * a profundidade ótica exata até o sol, o céu e o sol da atmosfera f64, o chão com a sombra das nuvens). Mede a razão
+ * das somas (o viés) e a dispersão por sonda contra a esperada do ruído das duas médias.
+ */
+async function caseScatterCache(): Promise<void> {
+    const q = new URLSearchParams(location.search);
+    const eye: Vec3 = [0, 2, 0];
+    const target: Vec3 = [1000, 700, 300];
+    const s = await cloudScene({
+        width: 480,
+        height: 270,
+        sunElevation: 60,
+        clouds: { coverage: 0.5, type: 0.5, wind: [0, 0] },
+        eye,
+        target,
+        fov: Math.PI / 3,
+    });
+    await settleFrames(s.app, Number(q.get('settle') ?? 900));
+    const layer = s.layer!;
+    const amb = s.app.resources.textureOf(layer, 'ambient');
+    if (amb === undefined) throw new Error('scatter-cache: cache não alocado');
+    const grid = await readScatterCache(s.app, layer);
+    const ambient = await readTexture(s.app, amb, 'rgba16float');
+    const model = await referenceModel(s, layer);
+    const sun = sunToward(60);
+    const lux = s.sun.data.intensity;
+    const R = model.groundRadius;
+    const sunAt = (x: Vec3): Vec3 => {
+        const r = Math.hypot(x[0], x[1] + R, x[2]);
+        const mu = (x[0] * sun[0] + (x[1] + R) * sun[1] + x[2] * sun[2]) / r;
+        const t = transmittanceToTop(
+            atmosphere,
+            atmosphere.bottomRadius + 0.2 + (r - R) / 1000,
+            mu,
+        );
+        return [t[0] * lux, t[1] * lux, t[2] * lux];
+    };
+    // O céu da GPU é a vista do céu na altitude da câmera.
+    const skyCache = new Map<number, Vec3>();
+    const sky = (d: Vec3): Vec3 => {
+        const key =
+            Math.round((d[1] + 1) * 32) * 4096
+            + Math.round((Math.atan2(d[2], d[0]) + Math.PI) * 32);
+        let v = skyCache.get(key);
+        if (v === undefined) {
+            const L = skyRadiance(atmosphere, 0.2 + eye[1] / 1000, d, sun, 48, ms);
+            v = [L[0] * lux, L[1] * lux, L[2] * lux];
+            skyCache.set(key, v);
+        }
+        return v;
+    };
+    const phase = jdeParams(layer.dropletDiameter);
+    const trunc = phaseTruncation(phase);
+    const kT = 1 - model.albedo * trunc.fc;
+    const ground = s.sky.data.ground;
+    const up = [0, 1, 2].map((c) => ambient.data[c]!);
+    const sunDepth = (x: Vec3): number => opticalDepth(model, x, sun, 48);
+    const light = {
+        sunDir: sun,
+        sunAt,
+        sunDepth,
+        sky,
+        ground: (pg: Vec3): Vec3 => {
+            const e = sunAt([pg[0], 0, pg[2]]);
+            const t = Math.exp(-sunDepth(pg) * kT) * Math.max(sun[1], 0);
+            return [0, 1, 2].map(
+                (c) => (ground[c] ?? 0.3) * ((e[c]! * t) / Math.PI + up[c]!),
+            ) as unknown as Vec3;
+        },
+    };
+    const size = [grid.width, grid.height, grid.depth] as const;
+    const g: ScatterGrid = { size, center: [0, 0], x0: 2000, reach: Math.asinh(32) };
+    // As sondas convergidas (≥ 48 caminhos) no campo de visão, espalhadas.
+    const fwd = [target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]];
+    const fl = Math.hypot(...fwd);
+    const picks: { x: Vec3; n: number; v: number }[] = [];
+    const total = size[0] * size[1] * size[2];
+    const W = CLOUD_SCATTER_PROBE_WORDS;
+    const Es = s.sky.data.sunIlluminance;
+    {
+        let walked = 0;
+        let full = 0;
+        let most = 0;
+        const hist = [0, 0, 0, 0, 0, 0, 0, 0];
+        for (let i = 0; i < total; i++) {
+            const n = grid.data[i * W + 3]!;
+            if (n > 0) walked++;
+            if (n >= 48) full++;
+            hist[Math.min(7, Math.floor(n / 8))]!++;
+            most = Math.max(most, n);
+        }
+        log(
+            `scatter-cache: sondas com caminhos ${walked} de ${total}, ≥ 48: ${full}, maior contagem ${most.toFixed(1)}; por oitavos da janela ${hist.join(' ')}`,
+        );
+    }
+    for (let i = 0; i < total && picks.length < Number(q.get('probes') ?? 120); i += 397) {
+        const n = grid.data[i * W + 3]!;
+        if (n < 48) continue;
+        const gi = i % size[0];
+        const gj = Math.floor(i / size[0]) % size[1];
+        const gk = Math.floor(i / (size[0] * size[1]));
+        const x = scatterProbePosition(model, g, gi, gj, gk);
+        const rel = [x[0] - eye[0], x[1] - eye[1], x[2] - eye[2]];
+        const dist = Math.hypot(...rel);
+        if (
+            dist > 15_000
+            || (rel[0] * fwd[0]! + rel[1] * fwd[1]! + rel[2] * fwd[2]!) / (dist * fl) < 0.5
+        )
+            continue;
+        // As duas partes de volta à unidade da cena (T074): o sol pela luz que chega à sonda, o céu pela irradiância.
+        const t = sunAt(x);
+        const sum = luminance(
+            [0, 1, 2].map(
+                (c) =>
+                    grid.data[i * W + c]! * (Es[c] ?? lux) * Math.max(t[c]! / lux, 1e-3)
+                    + grid.data[i * W + 4 + c]! * Math.max(up[c]!, 1e-9),
+            ) as unknown as Vec3,
+        );
+        picks.push({ x, n, v: sum / n });
+    }
+    const walks = Number(q.get('walks') ?? 1000);
+    let sumG = 0;
+    let sumR = 0;
+    const ratios: number[] = [];
+    for (const [k, p] of picks.entries()) {
+        await new Promise((r) => setTimeout(r, 0));
+        const rel = [p.x[0] - eye[0], p.x[1] - eye[1], p.x[2] - eye[2]];
+        const l = Math.hypot(...rel);
+        const dcam: Vec3 = [rel[0]! / l, rel[1]! / l, rel[2]! / l];
+        let acc = 0;
+        for (let w = 0; w < walks; w++) {
+            const L = scatterWalk(
+                model,
+                p.x,
+                dcam,
+                light,
+                phase,
+                trunc,
+                deltaRng(k * 100_003 + 17, w),
+                48,
+                256,
+            );
+            acc += luminance(L);
+        }
+        const ref = acc / walks;
+        sumG += p.v;
+        sumR += ref;
+        ratios.push(p.v / ref);
+    }
+    ratios.sort((a, b) => a - b);
+    const bias = sumG / Math.max(sumR, 1e-12);
+    log(
+        `scatter-cache: ${picks.length} sondas (≥ 48 caminhos na GPU, ${walks} na referência): razão das somas GPU/referência ${bias.toFixed(3)}; por sonda mín ${ratios[0]?.toFixed(3)} mediana ${ratios[Math.floor(ratios.length / 2)]?.toFixed(3)} máx ${ratios.at(-1)?.toFixed(3)}`,
+    );
+    check(picks.length >= 60, `scatter-cache: só ${picks.length} sondas convergidas`);
+    check(
+        Math.abs(bias - 1) <= 0.05,
+        `scatter-cache: viés das sondas ${((bias - 1) * 100).toFixed(1)} % (≤ 5 %)`,
+    );
+    finish(s);
+}
+
 // ── timing ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Mediana dos tempos por passe das nuvens em `frames` quadros. */
 async function passTimes(
     app: Application,
     frames: number,
-): Promise<{ total: number; span: number; passes: Record<string, number> }> {
+    pattern = /Cloud|Sky|Froxel/,
+    each?: () => void,
+    dt = 0,
+): Promise<{ total: number; span: number; passes: Record<string, number>; spread: string }> {
     const samples: Record<string, number>[] = [];
     const spans: number[] = [];
+    const phases: Record<string, number>[] = [];
     const off = app.events.on('gpuFrameTimed', (e) => {
         samples.push({ ...e.passesMs });
         spans.push(e.spanMs);
+        phases.push({ ...e.phasesMs });
     });
-    await settleFrames(app, frames);
+    const t0 = performance.now();
+    await busyFrames(app, frames, each, dt);
+    const wall = (performance.now() - t0) / frames;
+    // Os quadros gravados chegam ao perfilador 1–3 quadros depois.
+    await busyFrames(app, 4, each, dt);
     off();
     const keys = new Set(samples.flatMap((x) => Object.keys(x)));
-    const median = (v: number[]): number => {
-        const a = [...v].sort((x, y) => x - y);
-        return a[Math.floor(a.length / 2)] ?? 0;
-    };
     const passes: Record<string, number> = {};
-    for (const k of keys)
-        if (/Cloud|SkyComposite|sky_aerial/.test(k))
-            passes[k] = median(samples.map((x) => x[k] ?? 0));
+    for (const k of keys) if (pattern.test(k)) passes[k] = median(samples.map((x) => x[k] ?? 0));
     const total = Object.values(passes).reduce((a, b) => a + b, 0);
-    return { total, span: median(spans), passes };
+    const sorted = [...spans].sort((a, b) => a - b);
+    const ph = [...new Set(phases.flatMap((x) => Object.keys(x)))]
+        .map((k) => `${k} ${median(phases.map((x) => x[k] ?? 0)).toFixed(2)}`)
+        .join(' ');
+    const spread = `${sorted[0]?.toFixed(2)}/${median(spans).toFixed(2)}/${sorted[sorted.length - 1]?.toFixed(2)} (${spans.length}; parede ${wall.toFixed(2)} ms/quadro; ${ph})`;
+    return { total, span: median(spans), passes, spread };
 }
 
-/** Tempo do quadro na GPU (mediana do span) de uma cena de 1280 × 720. */
-async function frameSpan(o: Parameters<typeof cloudScene>[0]): Promise<number> {
-    const s = await cloudScene({ width: 1280, height: 720, profiling: true, ...o });
-    await settleFrames(s.app, 60);
-    const t = await passTimes(s.app, 120);
+/** O tempo do passe dos froxels entre os passes medidos. */
+const froxelMs = (passes: Record<string, number>): number =>
+    Object.entries(passes)
+        .filter(([k]) => k.includes('Froxel'))
+        .reduce((a, [, v]) => a + v, 0);
+
+const median = (v: readonly number[]): number => {
+    const a = [...v].sort((x, y) => x - y);
+    return a[Math.floor(a.length / 2)] ?? 0;
+};
+
+/**
+ * Quadros com a GPU ocupada: o seguinte é gravado assim que a GPU aceita (`readyForFrame`), sem esperar o quadro da
+ * tela. No ritmo de 60 Hz, um quadro de 4–5 ms deixa a GPU ociosa a maior parte do tempo e o M4 baixa o relógio dela: as
+ * passagens das nuvens mediam até 1,5 × mais (o perfil baixo sozinho, ou os primeiros ~15 s de um app), e as da tela,
+ * limitadas pela banda, quase não mudavam — a diferença com e sem a camada saía do estado do relógio, não do custo.
+ * A espera é a do bench (`frameRetired`), e a cessão ao navegador por `MessageChannel`: o `setTimeout(0)` aninhado é
+ * levado a 4 ms pelo navegador depois de cinco níveis, e os quadros abaixo disso (o interior, o médio, o baixo) saíam a
+ * 250 Hz com a GPU ociosa entre eles — o relógio dela caía e as repetições ficavam bimodais (T074: o quadro sem a camada
+ * de 1,3 a 3,9 ms na mesma fase).
+ * `each`: chamado antes de cada quadro (o caso com o sol andando). `dt`: o tempo simulado de cada quadro (s; 0 = parado;
+ * o caso com o vento andando, `high-wind`).
+ */
+async function busyFrames(
+    app: Application,
+    frames: number,
+    each?: () => void,
+    dt = 0,
+): Promise<void> {
+    await app.whenReady({ timeoutMs: 60_000 });
+    const yieldTask = (): Promise<void> =>
+        new Promise((resolve) => {
+            const ch = new MessageChannel();
+            ch.port1.onmessage = () => {
+                resolve();
+            };
+            ch.port2.postMessage(0);
+        });
+    for (let i = 0; i < frames; i++) {
+        each?.();
+        app.step(dt);
+        await yieldTask();
+        if (!app.readyForFrame())
+            await new Promise<void>((resolve) => {
+                const off = app.events.on('frameRetired', () => {
+                    if (!app.readyForFrame()) return;
+                    off();
+                    resolve();
+                });
+            });
+    }
+}
+
+/**
+ * O custo das nuvens pelo método do bench: um app só, aquecido com a GPU ocupada (`TIMING_WARMUP` quadros), as
+ * medidas com e sem a camada (a camada entra e sai pelo mundo; a sem logo depois da com, no mesmo relógio da GPU) e a
+ * mediana das repetições. Devolve as diferenças por repetição (ms) e os passes medianos com a camada.
+ */
+const TIMING_WARMUP = 600;
+const TIMING_REPS = 5;
+/**
+ * O sol que anda no caso `timing`: entre 2° e 8° (o degrau 0,2 do mapa visto do sol), à frente da câmera. O teto de 3 ms
+ * vale no ritmo real (`high-sun`, 360° / 86 400 s ≈ 0,004°/s, T074). Ficam registrados, sem teto: o ciclo de dia de um
+ * jogo (`high-sun-fast`, 24 min por dia, 360° / 1440 s = 0,25°/s, T080) e o lapso de tempo de vídeo (1,3°/s,
+ * `high-sun-lapse`) — o teto deles é a tarefa "sol rápido e vento ≤ 3 ms", transferida para a spec de desempenho.
+ */
+const TIMING_SUN_RATE = 360 / 86400;
+const TIMING_SUN_FAST_RATE = 0.25;
+const TIMING_SUN_LAPSE_RATE = 1.3;
+/** O tempo simulado por quadro no caso com o vento andando (`high-wind`: o vento de 10 m/s da camada, a 60 Hz). */
+const TIMING_WIND_STEP = 1 / 60;
+const TIMING_SUN_BAND = [2, 8] as const;
+
+/**
+ * Onde a câmera fica no caso de tempo: no chão olhando o céu (padrão), numa sala fechada (`interior`, SC-005) ou dentro
+ * da nuvem (`inside`: na casca, no ponto de maior cobertura da referência a ±4 km da origem, a 1/5 da altura da casca).
+ */
+interface CloudCostOptions {
+    readonly interior?: boolean;
+    readonly inside?: boolean;
+    /** O sol andando (°/s, de 1/60 s por quadro) nas duas fases. */
+    readonly sunRate?: number;
+    /** O tempo simulado andando (`TIMING_WIND_STEP` por quadro: o vento leva as nuvens) nas duas fases. */
+    readonly simulated?: boolean;
+}
+
+/**
+ * Quadros para a camada que entra encher o cache de espalhamento no teto (T074): as páginas (todas com nuvem, o pior
+ * caso) × a janela da média ÷ as páginas por quadro, e uma passada a mais (as que nunca caminharam).
+ */
+function fillFrames(q: CloudLayer['quality'] | undefined): number {
+    if (q === undefined) return 60;
+    const pages = q.scatter.size.reduce((a, v) => a * Math.ceil(v / CLOUD_SCATTER_PAGE), 1);
+    return Math.ceil((pages * (CLOUD_SCATTER_WINDOW + 1)) / Math.max(q.scatter.budget, 1)) + 60;
+}
+
+/** O ponto de maior cobertura (referência f64) a ±4 km da origem, no passo de 50 m. */
+function densestColumn(coverage: number, type: number): [number, number] {
+    let best: [number, number] = [0, 0];
+    let top = -1;
+    for (let x = -4000; x <= 4000; x += 50)
+        for (let z = -4000; z <= 4000; z += 50) {
+            const c = coverageField(x, z, coverage, type);
+            if (c > top) {
+                top = c;
+                best = [x, z];
+            }
+        }
+    return best;
+}
+
+async function cloudCost(
+    profile: 'high' | 'medium' | 'low',
+    o: CloudCostOptions = {},
+): Promise<{
+    diffs: number[];
+    withSpan: number[];
+    passes: Record<string, number>;
+    /** O passe dos froxels sem a camada (mediana, ms). */
+    froxelsWithout: number;
+    /** Os passes sem a camada (medianas, ms). */
+    passesWithout: Record<string, number>;
+    /** Os passes que mais mudam com − sem a camada (todos os passes). */
+    deltas: string;
+    /** O texel do alcance (a distância, a decisão do seguinte e a deste) em cada fase. */
+    reach: string;
+    /** O trabalho do cache no fim de cada fase com a camada (páginas/panorama/mudança dele/porquê). */
+    work: string;
+    /** Os intervalos de quadro de cada fase (mínimo/mediana/máximo e quantos). */
+    spreads: string;
+    quality: unknown;
+}> {
+    const interior = o.interior === true;
+    const values = { coverage: 0.5, wind: [10, 0] };
+    const [ix, iz] = densestColumn(values.coverage, 0.5);
+    // A 1/5 da casca padrão (1500–4000 m): o corpo do cúmulo.
+    const insideY = 1500 + 0.2 * 2500;
+    const s = await cloudScene({
+        width: 1280,
+        height: 720,
+        profile,
+        profiling: true,
+        clouds: false,
+        // `?el=`: a elevação do sol (graus; o mapa visto do sol afina o texel à direita com o sol baixo).
+        sunElevation:
+            o.sunRate !== undefined
+                ? TIMING_SUN_BAND[1]
+                : Number(new URLSearchParams(location.search).get('el') ?? 60),
+        ...(interior ? { eye: [0, 1.6, 0] as const } : {}),
+        ...(o.inside ? { eye: [ix, insideY, iz] as const } : {}),
+        target: interior
+            ? [4, 1.4, 1]
+            : o.inside
+              ? [ix + 1000, insideY + 100, iz + 300]
+              : [1000, 400, 300],
+    });
+    // O sol andando: um triângulo na elevação a `o.sunRate` °/s (1/60 s por quadro), azimute 0 (à frente).
+    let sunFrame = 0;
+    const span = TIMING_SUN_BAND[1] - TIMING_SUN_BAND[0];
+    const rate = o.sunRate;
+    const dt = o.simulated === true ? TIMING_WIND_STEP : 0;
+    const moveSun =
+        rate !== undefined
+            ? (): void => {
+                  const d = (sunFrame++ * rate) / 60;
+                  const t = d % (2 * span);
+                  const e = TIMING_SUN_BAND[1] - (t <= span ? t : 2 * span - t);
+                  s.sun.data.direction = sunTravel(e, 0);
+              }
+            : undefined;
+    // O interior (SC-005): uma sala fechada de 10 × 3 × 10 m (seis placas) em volta da câmera — nenhum pixel do céu.
+    if (interior)
+        for (const [size, at] of [
+            [
+                [10, 0.2, 10],
+                [0, -0.1, 0],
+            ],
+            [
+                [10, 0.2, 10],
+                [0, 3.1, 0],
+            ],
+            [
+                [0.2, 3.4, 10],
+                [-5.1, 1.5, 0],
+            ],
+            [
+                [0.2, 3.4, 10],
+                [5.1, 1.5, 0],
+            ],
+            [
+                [10.4, 3.4, 0.2],
+                [0, 1.5, -5.1],
+            ],
+            [
+                [10.4, 3.4, 0.2],
+                [0, 1.5, 5.1],
+            ],
+        ] as const)
+            s.app.world.insert(
+                new BoxGeometry({ size: [...size] })
+                    .add(new StandardMaterial())
+                    .add(new Transform({ position: [at[0], at[1], at[2], 1] })),
+            );
+    let layer: CloudLayer | undefined;
+    await settleFrames(s.app, 30);
+    const insert = (): void => {
+        layer = new CloudLayerClass(values);
+        s.app.world.insert(layer);
+    };
+    insert();
+    await busyFrames(s.app, TIMING_WARMUP, moveSun, dt);
+    const quality = layer?.quality;
+    const diffs: number[] = [];
+    const withSpan: number[] = [];
+    const perPass: Record<string, number>[] = [];
+    const perPassWithout: Record<string, number>[] = [];
+    // Os froxels sem a camada (spec 041, R21: a atmosfera neles com e sem a sombra das nuvens).
+    const froxelsWithout: number[] = [];
+    const allWith: Record<string, number>[] = [];
+    const allWithout: Record<string, number>[] = [];
+    const reach: string[] = [];
+    const spreads: string[] = [];
+    const work: string[] = [];
+    for (let r = 0; r < TIMING_REPS; r++) {
+        // Sempre com e depois sem a camada (T074): o quadro sem a camada (~1,2 ms no alto) fica abaixo do tempo da CPU
+        // por quadro (~2,3 ms) e a GPU fica ociosa entre eles — o M4 baixa o relógio dela em algumas centenas de ms, e todos
+        // os passes ficam ~2,3 × mais lentos por igual (as fases medidas: 0,45/1,28/0,59 → 1,00/3,07/1,32 ms). Medido logo
+        // depois da fase com a camada (limitada pela GPU, no relógio cheio), o sem a camada fica no mesmo relógio; com a
+        // ordem alternada, a fase sem que vinha depois de outra sem saía no relógio baixo e a diferença perdia ~1,6 ms.
+        const order = [true, false];
+        const span: Record<string, number> = {};
+        for (const has of order) {
+            if (has && layer === undefined) insert();
+            if (!has && layer !== undefined) {
+                s.app.world.remove(layer);
+                layer = undefined;
+            }
+            // A camada que entra enche o cache de espalhamento (T074: as páginas caminham por necessidade — a que nunca
+            // caminhou, a que não encheu a janela, a que mudou): páginas × janela ÷ orçamento quadros no teto, o transitório
+            // da entrada; a medida é a do regime (parado, as páginas cheias não caminham; com o sol andando, o teto).
+            await busyFrames(s.app, has ? fillFrames(layer?.quality) : 60, moveSun, dt);
+            // De novo pronto antes de medir (spec 041, R21 rodada 16): a troca da camada vira as flags que compõem os pontos
+            // de cena (a sombra no ar, o céu coberto) só no despacho seguinte, e as trocas dos pipelines grandes (o desenho, a
+            // injeção dos froxels) começam depois do primeiro `whenReady` — medido no meio delas, o quadro sem a camada
+            // saía de 1,7 a 3,5 ms no interior (repetições bimodais).
+            await s.app.whenReady({ timeoutMs: 60_000 });
+            await busyFrames(s.app, 30, moveSun, dt);
+            const t = await passTimes(s.app, 90, undefined, moveSun, dt);
+            span[has ? 'with' : 'without'] = t.span;
+            spreads.push(`${has ? 'com' : 'sem'} ${t.spread}`);
+            // A decisão da GPU sobre a atmosfera nos froxels (spec 041, R21): o texel do alcance do último quadro.
+            const froxels = s.app.world.findResource(Froxels.schema, Froxels);
+            const channel =
+                froxels === undefined ? undefined : s.app.resources.channelOf(froxels, 'reach');
+            const reachTex = channel?.texture(0);
+            if (reachTex !== undefined) {
+                const r = (await readTexture(s.app, reachTex, 'rgba32float')).data;
+                reach.push(
+                    `${has ? 'com' : 'sem'} ${r[0]!.toExponential(1)} m/${r[1]}/${r[2]} (${channel!.frames} q)`,
+                );
+            } else reach.push(`${has ? 'com' : 'sem'} sem canal (${String(channel?.allocated)})`);
+            // O trabalho do cache no último quadro (T074): páginas que caminharam, o panorama refeito, a mudança medida dele
+            // e o porquê (1 a série, 2 o conteúdo, 4 a mudança).
+            if (has && layer !== undefined) {
+                const wb = s.app.resources.bufferOf(layer, 'scatterWork');
+                if (wb !== undefined) {
+                    const words = new Uint32Array(
+                        (await readBuffer(s.app, wb, 'cloud_scatter_work')).buffer,
+                    );
+                    const f = new Float32Array(words.buffer);
+                    const sb = s.app.resources.bufferOf(layer, 'shadowWork');
+                    // As páginas do mapa visto do sol desenhadas no quadro e quantas por nível (a marca de cada página
+                    // física em `4 + slot`; 46 × 8 páginas físicas por nível, `CLOUD_SHADOW_LEVEL_SLOTS`) e a demanda: as
+                    // acima de 4, 16 e 64 tolerâncias (`d`, `m`, `x`).
+                    let shadowDrawn = '-1';
+                    if (sb !== undefined) {
+                        const sw = new Uint32Array(
+                            (await readBuffer(s.app, sb, 'cloud_shadow_work')).buffer,
+                        );
+                        const perLevel = new Array<number>(8).fill(0);
+                        for (let slot = 0; slot < 8 * 46 * 8; slot++)
+                            if (sw[4 + slot] !== 0) perLevel[Math.floor(slot / (46 * 8))]!++;
+                        shadowDrawn = `${sw[0]}[${perLevel.join(',')}]d${sw[1]}m${sw[2]}x${sw[3]}`;
+                    }
+                    // O volume de τ até o sol (T074): as páginas desenhadas no quadro e as que valem na leitura (o cone, o resto).
+                    const vb = s.app.resources.bufferOf(layer, 'sunVolumeWork');
+                    let volume = '-';
+                    if (vb !== undefined) {
+                        const v = new Uint32Array(
+                            (await readBuffer(s.app, vb, 'cloud_sun_volume_work')).buffer,
+                        );
+                        const bits = (from: number): number => {
+                            let n = 0;
+                            for (let k = from; k < from + CLOUD_SUN_VOLUME_VALID_WORDS; k++)
+                                for (let b = v[k]!; b !== 0; b &= b - 1) n++;
+                            return n;
+                        };
+                        volume = `${v[0]}+${bits(CLOUD_SUN_VOLUME_WORK_VALID)}+${bits(CLOUD_SUN_VOLUME_WORK_VALID + CLOUD_SUN_VOLUME_VALID_WORDS)}`;
+                    }
+                    work.push(
+                        `${words[0]}/${words[1]}/${f[6]!.toFixed(4)}/${words[7]}/${shadowDrawn}/${volume}`,
+                    );
+                }
+            }
+            const all = await passTimes(s.app, 30, /./, moveSun, dt);
+            (has ? allWith : allWithout).push(all.passes);
+            if (has) perPass.push(t.passes);
+            else {
+                froxelsWithout.push(froxelMs(t.passes));
+                perPassWithout.push(t.passes);
+            }
+        }
+        diffs.push(span.with! - span.without!);
+        withSpan.push(span.with!);
+    }
     finish(s);
-    return t.span;
+    const passes: Record<string, number> = {};
+    for (const k of new Set(perPass.flatMap((x) => Object.keys(x))))
+        passes[k] = median(perPass.map((x) => x[k] ?? 0));
+    const passesWithout: Record<string, number> = {};
+    for (const k of new Set(perPassWithout.flatMap((x) => Object.keys(x))))
+        passesWithout[k] = median(perPassWithout.map((x) => x[k] ?? 0));
+    const deltas = [...new Set([...allWith, ...allWithout].flatMap((x) => Object.keys(x)))]
+        .map((k): [string, number] => [
+            k,
+            median(allWith.map((x) => x[k] ?? 0)) - median(allWithout.map((x) => x[k] ?? 0)),
+        ])
+        .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+        .slice(0, 8)
+        .map(([k, v]) => `${k.replace(/^.*\//, '')} ${v >= 0 ? '+' : ''}${v.toFixed(3)}`)
+        .join(', ');
+    return {
+        diffs,
+        withSpan,
+        passes,
+        quality,
+        froxelsWithout: median(froxelsWithout),
+        passesWithout,
+        deltas,
+        reach: reach.join(', '),
+        work: work.join(' '),
+        spreads: spreads.join(', '),
+    };
+}
+
+async function caseInteriorTiming(): Promise<void> {
+    // A camada numa cena sem céu visível (SC-005): a câmera numa sala fechada; o custo com − sem a camada, pelo método
+    // do bench, no perfil alto.
+    const c = await cloudCost('high', { interior: true });
+    const d = median(c.diffs);
+    log(
+        `interior-timing: froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; quadros com/sem ${c.withSpan.map((w, k) => `${w.toFixed(2)}/${(w - c.diffs[k]!).toFixed(2)}`).join(' ')}; janelas ${c.spreads}; alcance ${c.reach}; maiores diferenças por passe ${c.deltas}`,
+    );
+    log(
+        `interior-timing: nuvens ${d.toFixed(3)} ms (com − sem a camada, mediana de ${c.diffs.length}; ${Math.min(...c.diffs).toFixed(3)}–${Math.max(...c.diffs).toFixed(3)}); quadro com nuvens ${median(c.withSpan).toFixed(3)} ms; por passe: ${Object.entries(
+            c.passes,
+        )
+            .map(([k, v]) => `${k.replace(/^.*\//, '')} ${v.toFixed(3)}`)
+            .join(', ')}`,
+    );
+    // O teto é 0,5 ms: a medida é a diferença de dois quadros de ~1 ms e oscila ±0,2 ms entre execuções (0,200–0,383).
+    check(d <= 0.5, `interior-timing: nuvens ${d.toFixed(3)} ms > 0,5 ms (SC-005)`);
+}
+
+async function caseInsideTiming(): Promise<void> {
+    // A câmera dentro da nuvem (o corpo do cúmulo, a 1/5 da casca), no perfil alto: o mesmo teto do alto (SC-005).
+    const c = await cloudCost('high', { inside: true });
+    const d = median(c.diffs);
+    log(
+        `inside-timing: froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; janelas ${c.spreads}; maiores diferenças por passe ${c.deltas}`,
+    );
+    log(
+        `inside-timing: nuvens ${d.toFixed(3)} ms (com − sem a camada, mediana de ${c.diffs.length}; ${Math.min(...c.diffs).toFixed(3)}–${Math.max(...c.diffs).toFixed(3)}); quadro com nuvens ${median(c.withSpan).toFixed(3)} ms; por passe: ${Object.entries(
+            c.passes,
+        )
+            .map(([k, v]) => `${k.replace(/^.*\//, '')} ${v.toFixed(3)}`)
+            .join(', ')}`,
+    );
+    check(d <= 3, `inside-timing: nuvens ${d.toFixed(3)} ms > 3 ms (SC-005)`);
+}
+
+async function caseSkyTiming(): Promise<void> {
+    // Só o céu (SC-009, T011): a cena sem a camada, com e sem o `Sky` intercalados pelo método do bench; o custo novo da
+    // 041 é o da tabela aérea e da perspectiva aérea no desenho (o que fica além da vista do céu e do ambiente do céu, de
+    // antes da 041, medidos por passe).
+    const s = await cloudScene({
+        width: 1280,
+        height: 720,
+        profile: 'high',
+        profiling: true,
+        clouds: false,
+        target: [1000, 400, 300],
+    });
+    await settleFrames(s.app, 30);
+    let sky: Sky | undefined = s.sky;
+    await busyFrames(s.app, TIMING_WARMUP);
+    const diffs: number[] = [];
+    const perPass: Record<string, number>[] = [];
+    // O desenho do fundo (o céu pela vista do céu, spec 033) com e sem o `Sky`: de antes da 041.
+    const background: number[] = [];
+    for (let r = 0; r < TIMING_REPS; r++) {
+        const order = r % 2 === 0 ? [true, false] : [false, true];
+        const span: Record<string, number> = {};
+        const forward: Record<string, number> = {};
+        for (const has of order) {
+            if (has && sky === undefined) {
+                sky = new SkyClass({ sun: s.sun });
+                s.app.world.insert(sky);
+            }
+            if (!has && sky !== undefined) {
+                s.app.world.remove(sky);
+                sky = undefined;
+            }
+            await busyFrames(s.app, 60);
+            const t = await passTimes(s.app, 90, /Cloud|Sky|^forward\/ForwardFlow\/ForwardFlow$/);
+            span[has ? 'with' : 'without'] = t.span;
+            forward[has ? 'with' : 'without'] = t.passes['forward/ForwardFlow/ForwardFlow'] ?? 0;
+            if (has) perPass.push(t.passes);
+        }
+        diffs.push(span.with! - span.without!);
+        background.push(forward.with! - forward.without!);
+    }
+    finish(s);
+    const passes: Record<string, number> = {};
+    for (const k of new Set(perPass.flatMap((x) => Object.keys(x))))
+        passes[k] = median(perPass.map((x) => x[k] ?? 0));
+    // O custo novo da 041 só com o céu: os passes dela (a tabela aérea, a máscara reativa do disco, o excesso do disco).
+    // A diferença do quadro com e sem o `Sky` (`d`) é quase toda o fundo desenhado no forward — a vista do céu por pixel,
+    // spec 033, de antes da 041 (o forward com − sem ≈ `d`) —, e os passes do céu se sobrepõem a ele no perfilador: a
+    // conta "d − os passes de antes" punha o fundo de antes na conta da 041 (0,43 ms) e, somando o fundo, dava negativo.
+    // Sem nada que tape o sol no ar o fundo da 041 é o de antes (o déficit da sombra só entra com a camada, medido no
+    // `timing` das nuvens), e a perspectiva aérea por pixel só existe sobre geometria.
+    const fresh = Object.entries(passes)
+        .filter(([k]) => /SkyAerialFlow|SkyReactiveFlow|SkyOverflowFlow/.test(k))
+        .reduce((a, [, v]) => a + v, 0);
+    const d = median(diffs);
+    log(
+        `sky-timing: só o céu ${d.toFixed(3)} ms (com − sem o Sky, mediana de ${diffs.length}; ${Math.min(...diffs).toFixed(3)}–${Math.max(...diffs).toFixed(3)}), dos quais o fundo (forward com − sem) ${median(background).toFixed(3)}; o novo da 041 ${fresh.toFixed(3)} ms; por passe: ${Object.entries(
+            passes,
+        )
+            .map(([k, v]) => `${k.replace(/^.*\//, '')} ${v.toFixed(3)}`)
+            .join(', ')}`,
+    );
+    check(
+        fresh <= 0.25,
+        `sky-timing: o custo novo do céu ${fresh.toFixed(3)} ms > 0,25 ms (SC-009)`,
+    );
 }
 
 async function caseTiming(): Promise<void> {
-    const limits = { high: 3, medium: 2, low: 1.2 } as const;
-    // O custo real pelo tempo do quadro (o perfilador por passe conta a sobreposição de passes seguidos no TBDR).
-    const view = { target: [1000, 400, 300] as const };
-    for (const profile of ['low', 'high', 'medium', 'low'] as const) {
-        const sky = await frameSpan({ ...view, profile, clouds: false });
-        const withClouds = await frameSpan({
-            ...view,
-            profile,
-            clouds: { coverage: 0.5, wind: [10, 0] },
-        });
-        log(
-            `timing ${profile}: quadro com nuvens ${withClouds.toFixed(3)} ms, só o céu ${sky.toFixed(3)} ms — nuvens ${(withClouds - sky).toFixed(3)} ms`,
-        );
-        check(
-            withClouds - sky <= limits[profile],
-            `timing ${profile}: nuvens ${(withClouds - sky).toFixed(3)} ms > ${limits[profile]} ms (SC-005)`,
-        );
-    }
-    for (const [profile, clouds] of [
-        ['high', true],
-        ['high', false],
-        ['low', true],
+    // `high-sun`: o perfil alto com o sol andando no ritmo real (≈ 0,004°/s; o mapa visto do sol e o cache de
+    // espalhamento refeitos pela mudança), teto de 3 ms. Registrados sem teto (a tarefa "sol rápido e vento ≤ 3 ms",
+    // transferida para a spec de desempenho): `high-sun-fast`, o sol no ciclo de dia de um jogo (0,25°/s, T080);
+    // `high-wind`, o tempo simulado andando (o vento de 10 m/s leva as nuvens); `high-sun-lapse`, o sol a 1,3°/s (lapso
+    // de tempo de vídeo).
+    const limits = {
+        high: 3,
+        medium: 2,
+        low: 1.2,
+        'high-sun': 3,
+        'high-sun-fast': Infinity,
+        'high-wind': Infinity,
+        'high-sun-lapse': Infinity,
+    } as const;
+    const only = new URLSearchParams(location.search).get('profiles');
+    for (const name of [
+        'high',
+        'medium',
+        'low',
+        'high-sun',
+        'high-sun-fast',
+        'high-wind',
+        'high-sun-lapse',
     ] as const) {
-        const s = await cloudScene({
-            width: 1280,
-            height: 720,
-            profile,
-            profiling: true,
-            clouds: clouds ? { coverage: 0.5, wind: [10, 0] } : false,
-            target: [1000, 400, 300],
+        if (only !== null && !only.split('_').includes(name)) continue;
+        const profile = name === 'medium' || name === 'low' ? name : 'high';
+        const c = await cloudCost(profile, {
+            ...(name === 'high-sun' ? { sunRate: TIMING_SUN_RATE } : {}),
+            ...(name === 'high-sun-fast' ? { sunRate: TIMING_SUN_FAST_RATE } : {}),
+            ...(name === 'high-sun-lapse' ? { sunRate: TIMING_SUN_LAPSE_RATE } : {}),
+            ...(name === 'high-wind' ? { simulated: true } : {}),
         });
-        await settleFrames(s.app, 60);
-        const t = await passTimes(s.app, 120);
+        const d = median(c.diffs);
+        log(`timing ${name}: qualidade ${JSON.stringify(c.quality)}`);
         log(
-            `timing ${profile}${clouds ? '' : ' (só o céu)'} por passe (quadro ${t.span.toFixed(3)} ms; soma ${t.total.toFixed(3)} ms, conta sobreposição): ${Object.entries(
-                t.passes,
+            `timing ${name}: cache (páginas/panorama/mudança/porquê/páginas do mapa/volume de τ desenhadas+cone+resto) ${c.work}; froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; janelas ${c.spreads}; maiores diferenças por passe ${c.deltas}; sem a camada por passe: ${Object.entries(
+                c.passesWithout,
             )
                 .map(([k, v]) => `${k.replace(/^.*\//, '')} ${v.toFixed(3)}`)
                 .join(', ')}`,
         );
-        finish(s);
+        log(
+            `timing ${name}: nuvens ${d.toFixed(3)} ms (com − sem a camada, mediana de ${c.diffs.length}; ${Math.min(...c.diffs).toFixed(3)}–${Math.max(...c.diffs).toFixed(3)}); quadro com nuvens ${median(c.withSpan).toFixed(3)} ms; por passe (conta sobreposição): ${Object.entries(
+                c.passes,
+            )
+                .map(([k, v]) => `${k.replace(/^.*\//, '')} ${v.toFixed(3)}`)
+                .join(', ')}`,
+        );
+        check(
+            d <= limits[name],
+            `timing ${name}: nuvens ${d.toFixed(3)} ms > ${limits[name]} ms (SC-005)`,
+        );
     }
 }
 
 // ── céu limpo, encoberto, máscara ────────────────────────────────────────────────────────────────────────────────────
+
+/** A luz dos froxels lida da GPU em unidades da cena (a grade a guarda ÷ `FROXEL_RADIANCE_UNIT`; T075). */
+function froxelRadiance(data: Float32Array): void {
+    for (let i = 0; i < data.length; i += 4)
+        for (let c = 0; c < 3; c++) data[i + c]! *= FROXEL_RADIANCE_UNIT;
+}
 
 /** A cor HDR da cena (antes da apresentação). */
 async function sceneColor(s: CloudScene): Promise<Float32Array> {
@@ -603,6 +1605,329 @@ async function cloudView(
     return readTexture(s.app, t, 'rgba16float');
 }
 
+/**
+ * O ar sob as nuvens nos froxels (spec 041, R21 rodada 16): uma cena como a `raios` do claflow-web (o sol a 38°, a câmera
+ * a 2 m olhando 10° abaixo dele, cúmulos de 1,3 a 2,9 km, turbidez 2 e névoa seca de 0,25/km até 1,2 km) com e sem nuvens
+ * (cobertura 0): a luz que os froxels integram até o fim deles (a última fatia) em linhas de colunas da grade, a razão
+ * com/sem nuvens (a sombra delas no ar) e, numa coluna, o ganho fatia a fatia. A referência f64 dá o ar à sombra com
+ * ~3 % da luz do ar ao sol nesse caminho: as colunas sob a nuvem têm de cair perto disso.
+ */
+async function caseBeamAir(): Promise<void> {
+    const v = (28 * Math.PI) / 180;
+    const view = {
+        width: 640,
+        height: 360,
+        sunElevation: 38,
+        eye: [0, 2, 0] as const,
+        target: [1000 * Math.cos(v), 2 + 1000 * Math.sin(v), 0] as const,
+        fov: Math.PI / 3,
+    };
+    const grids: Float32Array[] = [];
+    let dims: number[] = [];
+    for (const coverage of [0.5, 0]) {
+        const s = await cloudScene({
+            ...view,
+            clouds: { coverage, type: 0.45, wind: [0, 0], base: 1300, top: 2900 },
+        });
+        s.sky.turbidity = 2;
+        s.sky.haze = { extinction: 0.25, scaleHeight: 1.2 };
+        await settleFrames(s.app, 150);
+        const froxels = s.app.world.findResource(Froxels.schema, Froxels)!;
+        const t = s.app.resources.textureOf(froxels, 'scatter');
+        if (t === undefined) throw new Error('beam-air: froxels não alocados');
+        const img = await readTexture(s.app, t, 'rgba16float');
+        froxelRadiance(img.data);
+        dims = [img.width, img.height, img.depth];
+        grids.push(img.data);
+        log(
+            `beam-air: cobertura ${coverage} — névoa seca ${JSON.stringify(s.sky.haze)}, turbidez ${s.sky.turbidity.toFixed(2)}, grade ${dims.join('×')}, fatias até ${froxels.data.params[0]!.depth![1]!.toFixed(0)} m`,
+        );
+        finish(s);
+    }
+    const [W, H, Z] = dims as [number, number, number];
+    const at = (g: Float32Array, x: number, y: number, z: number): number => {
+        const o = ((z * H + y) * W + x) * 4;
+        return luminanceLinear([g[o]!, g[o + 1]!, g[o + 2]!]);
+    };
+    const [cl, clear] = grids as [Float32Array, Float32Array];
+    for (const y of [15, 30, 45, 60, 75]) {
+        const r: number[] = [];
+        for (let x = 0; x < W; x++)
+            r.push(at(cl, x, y, Z - 1) / Math.max(at(clear, x, y, Z - 1), 1e-9));
+        const sorted = [...r].sort((a, b) => a - b);
+        const q = (f: number): number => sorted[Math.floor(f * (sorted.length - 1))]!;
+        let edges = 0;
+        for (let x = 1; x < W; x++) if (Math.abs(r[x]! - r[x - 1]!) > 0.1) edges++;
+        log(
+            `beam-air: linha ${y}/${H} — luz do ar com/sem nuvens: mín ${q(0).toFixed(3)}, p10 ${q(0.1).toFixed(3)}, mediana ${q(0.5).toFixed(3)}, p90 ${q(0.9).toFixed(3)}, máx ${q(1).toFixed(3)}; bordas (salto > 0,1 entre colunas) ${edges}; sem nuvens ${at(clear, W >> 1, y, Z - 1).toFixed(2)} nits`,
+        );
+    }
+    // A coluna do meio, fatia a fatia: o ganho com e sem nuvens (de 10 em 10 fatias).
+    const x = W >> 1;
+    const y = 45;
+    const gains: string[] = [];
+    for (let z = 10; z < Z; z += 10) {
+        const g1 = at(cl, x, y, z) - at(cl, x, y, z - 10);
+        const g0 = at(clear, x, y, z) - at(clear, x, y, z - 10);
+        gains.push(`${z}: ${g1.toFixed(3)}/${g0.toFixed(3)}`);
+    }
+    log(`beam-air: coluna ${x},${y} — ganho a cada 10 fatias com/sem nuvens ${gains.join(' ')}`);
+}
+
+/**
+ * O feixe de um vão conhecido (spec 041, R21 rodadas 17–18): uma camada de 700–950 m (extinção 0,3/m) encoberta, salvo um
+ * cilindro de 250 m de raio (pela função de cobertura), o sol a 35°, o ar de ~13 km de visibilidade (névoa seca de 0,3/km
+ * até 1,2 km, turbidez 2) e a câmera a 2 m olhando o meio do feixe (400 m de altura) a 1 km, 30° ao lado do azimute do
+ * sol. A linha do meio atravessa o feixe; três perfis: a imagem (o ar e a nuvem atrás), o ar sozinho lido da grade dos
+ * froxels até a base da camada em cada coluna e a referência f64 da mesma geometria (o ar até a base da camada, a
+ * visibilidade pela profundidade ótica até o sol no espelho f64 da densidade com o mapa de cobertura da GPU — a mesma
+ * nuvem; o cilindro ideal da laje cheia não é a nuvem que a GPU desenha: o estrato tem perfil de altura e erosão). Mede o contraste do feixe (pico/fundo − 1), a largura a
+ * meia altura e a largura de cada borda (10–90 % do excesso, px). O critério: o contraste do ar na grade a ≤ 15 % do da
+ * f64 e as bordas do ar a ≤ 2 colunas de froxel (8 px) mais que as da f64. A query `texel` (m) troca o texel do mapa
+ * visto do sol e `cov` o tamanho do mapa de cobertura (os ensaios da borda, R21 rodada 18).
+ */
+async function caseBeamGap(): Promise<void> {
+    // As chaves dos ensaios (R21 rodada 18): a elevação do sol, a camada, o raio do vão, as escalas da forma e o vento.
+    const query = new URLSearchParams(location.search);
+    const num = (k: string, v: number): number => Number(query.get(k) ?? v);
+    const el = num('el', 35);
+    const [lo, hi] = [num('base', 700), num('top', 950)];
+    const radius = num('r', 250);
+    const wind: [number, number] = [num('wx', 0), num('wz', 0)];
+    const scales = query.has('ss')
+        ? { shapeScale: num('ss', 12000), detailScale: num('ds', 1800) }
+        : {};
+    // O vão 30° ao lado da vista; o meio do feixe a 400 m de altura e a 1 km da câmera.
+    const tanEl = Math.tan((el * Math.PI) / 180);
+    const mid = [866, 400, 500] as const;
+    const gap = [Math.round(866 + (0.5 * (lo + hi) - 400) / tanEl), 500] as const;
+    const code = /* wgsl */ `fn coverage_fn(xz: vec2f, time: f32, data: CoverageFnParams) -> vec3f {
+    return vec3f(select(1.0, 0.0, distance(xz, vec2f(${gap[0]}.0, ${gap[1]}.0)) < ${radius.toFixed(1)}), 0.1, 1.0);
+}`;
+    const width = 640;
+    const height = 360;
+    const fov = Math.PI / 3;
+    const s = await cloudScene({
+        width,
+        height,
+        sunElevation: el,
+        sunAzimuth: 0,
+        eye: [0, 2, 0],
+        target: mid,
+        fov,
+        clouds: { coverage: { code }, wind, base: lo, top: hi, density: 0.3, ...scales },
+    });
+    s.sky.turbidity = 2;
+    s.sky.haze = { extinction: 0.3, scaleHeight: 1.2 };
+    const texel = query.get('texel');
+    const cov = query.get('cov');
+    if (texel !== null || cov !== null) {
+        const q = s.layer!.quality;
+        s.layer!.fromRenderer({
+            ...q,
+            shadow: { ...q.shadow, texel: texel === null ? q.shadow.texel : Number(texel) },
+            coverage: { ...q.coverage, texel: cov === null ? q.coverage.texel : Number(cov) },
+        });
+    }
+    log(
+        `beam-gap: sol a ${el}°, camada ${lo}–${hi} m, vão de raio ${radius} m em ${gap.join(', ')}, vento ${wind.join(', ')}, texel do mapa visto do sol ${s.layer!.quality.shadow.texel} m, mapa de cobertura em níveis com texel de ${s.layer!.quality.coverage.texel} m no nível 0`,
+    );
+    const settle = Number(query.get('settle') ?? 180);
+    await settleFrames(s.app, settle);
+    const color = await sceneColor(s);
+    const froxels = s.app.world.findResource(Froxels.schema, Froxels)!;
+    const grid = s.app.resources.textureOf(froxels, 'scatter');
+    if (grid === undefined) throw new Error('beam-gap: froxels não alocados');
+    const air = await readTexture(s.app, grid, 'rgba16float');
+    froxelRadiance(air.data);
+    const depth = froxels.data.params[0]!.depth!;
+    // A nuvem da f64: o espelho da densidade (`cloudModel`) com o mapa de cobertura da GPU, a mesma representação.
+    const model = await referenceModel(s, s.layer!);
+    // E a f64 exata: a mesma nuvem com a função de cobertura no ponto (o vão de borda dura, sem mapa nenhum).
+    const windShift = s.layer!.data.params[0]!.coverageOffset!;
+    const exact: CloudModel = {
+        ...model,
+        coverage: (x, z) => [
+            Math.hypot(x - windShift[0]! - gap[0], z - windShift[1]! - gap[1]) < radius ? 0 : 1,
+            0.1,
+            1,
+        ],
+    };
+    const sunScene = s.layer!.data.params[0]!.sunDir! as unknown as Vec3;
+    finish(s);
+    const y = height >> 1;
+    const gpu: number[] = [];
+    for (let x = 0; x < width; x++) {
+        const o = (y * width + x) * 4;
+        gpu.push(luminance([color[o]!, color[o + 1]!, color[o + 2]!]));
+    }
+    // A base da câmera de `Transform.lookRotation` (km).
+    const eye = [0, 0.002, 0];
+    const t = [mid[0] / 1000 - eye[0]!, mid[1] / 1000 - eye[1]!, mid[2] / 1000 - eye[2]!];
+    const tl = Math.hypot(t[0]!, t[1]!, t[2]!);
+    const z = [-t[0]! / tl, -t[1]! / tl, -t[2]! / tl];
+    const xr = [z[2]!, 0, -z[0]!];
+    const xl = Math.hypot(xr[0]!, xr[2]!);
+    const xa = [xr[0]! / xl, 0, xr[2]! / xl];
+    const ya = [
+        z[1]! * xa[2]! - z[2]! * xa[1]!,
+        z[2]! * xa[0]! - z[0]! * xa[2]!,
+        z[0]! * xa[1]! - z[1]! * xa[0]!,
+    ];
+    const f = 1 / Math.tan(fov / 2);
+    const aspect = width / height;
+    // A direção pelo ponto normalizado da tela (u, v em [0, 1], v para baixo) e o comprimento do raio por unidade de
+    // profundidade da vista.
+    const dirAt = (u: number, v: number): { d: Vec3; stretch: number } => {
+        const px = (u * 2 - 1) * aspect;
+        const py = 1 - v * 2;
+        const d = [0, 1, 2].map((c) => xa[c]! * (px / f) + ya[c]! * (py / f) - z[c]!);
+        const l = Math.hypot(d[0]!, d[1]!, d[2]!);
+        return { d: [d[0]! / l, d[1]! / l, d[2]! / l], stretch: l };
+    };
+    const atm = { ...earthAtmosphere(2), haze: { scattering: 0.27, extinction: 0.3, scale: 1.2 } };
+    const R = atm.bottomRadius;
+    const alt = 0.202;
+    const sun: Vec3 = [sunScene[0], sunScene[1], sunScene[2]];
+    const base = R + 0.2 + lo / 1000;
+    const top = R + 0.2 + hi / 1000;
+    // A visibilidade do sol num ponto do ar (km, centro do planeta): a profundidade ótica até o sol pela nuvem da
+    // referência (m de cena, o chão em R + 0,2 km).
+    const visibilityOf =
+        (m: CloudModel) =>
+        (x: Vec3): number => {
+            if (x[1] >= top) return 1;
+            const q: Vec3 = [x[0] * 1000, (x[1] - (R + 0.2)) * 1000, x[2] * 1000];
+            return Math.exp(-opticalDepth(m, q, [sunScene[0], sunScene[1], sunScene[2]], 48));
+        };
+    const visibility = visibilityOf(model);
+    const visibilityExact = visibilityOf(exact);
+    const msCache = new Map<string, Vec3>();
+    const ms = (r: number, mu: number): Vec3 => {
+        const key = `${Math.round(r * 4)}:${Math.round(mu * 100)}`;
+        let v = msCache.get(key);
+        if (v === undefined) {
+            v = multipleScattering(atm, Math.round(r * 4) / 4, Math.round(mu * 100) / 100, 16, 12);
+            msCache.set(key, v);
+        }
+        return v;
+    };
+    // A distância (km) até a base da camada numa direção.
+    const toBase = (d: Vec3): number => (base - (R + alt)) / Math.max(d[1], 1e-3);
+    const referenceWith =
+        (v: (x: Vec3) => number) =>
+        (d: Vec3): number => {
+            const a = aerialPerspective(atm, alt, d, sun, toBase(d), 1200, ms, v).scattered;
+            return luminance([a[0], a[1], a[2]]) * 1000;
+        };
+    const reference = referenceWith(visibility);
+    const referenceExact = referenceWith(visibilityExact);
+    // A imagem e a f64 de 4 em 4 px.
+    const ref: number[] = [];
+    const cols: number[] = [];
+    for (let px = 0; px < width; px += 4) {
+        ref.push(reference(dirAt((px + 0.5) / width, (y + 0.5) / height).d));
+        cols.push(px);
+    }
+    // O ar sozinho: por coluna de froxel da linha que contém a do meio, a luz espalhada acumulada até a base da camada
+    // (o texel k guarda o caminho até o fim da fatia k; entre os fins de fatia, linear na fatia contínua) e a f64 na
+    // direção do centro da coluna.
+    const [GW, GH, GZ] = [air.width, air.height, air.depth];
+    const gy = Math.floor((y / height) * GH);
+    const airGpu: number[] = [];
+    const airRef: number[] = [];
+    const airExact: number[] = [];
+    for (let gx = 0; gx < GW; gx++) {
+        const { d, stretch } = dirAt((gx + 0.5) / GW, (gy + 0.5) / GH);
+        const viewDepth = (toBase(d) * 1000) / stretch;
+        const sc = (Math.log(viewDepth / depth[0]!) / depth[2]!) * GZ;
+        const k = Math.min(Math.floor(sc), GZ - 1);
+        const at = (j: number): number => {
+            if (j <= 0) return 0;
+            const o = (((j - 1) * GH + gy) * GW + gx) * 4;
+            return luminanceLinear([air.data[o]!, air.data[o + 1]!, air.data[o + 2]!]);
+        };
+        airGpu.push(at(k) + (at(k + 1) - at(k)) * (sc - k));
+        airRef.push(reference(d));
+        airExact.push(referenceExact(d));
+    }
+    // O perfil: o fundo (o 20.º percentil), o pico, o contraste, a largura a meia altura e as bordas de 10–90 % (px).
+    const profile = (
+        p: number[],
+        step: number,
+    ): {
+        excess: number;
+        floor: number;
+        contrast: number;
+        fwhm: number;
+        at: number;
+        rise: number;
+        fall: number;
+    } => {
+        const sorted = [...p].sort((a, b) => a - b);
+        const floor = sorted[Math.floor(sorted.length * 0.2)]!;
+        let at = 0;
+        for (let k = 1; k < p.length; k++) if (p[k]! > p[at]!) at = k;
+        const excess = p[at]! - floor;
+        const cross = (level: number, dir: number): number => {
+            // A posição (em amostras, contínua) onde o perfil cruza `floor + level·excess` saindo do pico.
+            let k = at;
+            while (k + dir >= 0 && k + dir < p.length && p[k + dir]! > floor + level * excess)
+                k += dir;
+            const a = p[k]!;
+            const b = p[k + dir] ?? a;
+            const frac = a === b ? 0 : (a - (floor + level * excess)) / (a - b);
+            return k + dir * Math.min(Math.max(frac, 0), 1);
+        };
+        return {
+            excess,
+            floor,
+            contrast: excess / floor,
+            fwhm: (cross(0.5, 1) - cross(0.5, -1)) * step,
+            at,
+            rise: (cross(0.9, -1) - cross(0.1, -1)) * step,
+            fall: (cross(0.1, 1) - cross(0.9, 1)) * step,
+        };
+    };
+    const fmt = (name: string, p: ReturnType<typeof profile>): string =>
+        `${name} — fundo ${p.floor.toFixed(2)} nits, excesso ${p.excess.toFixed(2)} (contraste ${p.contrast.toFixed(3)}), largura a meia altura ${p.fwhm.toFixed(0)} px, bordas ${p.rise.toFixed(0)}/${p.fall.toFixed(0)} px`;
+    const g = profile(
+        cols.map((c) => gpu[c]!),
+        4,
+    );
+    const rf = profile(ref, 4);
+    const pxPerCol = width / GW;
+    const ag = profile(airGpu, pxPerCol);
+    const ar = profile(airRef, pxPerCol);
+    const ae = profile(airExact, pxPerCol);
+    log(`beam-gap: ${fmt('imagem', g)} | ${fmt('f64', rf)}`);
+    log(
+        `beam-gap: só o ar (grade ${GW}×${GH}×${GZ}, linha ${gy}) ${fmt('GPU', ag)} | ${fmt('f64', ar)} | ${fmt('f64 exata', ae)}`,
+    );
+    log(
+        `beam-gap: perfis do ar (por coluna de froxel) GPU ${airGpu.map((v) => v.toFixed(1)).join(' ')} | f64 ${airRef.map((v) => v.toFixed(1)).join(' ')}`,
+    );
+    const off = Math.abs(ag.contrast / ar.contrast - 1);
+    check(
+        off <= 0.15,
+        `beam-gap: contraste do ar ${ag.contrast.toFixed(3)} contra ${ar.contrast.toFixed(3)} da f64 (${(off * 100).toFixed(1)} % > 15 %)`,
+    );
+    const edge = Math.max(ag.rise - ar.rise, ag.fall - ar.fall);
+    check(
+        edge <= 2 * pxPerCol,
+        `beam-gap: bordas do ar ${ag.rise.toFixed(0)}/${ag.fall.toFixed(0)} px contra ${ar.rise.toFixed(0)}/${ar.fall.toFixed(0)} da f64 (> ${2 * pxPerCol} px a mais)`,
+    );
+    // Contra a f64 exata (o vão sem mapa; R21 rodada 19, T077): o mapa em níveis em volta da câmera resolve a borda.
+    const edgeExact = Math.max(ag.rise - ae.rise, ag.fall - ae.fall);
+    log(
+        `beam-gap: bordas do ar ${ag.rise.toFixed(1)}/${ag.fall.toFixed(1)} px contra ${ae.rise.toFixed(1)}/${ae.fall.toFixed(1)} da f64 exata (${edgeExact.toFixed(1)} px a mais)`,
+    );
+    check(
+        edgeExact <= 4,
+        `beam-gap: bordas do ar ${ag.rise.toFixed(1)}/${ag.fall.toFixed(1)} px contra ${ae.rise.toFixed(1)}/${ae.fall.toFixed(1)} da f64 exata (> 4 px a mais)`,
+    );
+}
+
 async function caseClearSky(): Promise<void> {
     // Cobertura 0 com a camada contra o céu sem a camada: a mesma imagem (FR-017, US2 cenário 1).
     const view = { width: 320, height: 180, target: [1000, 300, 200] as const };
@@ -615,11 +1940,20 @@ async function caseClearSky(): Promise<void> {
     const cb = await sceneColor(b);
     finish(b);
     let worst = 0;
+    let at = 0;
+    let sum = 0;
     for (let k = 0; k < ca.length; k++)
-        if (k % 4 !== 3)
-            worst = Math.max(worst, Math.abs(cb[k]! - ca[k]!) / Math.max(ca[k]!, 1e-3));
+        if (k % 4 !== 3) {
+            const d = Math.abs(cb[k]! - ca[k]!) / Math.max(ca[k]!, 1e-3);
+            sum += d;
+            if (d > worst) {
+                worst = d;
+                at = k;
+            }
+        }
+    const px = Math.floor(at / 4);
     log(
-        `clear-sky: cobertura 0 contra o céu sem camada — pior diferença relativa ${worst.toExponential(2)}`,
+        `clear-sky: cobertura 0 contra o céu sem camada — pior diferença relativa ${worst.toExponential(2)} (pixel ${px % view.width}, ${Math.floor(px / view.width)}: ${ca[at]!.toFixed(3)} contra ${cb[at]!.toFixed(3)}), média ${(sum / ((ca.length * 3) / 4)).toExponential(2)}`,
     );
     check(
         worst <= 1e-3,
@@ -838,6 +2172,7 @@ async function viewCase(
         : never,
     eye: Vec3,
     target: Vec3,
+    frames = 48,
 ): Promise<{ worstT: number; worstL: number; edgeRatio: number; s: CloudScene }> {
     const fov = Math.PI / 3;
     const s = await cloudScene({
@@ -850,8 +2185,19 @@ async function viewCase(
         target,
         fov,
     });
-    await settleFrames(s.app, 90);
-    const r = await compareView(s, label, eye, target, fov, sunElevation, false, sunAzimuth);
+    // O cache de espalhamento converge com os caminhos (um por sonda a cada 8 quadros, janela de 64).
+    await settleFrames(s.app, Number(new URLSearchParams(location.search).get('settle') ?? 600));
+    const r = await compareView(
+        s,
+        label,
+        eye,
+        target,
+        fov,
+        sunElevation,
+        false,
+        sunAzimuth,
+        frames,
+    );
     if (new URLSearchParams(location.search).get('cone') === '1')
         await compareView(s, `${label} (cone)`, eye, target, fov, sunElevation, true, sunAzimuth);
     return { ...r, s };
@@ -977,14 +2323,9 @@ async function caseShadowMap(): Promise<void> {
     });
     await settleFrames(s.app, 30);
     const layer = s.layer!;
-    const t = s.app.resources.textureOf(layer, 'shadow');
-    if (t === undefined) throw new Error('mapa visto do sol não alocado');
-    const map = await readTexture(s.app, t, 'rgba16float');
+    const map = await readShadowMap(s.app, layer);
     const model = await referenceModel(s, layer);
     const p = layer.data.params[0]!;
-    const center = p.sunFrame!;
-    const right = p.sunRight!;
-    const up = p.sunUp!;
     const sun = p.sunDir! as unknown as Vec3;
     let worst = 0;
     let shaded = 0;
@@ -994,37 +2335,8 @@ async function caseShadowMap(): Promise<void> {
         const z = (((k * 0.754878) % 1) - 0.5) * 12_000;
         const q: Vec3 = [x, 0, z];
         const exact = Math.exp(-opticalDepth(model, q, [sun[0], sun[1], sun[2]], 512));
-        const rel = [q[0] - center[0]!, q[1] - center[1]!, q[2] - center[2]!];
-        const wp = p.sunWarp!;
-        const u =
-            (Math.asinh((rel[0]! * right[0]! + rel[1]! * right[1]! + rel[2]! * right[2]!) / wp[0]!)
-                / wp[1]!)
-                * 0.5
-            + 0.5;
-        const v =
-            (Math.asinh((rel[0]! * up[0]! + rel[1]! * up[1]! + rel[2]! * up[2]!) / wp[2]!) / wp[3]!)
-                * 0.5
-            + 0.5;
-        const fx = u * map.width - 0.5;
-        const fy = v * map.height - 0.5;
-        const x0 = Math.floor(fx);
-        const y0 = Math.floor(fy);
-        // O volume: 4 camadas × 4 nós; o último nó (o trecho inteiro) é o canal a da camada 3.
-        const at = (i: number, j: number, c: number): number =>
-            map.data[
-                ((map.depth - 1) * map.height * map.width
-                    + Math.min(map.height - 1, Math.max(0, j)) * map.width
-                    + Math.min(map.width - 1, Math.max(0, i)))
-                    * 4
-                    + c
-            ]!;
-        const ax = fx - x0;
-        const ay = fy - y0;
-        const knot = (c: number): number =>
-            (at(x0, y0, c) * (1 - ax) + at(x0 + 1, y0, c) * ax) * (1 - ay)
-            + (at(x0, y0 + 1, c) * (1 - ax) + at(x0 + 1, y0 + 1, c) * ax) * ay;
         // O receptor no chão está abaixo da casca: o τ é o último nó.
-        const gpu = Math.exp(-knot(3));
+        const gpu = groundMapT(map, p, q);
         if (exact < 0.9) {
             shaded++;
             meanShade += Math.abs(gpu - exact);
@@ -1033,7 +2345,7 @@ async function caseShadowMap(): Promise<void> {
     }
     meanShade /= Math.max(shaded, 1);
     log(
-        `shadow-map: 200 pontos do chão (${shaded} sob nuvem) — diferença média sob a nuvem ${meanShade.toFixed(3)}, pior ponto ${worst.toFixed(3)} (texel perto da câmera ${((2 * p.sunWarp![0]! * p.sunWarp![1]!) / map.width).toFixed(0)} × ${((2 * p.sunWarp![2]! * p.sunWarp![3]!) / map.width).toFixed(0)} m)`,
+        `shadow-map: 200 pontos do chão (${shaded} sob nuvem) — diferença média sob a nuvem ${meanShade.toFixed(3)}, pior ponto ${worst.toFixed(3)} (texel perto da câmera ${p.sunMap![0]!.toFixed(0)} m)`,
     );
     check(
         meanShade <= 0.05,
@@ -1043,44 +2355,235 @@ async function caseShadowMap(): Promise<void> {
     void shellSegments;
 }
 
-/** A transmitância do mapa visto do sol no ponto do chão `q`, lida como a GPU a lê (o último nó, bilinear). */
-function groundMapT(
-    map: { width: number; height: number; depth: number; data: Float32Array },
+/** O nível do mapa visto do sol que cobre `p` e o peso do seguinte. */
+function shadowLevelOf(f: ReturnType<typeof shadowFrameOf>, p: Vec3): [number, number] {
+    return shadowLevel(f, shadowPlane(f, p));
+}
+
+/** A transmitância do mapa visto do sol no ponto do chão `q`, lida como a GPU a lê (o último nó, bilinear, os níveis). */
+function groundMapT(map: ShadowAtlas, p: CloudLayer['data']['params'][number], q: Vec3): number {
+    const f = shadowFrameOf(p);
+    return Math.exp(-shadowKnotAt(map, f, q, 16));
+}
+
+/**
+ * τ das nuvens até o sol num ponto `q` como a GPU o lê do mapa (`cloud_shadow_column` e os nós, bilinear): a coluna pelo
+ * ponto do plano do mapa de `q`, com a origem na saída do topo da casca do lado do sol (`cloud_sun_entry`).
+ */
+function mapDepthAt(
+    map: ShadowAtlas,
     p: CloudLayer['data']['params'][number],
+    model: CloudModel,
     q: Vec3,
 ): number {
-    const c0 = p.sunFrame!;
-    const right = p.sunRight!;
-    const up = p.sunUp!;
-    const wp = p.sunWarp!;
-    const rel = [q[0] - c0[0]!, q[1] - c0[1]!, q[2] - c0[2]!];
-    const u =
-        (Math.asinh((rel[0]! * right[0]! + rel[1]! * right[1]! + rel[2]! * right[2]!) / wp[0]!)
-            / wp[1]!)
-            * 0.5
-        + 0.5;
-    const v =
-        (Math.asinh((rel[0]! * up[0]! + rel[1]! * up[1]! + rel[2]! * up[2]!) / wp[2]!) / wp[3]!)
-            * 0.5
-        + 0.5;
-    const fx = u * map.width - 0.5;
-    const fy = v * map.height - 0.5;
-    const x0 = Math.floor(fx);
-    const y0 = Math.floor(fy);
-    const at = (i: number, j: number): number =>
-        map.data[
-            ((map.depth - 1) * map.height * map.width
-                + Math.min(map.height - 1, Math.max(0, j)) * map.width
-                + Math.min(map.width - 1, Math.max(0, i)))
-                * 4
-                + 3
-        ]!;
-    const ax = fx - x0;
-    const ay = fy - y0;
-    const tau =
-        (at(x0, y0) * (1 - ax) + at(x0 + 1, y0) * ax) * (1 - ay)
-        + (at(x0, y0 + 1) * (1 - ax) + at(x0 + 1, y0 + 1) * ax) * ay;
-    return Math.exp(-tau);
+    const f = shadowFrameOf(p);
+    const sun = shadowColumnSun(map, f, q);
+    const rel = [q[0] - f.pivot[0], q[1] - f.pivot[1], q[2] - f.pivot[2]];
+    const sigma = rel[0]! * sun[0] + rel[1]! * sun[1] + rel[2]! * sun[2];
+    const q0: Vec3 = [q[0] - sun[0] * sigma, q[1] - sun[1] * sigma, q[2] - sun[2] * sigma];
+    const span = sphereSpan(model, q0, sun, model.groundRadius + model.top);
+    const entry = span === undefined ? 0 : Math.max(span[1], 0) + 1;
+    const o: Vec3 = [q0[0] + sun[0] * entry, q0[1] + sun[1] * entry, q0[2] + sun[2] * entry];
+    const segs = shellSegments(model, o, [-sun[0], -sun[1], -sun[2]], Infinity);
+    if (segs.length === 0) return 0;
+    const [a, b] = segs[0]!;
+    const s = Math.min(1, Math.max(0, (entry - sigma - a) / (b - a))) * 16;
+    const k = Math.min(Math.floor(s), 15);
+    const lo = shadowKnotAt(map, f, q, k);
+    return lo + (shadowKnotAt(map, f, q, k + 1) - lo) * (s - k);
+}
+
+async function caseGroundShadow(): Promise<void> {
+    // A sombra das nuvens no chão visto pela câmera (a `solposto-chao` do claflow-web no quadro 300: o sol de 60° descendo
+    // pela curva do vídeo, cúmulos de cobertura 0,4 e tipo 0,5, vento (6, 2), a câmera a 40 m olhando 2° abaixo do
+    // horizonte para o lado do sol). Numa grade de pontos do chão visível (60 m–6 km, ±40° do eixo da vista) a
+    // transmitância até o sol como a GPU a lê do mapa visto do sol contra a integral f64 na mesma camada, no mesmo
+    // instante do vento (a mesma representação: os volumes e o mapa de cobertura da GPU).
+    const q = new URLSearchParams(location.search);
+    const az = (Math.atan2(0.6, 0.8) * 180) / Math.PI;
+    const elOf = (i: number): number => -4 + 64 * (1 - i / 1199) ** 1.6;
+    const frame = Number(q.get('frame') ?? 300);
+    const warmup = Number(q.get('warmup') ?? 600);
+    const eye: Vec3 = [0, 40, 0];
+    const s = await cloudScene({
+        width: 320,
+        height: 180,
+        sunElevation: elOf(0),
+        sunAzimuth: az,
+        clouds: { coverage: 0.4, type: 0.5, wind: [6, 2], density: 0.08 },
+        eye,
+        target: [800, 40 - 1000 * Math.tan((2 * Math.PI) / 180), 600],
+    });
+    const layer = s.layer!;
+    const texel = q.get('texel');
+    if (texel !== null) {
+        const ql = layer.quality;
+        layer.fromRenderer({ ...ql, shadow: { ...ql.shadow, texel: Number(texel) } });
+    }
+    await s.app.whenReady({ timeoutMs: 60_000 });
+    for (let i = -warmup; i <= frame; i++) {
+        s.sun.data.direction = sunTravel(elOf(Math.max(i, 0)), az);
+        s.app.step(1 / 60);
+        await nextGpuFrame(s.app);
+    }
+    const time = s.app.time.simulated;
+    const map = await readShadowMap(s.app, layer);
+    const params = layer.data.params[0]!;
+    const model = await referenceModel(s, layer, time);
+    const sd = params.sunDir!;
+    const sun: Vec3 = [sd[0]!, sd[1]!, sd[2]!];
+    const f = shadowFrameOf(params);
+    const rows: { d: number; g: number; r: number; k: number }[] = [];
+    const view = Math.atan2(0.6, 0.8);
+    for (let i = 0; i < 30; i++) {
+        const d = 60 * 100 ** (i / 29);
+        for (let j = 0; j < 21; j++) {
+            const a = view + (((j / 20) * 80 - 40) * Math.PI) / 180;
+            const p: Vec3 = [d * Math.cos(a), 0, d * Math.sin(a)];
+            const g = groundMapT(map, params, p);
+            const r = Math.exp(-opticalDepth(model, p, sun, 512));
+            const [k] = shadowLevelOf(f, p);
+            rows.push({ d, g, r, k });
+        }
+    }
+    const bins = [60, 250, 500, 1000, 2000, 3500, 6001];
+    const report: string[] = [];
+    let worstBin = 0;
+    for (let b = 0; b + 1 < bins.length; b++) {
+        const r = rows.filter((x) => x.d >= bins[b]! && x.d < bins[b + 1]!);
+        const mean = (v: number[]): number => v.reduce((a, x) => a + x, 0) / Math.max(v.length, 1);
+        const g = r.map((x) => x.g);
+        const ref = r.map((x) => x.r);
+        const mg = mean(g);
+        const mr = mean(ref);
+        const cov = mean(r.map((x) => (x.g - mg) * (x.r - mr)));
+        const sg = Math.sqrt(mean(g.map((x) => (x - mg) ** 2)));
+        const sr = Math.sqrt(mean(ref.map((x) => (x - mr) ** 2)));
+        worstBin = Math.max(worstBin, mean(r.map((x) => Math.abs(x.g - x.r))));
+        report.push(
+            `${bins[b]}–${bins[b + 1]} m (${r.length} pts, níveis ${[...new Set(r.map((x) => x.k))].join('/')}): T média GPU ${mg.toFixed(3)} f64 ${mr.toFixed(3)}; sombra (T<0,5) GPU ${(mean(g.map((x) => (x < 0.5 ? 1 : 0))) * 100).toFixed(0)} % f64 ${(mean(ref.map((x) => (x < 0.5 ? 1 : 0))) * 100).toFixed(0)} %; |Δ| médio ${mean(r.map((x) => Math.abs(x.g - x.r))).toFixed(3)}; correlação ${(cov / Math.max(sg * sr, 1e-9)).toFixed(2)}`,
+        );
+    }
+    const mad = rows.reduce((a, x) => a + Math.abs(x.g - x.r), 0) / rows.length;
+    log(
+        `ground-shadow: quadro ${frame} (sol a ${elOf(frame).toFixed(1)}°, t = ${time.toFixed(2)} s, texel ${params.sunMap![0]} m), ${rows.length} pontos do chão; |Δ| médio ${mad.toFixed(3)}`,
+    );
+    for (const line of report) log(`ground-shadow: ${line}`);
+    if (q.get('dump') === '1')
+        log(
+            `ground-shadow: pontos ${JSON.stringify(rows.map((x) => [Math.round(x.d), +x.g.toFixed(3), +x.r.toFixed(3), x.k]))}`,
+        );
+    // Por faixa de distância: a página desenhada sem nuvem com o sol mais alto, lida até a idade máxima, acendia a faixa
+    // de 3,5–6 km (|Δ| 0,143 nela, 0,032 no todo) — a média do todo não a pegava.
+    check(
+        worstBin <= 0.05,
+        `ground-shadow: a luz do sol no chão a ${worstBin.toFixed(3)} da f64 na pior faixa de distância (> 0,05)`,
+    );
+    finish(s);
+}
+
+async function caseSunLow(): Promise<void> {
+    // O sol baixo descendo devagar (o `solposto`, de 6° a 3° a 0,02° por passo): a luz direta no chão pelo mapa, quadro a
+    // quadro, contra a integral da referência. As amostras do mapa em frações do trecho escorregavam pela nuvem quando
+    // o comprimento do trecho mudava com o sol (um passo inteiro a cada ~0,06°), e τ oscilava nesse período — no vídeo
+    // acelerado, o chão piscava quadro a quadro. Medida: a variação total da série perto da da referência e a diferença
+    // média.
+    const az = (Math.atan2(0.6, 0.8) * 180) / Math.PI;
+    const s = await cloudScene({
+        width: 256,
+        height: 144,
+        sunElevation: 6,
+        sunAzimuth: az,
+        clouds: { coverage: 0.4, type: 0.5, wind: [0, 0] },
+    });
+    await settleFrames(s.app, 20);
+    const layer = s.layer!;
+    const model = await referenceModel(s, layer);
+    const gpu: number[] = [];
+    const ref: number[] = [];
+    for (let k = 0; k <= 150; k++) {
+        const el = 6 - k * 0.02;
+        s.sun.data.direction = sunTravel(el, az);
+        await settleFrames(s.app, 1);
+        const map = await readShadowMap(s.app, layer);
+        gpu.push(groundMapT(map, layer.data.params[0]!, [8, 0, 6]));
+        ref.push(Math.exp(-opticalDepth(model, [8, 0, 6], sunToward(el, az), 1024)));
+    }
+    const variation = (v: number[]): number =>
+        v.slice(1).reduce((a, x, i) => a + Math.abs(x - v[i]!), 0);
+    const turns = (v: number[]): number =>
+        v
+            .slice(2)
+            .filter(
+                (x, i) =>
+                    (x - v[i + 1]!) * (v[i + 1]! - v[i]!) < 0 && Math.abs(x - v[i + 1]!) > 0.02,
+            ).length;
+    const mean = gpu.reduce((a, g, i) => a + Math.abs(g - ref[i]!), 0) / gpu.length;
+    log(
+        `sun-low: T do chão de 6° a 3° (a cada 0,02°) — variação total GPU ${variation(gpu).toFixed(3)}, ref ${variation(ref).toFixed(3)}; voltas GPU ${turns(gpu)}, ref ${turns(ref)}; diferença média ${mean.toFixed(3)}`,
+    );
+    check(
+        variation(gpu) <= 1.25 * variation(ref) + 0.05,
+        `sun-low: variação total da luz no chão ${variation(gpu).toFixed(3)} contra ${variation(ref).toFixed(3)} da referência (oscila)`,
+    );
+    check(
+        turns(gpu) <= turns(ref) + 2,
+        `sun-low: ${turns(gpu)} voltas na luz do chão contra ${turns(ref)} da referência`,
+    );
+    check(
+        mean <= 0.05,
+        `sun-low: a luz direta no chão a ${mean.toFixed(3)} da referência na média`,
+    );
+    finish(s);
+}
+
+async function caseSunBelow(): Promise<void> {
+    // O sol abaixo do horizonte (−0,3° e −0,8°): as nuvens altas ainda o veem por cima do chão. O mapa visto do sol ficava
+    // vazio com o sol abaixo do horizonte (τ = 0: as nuvens e o chão que as vê acendiam num quadro, no `solposto` a
+    // −0,03°). τ de pontos na camada pelo mapa contra a integral da referência, 4 quadros depois do pulo de 0,5° do sol (2
+    // min do sol real): desde a fila das páginas por prioridade (T080, `670f5203`) o pulo se redesenha em 3–4 quadros
+    // dentro do orçamento — com 2 quadros, a −0,8°, 0,125 (6 de 60 pontos ainda com a página de antes); com 4, 8 e 30,
+    // 0,000 (medido no fechamento da 041). O caso mede o mapa abaixo do horizonte, não a latência de um salto do sol.
+    const az = (Math.atan2(0.6, 0.8) * 180) / Math.PI;
+    const s = await cloudScene({
+        width: 256,
+        height: 144,
+        sunElevation: 1,
+        sunAzimuth: az,
+        clouds: { coverage: 0.4, type: 0.5, wind: [0, 0] },
+    });
+    await settleFrames(s.app, 20);
+    const layer = s.layer!;
+    const model = await referenceModel(s, layer);
+    for (const el of [-0.3, -0.8]) {
+        s.sun.data.direction = sunTravel(el, az);
+        await settleFrames(s.app, 4);
+        const map = await readShadowMap(s.app, layer);
+        const p = layer.data.params[0]!;
+        let diff = 0;
+        let empty = 0;
+        let n = 0;
+        for (let k = 0; k < 60; k++) {
+            const x = (((k * 0.618034) % 1) - 0.5) * 8000;
+            const z = (((k * 0.754878) % 1) - 0.5) * 8000;
+            const y = model.base + (((k * 0.414214) % 1) * 0.9 + 0.05) * (model.top - model.base);
+            const q: Vec3 = [x, y, z];
+            const exact = Math.exp(-opticalDepth(model, q, sunToward(el, az), 4096));
+            const gpu = Math.exp(-mapDepthAt(map, p, model, q));
+            diff += Math.abs(gpu - exact);
+            if (gpu > 0.99 && exact < 0.5) empty++;
+            n++;
+        }
+        diff /= n;
+        log(
+            `sun-below: sol a ${el}° — T na camada pelo mapa a ${diff.toFixed(3)} da referência na média; ${empty} de ${n} pontos sem a sombra que a referência tem`,
+        );
+        check(
+            diff <= 0.05,
+            `sun-below: sol a ${el}°, T na camada a ${diff.toFixed(3)} da referência`,
+        );
+    }
+    finish(s);
 }
 
 async function caseSunSweep(): Promise<void> {
@@ -1105,10 +2608,8 @@ async function caseSunSweep(): Promise<void> {
     for (let k = 0; k <= 110; k++) {
         const el = 12 - k * 0.1;
         s.sun.data.direction = sunTravel(el, az);
-        await settleFrames(s.app, 2);
-        const t = s.app.resources.textureOf(layer, 'shadow');
-        if (t === undefined) throw new Error('mapa visto do sol não alocado');
-        const map = await readTexture(s.app, t, 'rgba16float');
+        await settleFrames(s.app, 4);
+        const map = await readShadowMap(s.app, layer);
         const g = groundMapT(map, layer.data.params[0]!, [0, 0, 0]);
         const r = Math.exp(-opticalDepth(model, [0, 0, 0], sunToward(el, az), 512));
         gpu.push(g);
@@ -1152,6 +2653,262 @@ async function caseSunSweep(): Promise<void> {
         Math.abs(sum(gpu) / Math.max(sum(ref), 1e-6) - 1) <= 0.1,
         `sun-sweep: luz direta somada ${sum(gpu).toFixed(2)} contra ${sum(ref).toFixed(2)} da referência`,
     );
+    finish(s);
+}
+
+/**
+ * A razão do degrau na borda dos blocos da marcha (2·S pixels da tela: o bloco 2 × 2 do alvo reconstruído de S pixels da
+ * tela por texel, `marchScale`) pelo degrau na borda entre dois texels dentro do bloco, nos pixels com nuvem da vista
+ * aumentada (o brilho; `alpha` a transmitância). As duas bordas são iguais no aumento bilinear (texel a texel); só a
+ * reconstrução distingue o bloco — com o bloco largando o histórico, os quatro texels dele saíam com uma amostra só e o
+ * degrau na borda do bloco crescia. Devolve a razão em x e em y.
+ */
+function blockEdgeRatio(
+    view: { width: number; height: number; data: Float32Array },
+    scale: number,
+): [number, number] {
+    const { width: w, height: h, data } = view;
+    const block = 2 * scale;
+    const lum = (i: number): number =>
+        luminance([data[i * 4]!, data[i * 4 + 1]!, data[i * 4 + 2]!]);
+    const cloudy = (i: number): boolean => data[i * 4 + 3]! < 0.9;
+    // O degrau relativo entre dois pixels vizinhos (a luz das nuvens varia em ordens de grandeza entre o lado ao sol e a
+    // base na sombra).
+    const step = (a: number, b: number): number =>
+        Math.abs(lum(a) - lum(b)) / Math.max(0.5 * (lum(a) + lum(b)), 1e-6);
+    const sums = [0, 0, 0, 0];
+    const counts = [0, 0, 0, 0];
+    for (let y = 1; y < h - 1; y++)
+        for (let x = 1; x < w - 1; x++) {
+            const i = y * w + x;
+            // A borda do bloco (entre o último pixel de um bloco e o primeiro do seguinte) e a borda entre os dois texels
+            // dentro do bloco (S − 1 → S).
+            for (const [axis, at, next] of [
+                [0, x, i + 1],
+                [1, y, i + w],
+            ] as const) {
+                const phase = at % block;
+                const edge = phase === block - 1 ? 0 : phase === scale - 1 ? 1 : -1;
+                if (edge < 0 || !cloudy(i) || !cloudy(next)) continue;
+                sums[axis * 2 + edge]! += step(i, next);
+                counts[axis * 2 + edge]!++;
+            }
+        }
+    const mean = (k: number): number => sums[k]! / Math.max(counts[k]!, 1);
+    return [mean(0) / Math.max(mean(1), 1e-9), mean(2) / Math.max(mean(3), 1e-9)];
+}
+
+/**
+ * O erro de alta frequência da vista `a` contra a vista `b` (a mesma cena convergida): nos pixels com nuvem nas duas, o
+ * passa-alta do brilho (menos a média 5 × 5) de cada uma relativo à média local, e o erro quadrático médio da diferença.
+ * O mosaico, o ruído e a grade da reconstrução entram; o atraso da luz (baixa frequência), não.
+ */
+function highPassError(
+    a: { width: number; height: number; data: Float32Array },
+    b: { width: number; height: number; data: Float32Array },
+): number {
+    const { width: w, height: h } = a;
+    const lum = (v: Float32Array, i: number): number =>
+        luminance([v[i * 4]!, v[i * 4 + 1]!, v[i * 4 + 2]!]);
+    const hp = (v: Float32Array, x: number, y: number): number => {
+        let sum = 0;
+        for (let dy = -2; dy <= 2; dy++)
+            for (let dx = -2; dx <= 2; dx++) sum += lum(v, (y + dy) * w + x + dx);
+        const m = sum / 25;
+        return (lum(v, y * w + x) - m) / Math.max(m, 1e-6);
+    };
+    let e = 0;
+    let n = 0;
+    for (let y = 2; y < h - 2; y++)
+        for (let x = 2; x < w - 2; x++) {
+            const i = y * w + x;
+            if (a.data[i * 4 + 3]! >= 0.9 || b.data[i * 4 + 3]! >= 0.9) continue;
+            e += (hp(a.data, x, y) - hp(b.data, x, y)) ** 2;
+            n++;
+        }
+    return Math.sqrt(e / Math.max(n, 1));
+}
+
+/**
+ * A grade periódica de 2·S pixels (o bloco da marcha) na vista aumentada: o brilho relativo à média 9 × 9 em volta, nos
+ * pixels com nuvem na janela inteira (sem a borda contra o céu), médio por fase (x mod 2S, y mod 2S); devolve o pico a pico das médias. Sem estrutura presa à grade
+ * dos blocos, as fases têm a mesma média (o detalhe da nuvem cai em todas).
+ */
+function latticePattern(
+    view: { width: number; height: number; data: Float32Array },
+    scale: number,
+): number {
+    const { width: w, height: h, data } = view;
+    const period = 2 * scale;
+    // A imagem integral do brilho e da máscara de nuvem: a média 9 × 9 em O(1) por pixel.
+    const integral = new Float64Array((w + 1) * (h + 1));
+    const cloudy = new Float64Array((w + 1) * (h + 1));
+    for (let y = 0; y < h; y++) {
+        let row = 0;
+        let rowCloud = 0;
+        for (let x = 0; x < w; x++) {
+            const i = (y * w + x) * 4;
+            row += luminance([data[i]!, data[i + 1]!, data[i + 2]!]);
+            rowCloud += data[i + 3]! < 0.9 ? 1 : 0;
+            integral[(y + 1) * (w + 1) + x + 1] = integral[y * (w + 1) + x + 1]! + row;
+            cloudy[(y + 1) * (w + 1) + x + 1] = cloudy[y * (w + 1) + x + 1]! + rowCloud;
+        }
+    }
+    const window9 = (t: Float64Array, x: number, y: number): number =>
+        t[(y + 5) * (w + 1) + x + 5]!
+        - t[(y - 4) * (w + 1) + x + 5]!
+        - t[(y + 5) * (w + 1) + x - 4]!
+        + t[(y - 4) * (w + 1) + x - 4]!;
+    const sums = new Float64Array(period * period);
+    const counts = new Float64Array(period * period);
+    for (let y = 4; y < h - 4; y++)
+        for (let x = 4; x < w - 4; x++) {
+            const i = (y * w + x) * 4;
+            if (window9(cloudy, x, y) < 81) continue;
+            const box = window9(integral, x, y) / 81;
+            if (box <= 1e-6) continue;
+            const k = (y % period) * period + (x % period);
+            sums[k]! += luminance([data[i]!, data[i + 1]!, data[i + 2]!]) / box - 1;
+            counts[k]!++;
+        }
+    const means = [...sums].map((v, k) => v / Math.max(counts[k]!, 1));
+    return Math.max(...means) - Math.min(...means);
+}
+
+/**
+ * O atraso da cor da vista `a` contra a vista `b` (a mesma cena parada e convergida): em ladrilhos de 16 × 16 px com nuvem
+ * nos dois, a média do RGB de cada um; devolve o erro relativo do RGB dos ladrilhos (pela energia: a baixa frequência, o
+ * ruído do cache de espalhamento incluso), a diferença do matiz `ln(R/B)` (o laranja do sol mais alto contra o rosado) e
+ * a do brilho (`level`: a razão das somas − 1), pesadas pelo brilho da cena parada. A luz que fica atrás do sol que anda
+ * desvia o matiz e o brilho no mesmo sentido em toda a imagem; o ruído, não.
+ */
+function colorLag(
+    a: { width: number; height: number; data: Float32Array },
+    b: { width: number; height: number; data: Float32Array },
+): { rgb: number; hue: number; level: number } {
+    const { width: w, height: h } = a;
+    const tile = 16;
+    let e = 0;
+    let ref = 0;
+    let la = 0;
+    let hue = 0;
+    let weight = 0;
+    for (let ty = 0; ty + tile <= h; ty += tile)
+        for (let tx = 0; tx + tile <= w; tx += tile) {
+            const ma = [0, 0, 0];
+            const mb = [0, 0, 0];
+            let ok = true;
+            for (let y = ty; y < ty + tile && ok; y++)
+                for (let x = tx; x < tx + tile; x++) {
+                    const i = (y * w + x) * 4;
+                    if (a.data[i + 3]! >= 0.9 || b.data[i + 3]! >= 0.9) {
+                        ok = false;
+                        break;
+                    }
+                    for (let c = 0; c < 3; c++) {
+                        ma[c]! += a.data[i + c]!;
+                        mb[c]! += b.data[i + c]!;
+                    }
+                }
+            if (!ok) continue;
+            for (let c = 0; c < 3; c++) {
+                e += (ma[c]! - mb[c]!) ** 2;
+                ref += mb[c]! ** 2;
+            }
+            const lb = luminance(mb as [number, number, number]);
+            la += luminance(ma as [number, number, number]);
+            hue +=
+                lb
+                * (Math.log(Math.max(ma[0]!, 1e-9) / Math.max(ma[2]!, 1e-9))
+                    - Math.log(Math.max(mb[0]!, 1e-9) / Math.max(mb[2]!, 1e-9)));
+            weight += lb;
+        }
+    return {
+        rgb: Math.sqrt(e / Math.max(ref, 1e-30)),
+        hue: hue / Math.max(weight, 1e-30),
+        level: la / Math.max(weight, 1e-30) - 1,
+    };
+}
+
+async function caseDuskBlocks(): Promise<void> {
+    // O mosaico nas nuvens escuras do pôr do sol (o `solposto` do claflow-web perto do quadro 1000), a câmera no chão
+    // olhando para o lado do sol no azimute (0,8; 0,6). A luz das nuvens muda depressa e o gradiente temporal larga o
+    // histórico; o bloco que o largava saía com a amostra do pixel marchado nos quatro texels (blocos de 4 × 4 px com uma
+    // amostra cada: o mosaico na base escura e a borda dos vãos em degraus). Medidas: o degrau na borda dos blocos pelo
+    // degrau entre dois texels dentro deles (`blockEdgeRatio`; 1 sem estrutura de bloco) e o erro de alta frequência
+    // contra a mesma cena parada e convergida. A grade periódica dos blocos (`latticePattern`: os quatro texels do bloco
+    // com idades de 0 a 3 quadros na média exponencial, com a luz mudando; T080: o histórico de todos os texels segue o
+    // desvio medido) fica registrada. O atraso da cor (`colorLag`): o matiz e o brilho dos ladrilhos de 16 px contra a
+    // cena parada — o mapa visto do sol e o histórico atrás do sol que anda (T080).
+    const az = (Math.atan2(0.6, 0.8) * 180) / Math.PI;
+    const a = (az * Math.PI) / 180;
+    // A cena do `solposto`: cúmulos de 0,08/m, o vento de 6 m/s, o ar de fim de tarde (turbidez 8, névoa seca de 0,15/km
+    // até 600 m) e o relógio de 1/60 s por quadro (as nuvens andam com o vento entre os quadros).
+    const s = await cloudScene({
+        width: 1280,
+        height: 720,
+        sunElevation: 2,
+        sunAzimuth: az,
+        sunLux: 100_000,
+        clouds: { coverage: 0.4, type: 0.5, density: 0.08, wind: [6, 2] },
+        eye: [0, 2, 0],
+        target: [1000 * Math.cos(a), 260, 1000 * Math.sin(a)],
+        fov: Math.PI / 3,
+    });
+    s.sky.turbidity = 8;
+    s.sky.haze = { extinction: 0.15, scaleHeight: 0.6 };
+    // O sol do `solposto` (a elevação −4° + 64° (1 − i/1199)^1,6 no quadro i) do quadro 700 (≈ 9°) ao 1010 (≈ −0,5°),
+    // andando o tempo todo como no vídeo: as sondas do cache de espalhamento esquecem os caminhos com o sol que anda
+    // (`CLOUD_SCATTER_SUN_MEMORY`), e a luz da base na sombra muda a cada quadro.
+    const elevation = (i: number): number => -4 + 64 * (1 - i / 1199) ** 1.6;
+    s.sun.data.direction = sunTravel(elevation(700), az);
+    await settleFrames(s.app, 120);
+    const scale = s.layer!.quality.marchScale;
+    const ratios: [number, number, number][] = [];
+    const grids: number[] = [];
+    for (let i = 700; i <= 1010; i++) {
+        s.sun.data.direction = sunTravel(elevation(i), az);
+        s.app.step(1 / 60);
+        await nextGpuFrame(s.app);
+        if (i >= 950 && i % 20 === 10) {
+            const view = await cloudView(s);
+            ratios.push([elevation(i), ...blockEdgeRatio(view, scale)]);
+            grids.push(latticePattern(view, scale));
+        }
+    }
+    // A mesma cena parada (o sol e o vento): a reconstrução converge; o erro de alta frequência do quadro em movimento.
+    const moving = await cloudView(s);
+    await settleFrames(s.app, 192);
+    const still = await cloudView(s);
+    const lag = colorLag(moving, still);
+    const hf = highPassError(moving, still);
+    const worst = Math.max(...ratios.flatMap(([, x, y]) => [x, y]));
+    log(
+        `dusk-blocks: degrau na borda dos blocos / entre texels (x, y) — ${ratios.map(([e, x, y]) => `sol a ${e.toFixed(2)}°: ${x.toFixed(3)}, ${y.toFixed(3)}`).join(' | ')}`,
+    );
+    log(
+        `dusk-blocks: a grade de ${2 * scale} px (pico a pico das médias por fase, % do brilho local) ${grids.map((g) => (g * 100).toFixed(2)).join(', ')} (parada ${(latticePattern(still, scale) * 100).toFixed(2)}); erro de alta frequência (5 × 5) do quadro em movimento contra a mesma cena parada e convergida ${(hf * 100).toFixed(2)} %`,
+    );
+    log(
+        `dusk-blocks: a cor em movimento contra a cena parada — matiz ln(R/B) ${lag.hue.toFixed(4)}, brilho ${(lag.level * 100).toFixed(2)} %, RGB dos ladrilhos de 16 px ${(lag.rgb * 100).toFixed(1)} %`,
+    );
+    check(
+        worst <= 1.03,
+        `dusk-blocks: o degrau na borda dos blocos a ${worst.toFixed(3)} × o entre texels (mosaico)`,
+    );
+    check(
+        hf <= 0.03,
+        `dusk-blocks: erro de alta frequência a ${(hf * 100).toFixed(2)} % da cena convergida`,
+    );
+    // O atraso da cor (o mapa visto do sol e o histórico atrás do sol que anda): com a fila do mapa saturada e o
+    // histórico ~13 quadros atrás, o matiz saía 0,95 acima (o laranja) e o RGB dos ladrilhos a 260 %.
+    check(
+        Math.abs(lag.hue) <= 0.05,
+        `dusk-blocks: o matiz em movimento a ${lag.hue.toFixed(4)} do da cena parada (atraso da cor)`,
+    );
+    // O brilho fica registrado: em movimento, ~19 % abaixo da cena parada pelo cache de espalhamento — o sol que anda
+    // esquece os caminhos das sondas (`CLOUD_SCATTER_SUN_MEMORY`) e a luz delas cai na estimativa das oitavas
+    // (`CLOUD_SCATTER_PRIOR`), mais escura na base à sombra (com 8 × o orçamento de páginas do cache, −8 %).
     finish(s);
 }
 
@@ -1215,21 +2972,24 @@ async function caseCoverageMap(): Promise<void> {
     const t = s.app.resources.textureOf(s.layer!, 'coverage');
     if (t === undefined) throw new Error('mapa de cobertura não alocado');
     const map = await readTexture(s.app, t, 'rgba8unorm');
-    const extent = s.layer!.quality.coverageExtent;
+    // Os texels de todos os níveis (páginas embaralhadas da janela de cada um) contra os campos no centro deles.
+    const levels = coverageLevelsOf(s.layer!);
+    const read = coverageVolumeReader(map.data, 4);
     let worst = 0;
     for (let k = 0; k < 400; k++) {
-        const i = (k * 97) % map.width;
-        const j = (k * 53 + 11) % map.height;
-        const x = ((i + 0.5) / map.width - 0.5) * extent;
-        const z = ((j + 0.5) / map.height - 0.5) * extent;
-        const ref = coverageField(x, z, 0.5, 0.4);
-        const o = (j * map.width + i) * 4;
-        worst = Math.max(worst, Math.abs(map.data[o]! - quantize(ref)));
+        const level = k % levels.levels;
+        const win = coverageWindow(levels, level);
+        // Fora do anel de fora da janela (lá o valor é levado ao do nível seguinte).
+        const i = win[0] * 16 + 16 + ((k * 97) % 480);
+        const j = win[1] * 16 + 16 + ((k * 53 + 11) % 480);
+        const [x, z] = coverageTexelCenter(levels, level, i, j);
+        const v = read(level, i, j);
+        worst = Math.max(worst, Math.abs(v[0]! - quantize(coverageField(x, z, 0.5, 0.4))));
         // O canal G: o campo do tipo em volta do tipo pedido.
-        worst = Math.max(worst, Math.abs(map.data[o + 1]! - quantize(typeField(x, z, 0.4))));
+        worst = Math.max(worst, Math.abs(v[1]! - quantize(typeField(x, z, 0.4))));
     }
     log(
-        `coverage-map: 400 texels (cobertura e tipo) contra os campos da referência — pior ${(worst * 255).toFixed(2)}/255`,
+        `coverage-map: 400 texels de ${levels.levels} níveis (cobertura e tipo) contra os campos da referência — pior ${(worst * 255).toFixed(2)}/255`,
     );
     check(worst <= 2 / 255 + 1e-6, `coverage-map: texel difere ${(worst * 255).toFixed(2)}/255`);
     finish(s);
@@ -1246,11 +3006,15 @@ async function caseOvercastAmbient(): Promise<void> {
     await settleFrames(s.app, 30);
     const layer = s.layer!;
     const t = s.app.resources.textureOf(layer, 'panorama');
-    const sh = s.app.resources.textureOf(layer, 'shadow');
-    if (t === undefined || sh === undefined) throw new Error('alvos das nuvens não alocados');
+    if (t === undefined) throw new Error('alvos das nuvens não alocados');
     const pano = await readTexture(s.app, t, 'rgba16float');
-    const shadow = await readTexture(s.app, sh, 'rgba16float');
+    const shadow = await readShadowMap(s.app, layer);
     const model = await referenceModel(s, layer);
+    // A luz múltipla da referência é a do panorama da GPU: o cache de espalhamento lido da GPU (a mesma representação;
+    // as sondas contra os caminhos f64 no `scatter-cache`) sobre a estimativa das oitavas, como nos casos de vista. Só
+    // com as oitavas a referência ficava 18,9 % abaixo do cache convergido (as oitavas erram até 50 % do transporte, R8):
+    // a diferença medida era a do modelo, não a do panorama.
+    const scatter = await scatterLookupOf(s, layer, model);
     const sun = sunToward(60);
     const lux = s.sun.data.intensity;
     const amb = s.app.resources.textureOf(layer, 'ambient');
@@ -1260,6 +3024,7 @@ async function caseOvercastAmbient(): Promise<void> {
         sun: sunTransmittance(atmosphere, 1.4, sun).map((v) => v * lux) as unknown as Vec3,
         ambientUp: [ambient.data[0]!, ambient.data[1]!, ambient.data[2]!] as Vec3,
         ambientDown: [ambient.data[4]!, ambient.data[5]!, ambient.data[6]!] as Vec3,
+        ...(scatter === undefined ? {} : { scatter }),
     };
     let clear = 0;
     let gpu = 0;
@@ -1297,12 +3062,8 @@ async function caseOvercastAmbient(): Promise<void> {
             gpu += w * g;
             ref += w * rl;
         }
-    // O sol direto no chão: a transmitância do mapa (o último nó: o canal a da última camada) no centro.
-    const c =
-        (((shadow.depth - 1) * shadow.height + Math.floor(shadow.height / 2)) * shadow.width
-            + Math.floor(shadow.width / 2))
-        * 4;
-    const sunT = Math.exp(-shadow.data[c + 3]!);
+    // O sol direto no chão: a transmitância do mapa (o último nó) no chão da câmera.
+    const sunT = groundMapT(shadow, layer.data.params[0]!, [0, 0, 0]);
     log(
         `overcast-ambient: luz do céu encoberto/limpo — GPU ${(gpu / clear).toFixed(3)}, referência ${(ref / clear).toFixed(3)}; sol direto no chão × ${sunT.toExponential(2)}`,
     );
@@ -1327,13 +3088,17 @@ async function caseFogInFront(): Promise<void> {
         clouds: { coverage: 0.5, wind: [0, 0] as [number, number] },
         target: [1000, 450, 200] as const,
     };
+    // Quadros até a captura (`--query settle=N`): 180 — com a névoa, a marcha das nuvens compõe os meios perto da câmera
+    // até a nuvem (spec 041, R21) e é refeita quando a névoa entra; a reconstrução temporal dela (a média de ~64 quadros)
+    // não assenta em 60 (resíduo 4,5 % aos 60, 0,83 % aos 180).
+    const settle = Number(new URLSearchParams(location.search).get('settle') ?? 180);
     const a = await cloudScene(view);
-    await settleFrames(a.app, 60);
+    await settleFrames(a.app, settle);
     const ca = await sceneColor(a);
     finish(a);
     const b = await cloudScene(view);
     b.app.world.insert(new FogVolume({ shape: { sphere: 30 }, center: [0, 2, 0], density: 0.004 }));
-    await settleFrames(b.app, 60);
+    await settleFrames(b.app, settle);
     const cb = await sceneColor(b);
     finish(b);
     // Médias de blocos de 8 × 8 px no verde (a escala de um halo; tira o ruído do deslocamento da amostra do AA), e o
@@ -1365,11 +3130,26 @@ async function caseFogInFront(): Promise<void> {
     const slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
     const icpt = (sy - slope * sx) / n;
     let worst = 0;
+    let at = 0;
     const mean = sy / n;
-    for (let k = 0; k < n; k++)
-        worst = Math.max(worst, Math.abs(xb[k]! - (icpt + slope * xa[k]!)) / mean);
+    for (let k = 0; k < n; k++) {
+        const r = Math.abs(xb[k]! - (icpt + slope * xa[k]!)) / mean;
+        if (r > worst) {
+            worst = r;
+            at = k;
+        }
+    }
+    const map: string[] = [];
+    for (let k = 0; k < n; k++) {
+        const r = (xb[k]! - (icpt + slope * xa[k]!)) / mean;
+        if (Math.abs(r) > 0.01)
+            map.push(
+                `${k % 40},${Math.floor(k / 40)}:${(r * 100).toFixed(1)}(${xa[k]!.toFixed(1)})`,
+            );
+    }
+    log(`fog-in-front: blocos com resíduo > 1 % (x,y:%(sem)) ${map.join(' ')}`);
     log(
-        `fog-in-front: com névoa = ${icpt.toFixed(3)} + ${slope.toFixed(4)} × sem névoa; pior resíduo por bloco de 8 × 8 px ${(worst * 100).toFixed(2)} % da média`,
+        `fog-in-front: com névoa = ${icpt.toFixed(3)} + ${slope.toFixed(4)} × sem névoa; pior resíduo por bloco de 8 × 8 px ${(worst * 100).toFixed(2)} % da média (bloco ${at % 40}, ${Math.floor(at / 40)}: sem ${xa[at]!.toFixed(3)}, com ${xb[at]!.toFixed(3)}, esperado ${(icpt + slope * xa[at]!).toFixed(3)})`,
     );
     check(slope < 0.999, 'fog-in-front: a névoa não atenuou as nuvens');
     check(
@@ -1522,6 +3302,538 @@ async function caseSunTransmittance(): Promise<void> {
     finish(s);
 }
 
+// ── o tempo: pressão, vento e tempestades (R19) ──────────────────────────────────────────────────────────────────────
+
+/** Uma soma de vórtices gaussianos `A·e^(−|x − c|²/2σ²)` (Pa), em WGSL (o ponto `cloud_pressure`) e na referência. */
+interface Vortex {
+    readonly amplitude: number;
+    readonly sigma: number;
+    readonly x: number;
+    readonly z: number;
+}
+
+function vortexPressure(vortices: readonly Vortex[]): {
+    code: string;
+    fn: (x: number, z: number) => number;
+} {
+    const f = (v: number): string => (Number.isInteger(v) ? `${v}.0` : `${v}`);
+    const terms = vortices.map(
+        (v) =>
+            `${f(v.amplitude)} * exp(-dot(xz - vec2f(${f(v.x)}, ${f(v.z)}), xz - vec2f(${f(v.x)}, ${f(v.z)})) / ${(2 * v.sigma * v.sigma).toExponential(6)})`,
+    );
+    return {
+        code: `fn pressure_fn(xz: vec2f, time: f32, data: PressureFnParams) -> f32 {\n    return ${terms.join(' + ')};\n}`,
+        fn: (x, z) =>
+            vortices.reduce(
+                (sum, v) =>
+                    sum
+                    + v.amplitude
+                        * Math.exp(-((x - v.x) ** 2 + (z - v.z) ** 2) / (2 * v.sigma * v.sigma)),
+                0,
+            ),
+    };
+}
+
+/** A baixa das tempestades dos casos: 1800 Pa, σ = 350 km, centrada na origem. */
+const STORM_LOW: Vortex = { amplitude: -1800, sigma: 350_000, x: 0, z: 0 };
+
+/** Os parâmetros do kernel do tempo como a camada os empacota (o vento de condução nulo, o tempo parado). */
+function weatherParamsOf(layer: CloudLayer): WeatherParams {
+    const w = layer.weather!;
+    return {
+        f: coriolis(w.latitude),
+        freeDrag: FREE_DRAG,
+        friction: w.friction,
+        step: w.scale / 64,
+        steering: [0, 0],
+        time: 0,
+    };
+}
+
+/** O quadrado do tempo: o texel (i, j) → (x, z) do mundo, com a câmera na origem (o centro encaixado é 0). */
+function weatherTexelXZ(layer: CloudLayer, i: number, j: number, size: number): [number, number] {
+    const extent = layer.quality.coverageExtent;
+    return [((i + 0.5) / size - 0.5) * extent, ((j + 0.5) / size - 0.5) * extent];
+}
+
+async function casePressureWind(): Promise<void> {
+    // O vento das nuvens, a subida e a frente da GPU (o quadrado do tempo, `weatherWind`) contra a referência f64 numa
+    // baixa gaussiana, no norte, no sul e no equador; o sentido do giro; o mapa de cobertura contra o mapeamento.
+    const pressure = vortexPressure([STORM_LOW]);
+    for (const latitude of [45, -45, 0]) {
+        const s = await cloudScene({
+            width: 128,
+            height: 72,
+            clouds: {
+                coverage: 0.4,
+                type: 0.5,
+                top: 3000,
+                wind: [0, 0],
+                weather: { latitude, pressure: { code: pressure.code } },
+            },
+        });
+        await settleFrames(s.app, 12);
+        const layer = s.layer!;
+        const tex = s.app.resources.textureOf(layer, 'weatherWind');
+        if (tex === undefined) throw new Error('pressure-wind: vento do tempo não alocado');
+        const wind = await readTexture(s.app, tex, 'rgba16float');
+        const q = weatherParamsOf(layer);
+        const N = wind.width;
+        let maxSpeed = 0;
+        let maxW = 0;
+        let worstWind = 0;
+        let worstW = 0;
+        let worstFront = 0;
+        const refs: {
+            i: number;
+            j: number;
+            x: number;
+            z: number;
+            r: ReturnType<typeof weatherAt>;
+        }[] = [];
+        for (let j = 2; j < N; j += 5)
+            for (let i = 3; i < N; i += 5) {
+                const [x, z] = weatherTexelXZ(layer, i, j, N);
+                const r = weatherAt((a, b) => pressure.fn(a, b), x, z, q);
+                refs.push({ i, j, x, z, r });
+                maxSpeed = Math.max(maxSpeed, Math.hypot(r.windX, r.windZ));
+                maxW = Math.max(maxW, Math.abs(r.w));
+            }
+        for (const { i, j, x, z, r } of refs) {
+            const o = (j * N + i) * 4;
+            const ex = wind.data[o]! - r.windX;
+            const ez = wind.data[o + 1]! - r.windZ;
+            worstWind = Math.max(worstWind, Math.hypot(ex, ez) / maxSpeed);
+            worstW = Math.max(worstW, Math.abs(wind.data[o + 2]! - r.w) / maxW);
+            // A frente é `smoothstep(0,45; 0,75; √W⁺/f_e)` (inclinação até 5) de diferenças de segundas derivadas
+            // (`p_EE − p_NN`, quase iguais perto de um centro): o erro relativo do f32 no estêncil, η ~ 10⁻⁴, vira no
+            // argumento Δ = η·(|p_EE| + |p_NN| + 2|p_EN|)·(r + |f|)/(ρ(r² + f²)·f_e) — a 45°, ~10⁻⁴; no equador
+            // (f_e = r), ~0,02. A tolerância é 0,02 mais 5·Δ: acompanha a sensibilidade da conta.
+            const d = pressureStencil((a, b) => pressure.fn(a, b), x, z, q.step);
+            const fe = Math.hypot(q.f, q.freeDrag);
+            const delta =
+                (1e-4
+                    * (Math.abs(d.pEE) + Math.abs(d.pNN) + 2 * Math.abs(d.pEN))
+                    * (q.freeDrag + Math.abs(q.f)))
+                / (1.2 * fe * fe * fe);
+            worstFront = Math.max(worstFront, Math.abs(wind.data[o + 3]! - r.front) - 5 * delta);
+        }
+        // O sentido: a leste do centro (x = +100 km, dentro do quadrado), o vento vai para o norte (−z) no hemisfério norte, para o sul no
+        // sul; no equador, para o centro (oeste), sem giro.
+        const east = Math.round((100_000 / layer.quality.coverageExtent + 0.5) * N - 0.5);
+        const mid = N / 2;
+        const o = (mid * N + east) * 4;
+        const [vx, vz] = [wind.data[o]!, wind.data[o + 1]!];
+        log(
+            `pressure-wind ${latitude}°: ${refs.length} texels — vento ${(worstWind * 100).toFixed(2)} % do máximo (${maxSpeed.toFixed(1)} m/s), w ${(worstW * 100).toFixed(2)} % (máx ${(maxW * 100).toFixed(2)} cm/s), frente ±${worstFront.toFixed(3)} além da sensibilidade; a leste do centro (${vx.toFixed(2)}, ${vz.toFixed(2)}) m/s`,
+        );
+        check(
+            worstWind <= 0.01,
+            `pressure-wind ${latitude}°: vento a ${(worstWind * 100).toFixed(2)} % (SC-010)`,
+        );
+        check(
+            worstW <= 0.01,
+            `pressure-wind ${latitude}°: subida a ${(worstW * 100).toFixed(2)} % (SC-010)`,
+        );
+        check(worstFront <= 0.02, `pressure-wind ${latitude}°: frente a ${worstFront.toFixed(3)}`);
+        if (latitude > 0)
+            check(vz < -1, `pressure-wind 45° N: giro não anti-horário (vz ${vz.toFixed(2)})`);
+        if (latitude < 0)
+            check(vz > 1, `pressure-wind 45° S: giro não horário (vz ${vz.toFixed(2)})`);
+        if (latitude === 0)
+            check(
+                vx < 0 && Math.abs(vz) < 0.05 * Math.abs(vx),
+                `pressure-wind equador: o vento não desce o gradiente (${vx.toFixed(2)}, ${vz.toFixed(2)})`,
+            );
+        // O mapa de cobertura: o estado (parado: o alvo) em cada texel do tempo, bilinear, e as células por cima.
+        if (latitude === 45) await coverageAgainstWeather(s, pressure.fn, q);
+        finish(s);
+    }
+}
+
+/** O mapa de cobertura da GPU contra o mapeamento da referência (o estado parado é o alvo; R19). */
+async function coverageAgainstWeather(
+    s: CloudScene,
+    fn: (x: number, z: number) => number,
+    q: WeatherParams,
+): Promise<void> {
+    const layer = s.layer!;
+    const tex = s.app.resources.textureOf(layer, 'coverage');
+    if (tex === undefined) throw new Error('mapa de cobertura não alocado');
+    const map = await readTexture(s.app, tex, 'rgba8unorm');
+    const extent = layer.quality.coverageExtent;
+    const W = 128;
+    const fair = {
+        coverage: layer.coverage,
+        type: layer.type,
+        top: (layer.top - layer.base) / (layer.shellTop - layer.base),
+    };
+    const cache = new Map<number, ReturnType<typeof weatherClouds>>();
+    const stateAt = (i: number, j: number): ReturnType<typeof weatherClouds> => {
+        const ci = Math.min(W - 1, Math.max(0, i));
+        const cj = Math.min(W - 1, Math.max(0, j));
+        const key = cj * W + ci;
+        let v = cache.get(key);
+        if (v === undefined) {
+            const [x, z] = weatherTexelXZ(layer, ci, cj, W);
+            const r = weatherAt((a, b) => fn(a, b), x, z, q);
+            v = weatherClouds(r.w, r.front, fair);
+            cache.set(key, v);
+        }
+        return v;
+    };
+    let worst = 0;
+    let storm = 0;
+    // Os texels de um nível (o mapa em níveis, R21 rodada 19) longe da borda da janela (os 86 % do meio dela).
+    const levels = coverageLevelsOf(layer);
+    // O nível de 500 m (o penúltimo: a janela de 256 km, o quadrado do tempo).
+    const last = levels.levels - 2;
+    const read = coverageVolumeReader(map.data, 4);
+    const win = coverageWindow(levels, last);
+    for (let k = 0; k < 400; k++) {
+        const gi = win[0] * 16 + 36 + ((k * 97) % 440);
+        const gj = win[1] * 16 + 36 + ((k * 53 + 11) % 440);
+        const [x, z] = coverageTexelCenter(levels, last, gi, gj);
+        const texel = read(last, gi, gj);
+        const fx = (x / extent + 0.5) * W - 0.5;
+        const fz = (z / extent + 0.5) * W - 0.5;
+        const x0 = Math.floor(fx);
+        const z0 = Math.floor(fz);
+        const ax = fx - x0;
+        const az = fz - z0;
+        const value = (i: number, j: number, key: 'coverage' | 'type' | 'top' | 'anvil'): number =>
+            key === 'anvil' ? anvilSource(stateAt(i, j)) : stateAt(i, j)[key];
+        const lerp = (key: 'coverage' | 'type' | 'top' | 'anvil'): number =>
+            (value(x0, z0, key) * (1 - ax) + value(x0 + 1, z0, key) * ax) * (1 - az)
+            + (value(x0, z0 + 1, key) * (1 - ax) + value(x0 + 1, z0 + 1, key) * ax) * az;
+        const sc = lerp('coverage');
+        const st = lerp('type');
+        const ref = [
+            quantize(coverageField(x, z, sc, st)),
+            quantize(typeField(x, z, st)),
+            quantize(lerp('anvil')),
+            quantize(lerp('top')),
+        ];
+        for (let c = 0; c < 4; c++) worst = Math.max(worst, Math.abs(texel[c]! - ref[c]!));
+        if (texel[3]! > 0.95) storm++;
+    }
+    log(
+        `pressure-wind: mapa de cobertura pelo tempo — 400 texels, pior ${(worst * 255).toFixed(2)}/255; ${storm} com a torre até a tropopausa`,
+    );
+    check(
+        worst <= 3 / 255 + 1e-6,
+        `pressure-wind: mapa de cobertura a ${(worst * 255).toFixed(2)}/255 do mapeamento`,
+    );
+    check(storm > 0, 'pressure-wind: nenhum texel com a torre até a tropopausa na baixa');
+}
+
+async function caseStorm(): Promise<void> {
+    // A tempestade na baixa (SC-011): no núcleo, a torre do cúmulo-nimbo chega a ≥ 85 % da tropopausa e a bigorna
+    // fecha a nuvem no alto (nas colunas maduras, os buracos a 80 % da altura local no máximo a metade dos de 50 %),
+    // medidas na referência sobre o mapa e os volumes da GPU; a vista da torre de 60 km contra a marcha de referência.
+    const pressure = vortexPressure([STORM_LOW]);
+    const eye: Vec3 = [60_000, 2, 0];
+    const target: Vec3 = [0, 4000, 0];
+    const r = await viewCase(
+        'storm',
+        45,
+        0,
+        {
+            coverage: 0.35,
+            type: 0.5,
+            top: 3000,
+            wind: [0, 0],
+            weather: { latitude: 45, pressure: { code: pressure.code } },
+        },
+        eye,
+        target,
+        // 128 quadros na média: a faixa fina das nuvens além de 20 km rente ao horizonte, numa casca de 9,5 km (passos
+        // mais longos), varia a região mais que com 48 (5,4 % → 4,7 %; a cintilação é medida no `antialiasing`).
+        128,
+    );
+    const layer = r.s.layer!;
+    const model = await referenceModel(r.s, layer);
+    const shell = layer.shellTop;
+    let tallest = 0;
+    let at50 = 0;
+    let at80 = 0;
+    let columns = 0;
+    let mature = 0;
+    for (let k = 0; k < 900; k++) {
+        const x = ((k % 30) / 29 - 0.5) * 120_000;
+        const z = (Math.floor(k / 30) / 29 - 0.5) * 120_000;
+        const cov = model.coverage(x, z) as readonly number[];
+        if ((cov[3] ?? 1) < 0.95) continue;
+        columns++;
+        for (let h = 0.3; h < 1; h += 0.01) {
+            const y = layer.base + h * (shell - layer.base);
+            if (cloudDensity(model, [x, y, z]) > 0) tallest = Math.max(tallest, y);
+        }
+        const yAt = (f: number): number => layer.base + f * (cov[3] ?? 1) * (shell - layer.base);
+        // A bigorna é do cúmulo-nimbo maduro (tipo ≥ 0,9; no núcleo, metade das colunas pelo campo do tipo): a extensão
+        // da nuvem no alto contra a do meio da torre, nas colunas maduras (tipo local ≥ 0,95, onde o perfil é igual a
+        // 50 % e a 80 % da altura: a diferença é só a bigorna).
+        if ((cov[1] ?? 0) < 0.95) continue;
+        mature++;
+        if (cloudDensity(model, [x, yAt(0.5), z]) > 0) at50++;
+        if (cloudDensity(model, [x, yAt(0.8), z]) > 0) at80++;
+    }
+    log(
+        `storm: ${columns} colunas no núcleo; topo mais alto ${(tallest / 1000).toFixed(2)} km (tropopausa ${(shell / 1000).toFixed(1)} km); nas ${mature} maduras, nuvem a 50 % ${at50}, a 80 % ${at80}; vista: luz ${(r.worstL * 100).toFixed(1)} %, T ${r.worstT.toFixed(3)}`,
+    );
+    check(columns > 50, `storm: só ${columns} colunas com a torre no núcleo da baixa`);
+    check(
+        tallest >= 0.85 * shell,
+        `storm: topo ${(tallest / 1000).toFixed(2)} km < 85 % da tropopausa (SC-011)`,
+    );
+    // A bigorna fecha a nuvem no alto: os buracos entre as torres maduras a 80 % da altura no máximo metade dos de 50 %
+    // (a razão das colunas com nuvem satura quando a torre já cobre quase todo o núcleo).
+    check(
+        mature > 50 && mature - at80 <= 0.5 * (mature - at50),
+        `storm: sem bigorna (buracos a 80 % ${mature - at80} contra ${mature - at50} a 50 % nas ${mature} maduras, SC-011)`,
+    );
+    check(r.worstT <= 0.05, `storm: transmitância a ${r.worstT.toFixed(3)} da referência`);
+    check(r.worstL <= 0.05, `storm: luz a ${(r.worstL * 100).toFixed(1)} % da referência`);
+    finish(r.s);
+}
+
+async function caseFront(): Promise<void> {
+    // Uma baixa e uma alta vizinhas: a faixa da frente entre elas (Okubo–Weiss) com a cobertura pedida ≥ 0,8, e a alta
+    // com o céu mais limpo que o tempo bom (a subsidência).
+    const pressure = vortexPressure([
+        { amplitude: -1500, sigma: 300_000, x: -350_000, z: 0 },
+        { amplitude: 700, sigma: 450_000, x: 350_000, z: 0 },
+    ]);
+    const s = await cloudScene({
+        width: 128,
+        height: 72,
+        clouds: {
+            coverage: 0.4,
+            type: 0.5,
+            top: 3000,
+            wind: [0, 0],
+            weather: { latitude: 45, pressure: { code: pressure.code } },
+        },
+    });
+    await settleFrames(s.app, 12);
+    const layer = s.layer!;
+    const tex = s.app.resources.textureOf(layer, 'weatherWind');
+    const cov = s.app.resources.textureOf(layer, 'coverage');
+    if (tex === undefined || cov === undefined)
+        throw new Error('front: alvos do tempo não alocados');
+    const wind = await readTexture(s.app, tex, 'rgba16float');
+    const map = await readTexture(s.app, cov, 'rgba8unorm');
+    const q = weatherParamsOf(layer);
+    const N = wind.width;
+    let peak = 0;
+    let peakX = 0;
+    let worst = 0;
+    for (let j = 0; j < N; j += 4)
+        for (let i = 0; i < N; i += 2) {
+            const o = (j * N + i) * 4;
+            const [x, z] = weatherTexelXZ(layer, i, j, N);
+            const r = weatherAt((a, b) => pressure.fn(a, b), x, z, q);
+            worst = Math.max(worst, Math.abs(wind.data[o + 3]! - r.front));
+            if (wind.data[o + 3]! > peak) {
+                peak = wind.data[o + 3]!;
+                peakX = x;
+            }
+        }
+    // A cobertura pedida média (canal R, a cobertura local) na metade da alta contra a da baixa.
+    let high = 0;
+    let low = 0;
+    let nh = 0;
+    let nl = 0;
+    // Pelos texels de um nível do mapa em níveis (R21 rodada 19): a quarta parte de cada lado do quadrado.
+    const levels = coverageLevelsOf(layer);
+    // O nível de 500 m (o penúltimo: a janela de 256 km, o quadrado do tempo).
+    const last = levels.levels - 2;
+    const read = coverageVolumeReader(map.data, 4);
+    const win = coverageWindow(levels, last);
+    const reach = coverageUsable(levels, last);
+    for (let j = 0; j < 512; j += 3)
+        for (let i = 0; i < 512; i += 3) {
+            const [gi, gj] = [win[0] * 16 + i, win[1] * 16 + j];
+            const [x] = coverageTexelCenter(levels, last, gi, gj);
+            const dx = x - levels.eye[0];
+            if (Math.abs(dx) > reach) continue;
+            const v = read(last, gi, gj)[0]!;
+            if (dx > reach / 2) {
+                high += v;
+                nh++;
+            }
+            if (dx < -reach / 2) {
+                low += v;
+                nl++;
+            }
+        }
+    high /= nh;
+    low /= nl;
+    log(
+        `front: frente máxima ${peak.toFixed(2)} em x = ${(peakX / 1000).toFixed(0)} km (a referência ±${worst.toFixed(3)}); cobertura local média ${high.toFixed(3)} do lado da alta, ${low.toFixed(3)} do lado da baixa`,
+    );
+    check(worst <= 0.02, `front: frente a ${worst.toFixed(3)} da referência`);
+    check(peak >= 0.5, `front: sem faixa (máximo ${peak.toFixed(2)})`);
+    check(
+        high < low,
+        `front: a alta (${high.toFixed(3)}) não mais limpa que a baixa (${low.toFixed(3)})`,
+    );
+    finish(s);
+}
+
+async function caseWeatherTiming(): Promise<void> {
+    // O custo do tempo (SC-012): o estado (o estêncil da pressão do padrão, o vento, a série) e o acréscimo do mapa de
+    // cobertura por ele sobre o mapa sem o tempo (o de 1024² do alto já custa ~0,16 ms sem o tempo), por passe, a
+    // 1280 × 720 no perfil alto com a GPU ocupada.
+    const measure = async (weather: boolean): Promise<{ state: number; coverage: number }> => {
+        const s = await cloudScene({
+            width: 1280,
+            height: 720,
+            profile: 'high',
+            profiling: true,
+            clouds: weather
+                ? { coverage: 0.4, top: 3000, wind: [10, 0], weather: { latitude: 45 } }
+                : { coverage: 0.4, top: 3000, wind: [10, 0] },
+            target: [1000, 400, 300],
+        });
+        await busyFrames(s.app, TIMING_WARMUP);
+        const t = await passTimes(s.app, 120);
+        const of = (name: string): number =>
+            Object.entries(t.passes).find(([k]) => k.endsWith(name))?.[1] ?? 0;
+        finish(s);
+        return { state: of('CloudLightFlow.weather'), coverage: of('CloudLightFlow.coverage') };
+    };
+    const plain = await measure(false);
+    const weather = await measure(true);
+    const extra = weather.coverage - plain.coverage;
+    log(
+        `weather-timing: estado do tempo ${weather.state.toFixed(3)} ms; mapa de cobertura ${weather.coverage.toFixed(3)} ms com o tempo, ${plain.coverage.toFixed(3)} ms sem (acréscimo ${extra.toFixed(3)} ms)`,
+    );
+    check(weather.state > 0, 'weather-timing: o passe do estado do tempo não apareceu');
+    check(
+        weather.state <= 0.15,
+        `weather-timing: o estado do tempo ${weather.state.toFixed(3)} ms > 0,15 ms (SC-012)`,
+    );
+    check(
+        extra <= 0.05,
+        `weather-timing: o mapa de cobertura pelo tempo custa ${extra.toFixed(3)} ms a mais > 0,05 ms (SC-012)`,
+    );
+}
+
+async function caseStormGround(): Promise<void> {
+    // A luz do sol no chão da câmera sob o tempo acelerado (a `tempestade` da rodada 7 do claflow-web: 1 quadro = 4 s, o
+    // sol a 35° no azimute (0,8; 0,6), a baixa de 4 hPa a 55 km): o chão do vídeo subia e descia inteiro em ~0,2 s. Em
+    // cada quadro das janelas em que isso acontecia, a transmitância até o sol no chão (0, 0, 0) pelo mapa da GPU contra a
+    // integral da referência f64 sobre o mapa de cobertura e os volumes da GPU no mesmo quadro (a mesma representação);
+    // e, numa linha de 2 km no rumo do vento, o deslocamento do padrão de sombra de um quadro ao outro (a sombra andando)
+    // e o que sobra depois dele (a nuvem nascendo ou sumindo).
+    const az = (Math.atan2(0.6, 0.8) * 180) / Math.PI;
+    const pressure = `fn pressure_fn(xz: vec2f, time: f32, data: PressureFnParams) -> f32 {
+    let d = xz - vec2f(-57600.0, -55000.0);
+    return -400.0 * smoothstep(3600.0, 14400.0, time) * exp(-dot(d, d) / 1.8e9);
+}`;
+    const s = await cloudScene({
+        width: 256,
+        height: 144,
+        sunElevation: 35,
+        sunAzimuth: az,
+        clouds: {
+            coverage: 0.3,
+            type: 0.5,
+            base: 1200,
+            top: 2800,
+            wind: [6, 0],
+            density: 0.08,
+            weather: {
+                latitude: 40,
+                scale: 192_000,
+                formation: 1800,
+                tropopause: 11_000,
+                pressure: { code: pressure },
+            },
+        },
+        eye: [0, 2, 0],
+        target: [0, 200, -1000],
+    });
+    const layer = s.layer!;
+    s.app.time.scale = 240;
+    s.app.time.fixedDt = 4;
+    await s.app.whenReady({ timeoutMs: 60_000 });
+    const q = new URLSearchParams(location.search);
+    const windows = (q.get('windows') ?? '160-220,880-940')
+        .split(',')
+        .map((w) => w.split('-').map(Number) as [number, number]);
+    const last = Math.max(...windows.map((w) => w[1]));
+    const sun = sunToward(35, az);
+    const line = Array.from({ length: 41 }, (_, k) => -1000 + 50 * k);
+    let worst = 0;
+    let sumG = 0;
+    let sumR = 0;
+    const rows: number[][] = [];
+    const frames: number[] = [];
+    for (let frame = -600; frame <= last; frame++) {
+        s.app.step(1 / 60);
+        await nextGpuFrame(s.app);
+        const w = windows.find(([a, b]) => frame >= a && frame <= b);
+        if (w === undefined) continue;
+        const time = s.app.time.simulated;
+        const map = await readShadowMap(s.app, layer);
+        const params = layer.data.params[0]!;
+        const model = await referenceModel(s, layer, time);
+        const g = groundMapT(map, params, [0, 0, 0]);
+        const r = Math.exp(-opticalDepth(model, [0, 0, 0], sun, 512));
+        const row = line.map((x) => groundMapT(map, params, [x, 0, 0]));
+        worst = Math.max(worst, Math.abs(g - r));
+        sumG += g;
+        sumR += r;
+        log(
+            `storm-ground ${frame} (${(frame / 60).toFixed(2)} s): T GPU ${g.toFixed(3)} ref ${r.toFixed(3)}; linha x −1..1 km ${row
+                .filter((_, k) => k % 4 === 0)
+                .map((v) => v.toFixed(2))
+                .join(' ')}`,
+        );
+        rows.push(row);
+        frames.push(frame);
+    }
+    // O deslocamento do padrão entre quadros seguidos (em passos de 50 m) e o que sobra.
+    const shifts: string[] = [];
+    for (let k = 1; k < rows.length; k++) {
+        if (frames[k]! !== frames[k - 1]! + 1) continue;
+        const a = rows[k - 1]!;
+        const b = rows[k]!;
+        let best = 0;
+        let bestErr = Infinity;
+        for (let sft = -4; sft <= 4; sft++) {
+            let e = 0;
+            let n = 0;
+            for (let i = 4; i < a.length - 4; i++) {
+                e += (b[i]! - a[i - sft]!) ** 2;
+                n++;
+            }
+            if (e / n < bestErr) {
+                bestErr = e / n;
+                best = sft;
+            }
+        }
+        let e0 = 0;
+        for (let i = 4; i < a.length - 4; i++) e0 += (b[i]! - a[i]!) ** 2;
+        shifts.push(
+            `${best * 50}m:${Math.sqrt(e0 / (a.length - 8)).toFixed(3)}→${Math.sqrt(bestErr).toFixed(3)}`,
+        );
+    }
+    log(
+        `storm-ground: deslocamento por quadro (m: rms parado → depois do deslocamento) ${shifts.join(' ')}`,
+    );
+    log(
+        `storm-ground: pior diferença GPU−ref ${worst.toFixed(3)}; luz somada GPU ${sumG.toFixed(2)}, ref ${sumR.toFixed(2)}`,
+    );
+    check(
+        Math.abs(sumG / Math.max(sumR, 1e-6) - 1) <= 0.1,
+        `storm-ground: luz somada ${sumG.toFixed(2)} contra ${sumR.toFixed(2)} da referência`,
+    );
+    finish(s);
+}
+
 const CASES: Record<string, () => Promise<void>> = {
     coverage: caseCoverage,
     'sun-transmittance': caseSunTransmittance,
@@ -1530,6 +3842,8 @@ const CASES: Record<string, () => Promise<void>> = {
     'fog-in-front': caseFogInFront,
     'water-reflection': caseWaterReflection,
     'clear-sky': caseClearSky,
+    'beam-air': caseBeamAir,
+    'beam-gap': caseBeamGap,
     'overcast-stratus': caseOvercastStratus,
     'coverage-mask': caseCoverageMask,
     wind: caseWind,
@@ -1540,19 +3854,33 @@ const CASES: Record<string, () => Promise<void>> = {
     'far-cloud': caseFarCloud,
     backlit: caseBacklit,
     'sun-sweep': caseSunSweep,
+    'dusk-blocks': caseDuskBlocks,
+    'sun-low': caseSunLow,
+    'sun-below': caseSunBelow,
     'fly-through': caseFlyThrough,
     'shadow-map': caseShadowMap,
+    'ground-shadow': caseGroundShadow,
     panorama: casePanorama,
     'noise-volumes': caseNoiseVolumes,
     ambient: caseAmbient,
     noon: caseNoon,
+    'scatter-cache': caseScatterCache,
     timing: caseTiming,
+    'interior-timing': caseInteriorTiming,
+    'inside-timing': caseInsideTiming,
+    'sky-timing': caseSkyTiming,
+    'pressure-wind': casePressureWind,
+    storm: caseStorm,
+    'storm-ground': caseStormGround,
+    front: caseFront,
+    'weather-timing': caseWeatherTiming,
 };
 
 async function main(): Promise<void> {
     const only = new URLSearchParams(location.search).get('case');
     for (const [name, run] of Object.entries(CASES)) {
-        if (only !== null && only !== name) continue;
+        // Um caso ou vários separados por `_`.
+        if (only !== null && !only.split('_').includes(name)) continue;
         await run();
     }
     failures.push(...new Set(engineErrors));

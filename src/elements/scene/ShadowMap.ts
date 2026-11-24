@@ -130,6 +130,7 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
         viewProjection: FieldType.mat4x4f,
         camera: FieldType.vec4f,
         direction: FieldType.vec4f,
+        cacheDirection: FieldType.vec4f,
         kernelRotation: FieldType.vec2f,
         texelJitter: FieldType.vec2f,
         firstLevelRadius: FieldType.f32,

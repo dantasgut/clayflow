@@ -40,7 +40,7 @@ fn fs_subsurface_apply(in: VsOut) -> ForwardOut {
     }
     var out: ForwardOut;
     out.color = vec4f(0.0);
-    out.light = vec2f(0.0);
+    out.light = vec4f(0.0);
     if (weight > 0.0) {
         if (stored) {
             local = here.rgb;
@@ -49,7 +49,7 @@ fn fs_subsurface_apply(in: VsOut) -> ForwardOut {
             local /= weight;
             exit /= weight;
         }
-        out.color = vec4f((exit * (sum / weight) - local) * scene_fog(in.world_position).a, 0.0);
+        out.color = vec4f((exit * (sum / weight) - local) * scene_fog(in.world_position).transmittance, 0.0);
     }
     return out;
 }

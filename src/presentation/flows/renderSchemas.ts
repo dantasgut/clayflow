@@ -30,7 +30,7 @@ export const ShadowPagesParamsSchema = new StructSchema(
         instanceGroupBase: FieldType.u32,
         groupPairsBase: FieldType.u32,
         needBase: FieldType.u32,
-        clusterBoundsBase: FieldType.u32,
+        groupBoxBase: FieldType.u32,
         spriteRecord: FieldType.u32,
         spriteCap: FieldType.u32,
     },
@@ -39,7 +39,9 @@ export const ShadowPagesParamsSchema = new StructSchema(
 
 /**
  * Por desenho de um grupo das páginas: o grupo (o trecho dos pares dele em `sp_pairs` vem da GPU); na malha grande em
- * aglomerados, o início e o teto da lista dos pares (aglomerado, par) em `sp_scratch` e os índices da malha.
+ * aglomerados, o início e o teto da lista dos pares (aglomerado, par) em `sp_scratch` e os índices da malha — a
+ * capacidade e, na malha cuja contagem vem da GPU (a adaptativa), a palavra do `sp_scratch` com a do quadro
+ * (`countWord`; 0 = a capacidade vale).
  */
 export const ShadowGroupDrawSchema = new StructSchema(
     'ShadowGroupDraw',
@@ -48,13 +50,15 @@ export const ShadowGroupDrawSchema = new StructSchema(
         listBase: FieldType.u32,
         listCap: FieldType.u32,
         indexCount: FieldType.u32,
+        countWord: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );
 
 /**
  * Por despacho da caixa de uma geometria: o grupo dela; na malha grande em aglomerados (triângulos seguidos nos
- * índices), o primeiro aglomerado (as caixas de todos em seção do `sp_scratch`), quantos e os índices da malha.
+ * índices), o primeiro aglomerado (as caixas de todos em seção do `sp_scratch`), quantos e os índices da malha (a
+ * capacidade e a palavra da contagem do quadro, como em `ShadowGroupDraw`).
  */
 export const ShadowBoundsGeometrySchema = new StructSchema(
     'ShadowBoundsGeometry',
@@ -63,6 +67,7 @@ export const ShadowBoundsGeometrySchema = new StructSchema(
         clusterFirst: FieldType.u32,
         clusterCount: FieldType.u32,
         indexCount: FieldType.u32,
+        countWord: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );

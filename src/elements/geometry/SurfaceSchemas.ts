@@ -44,6 +44,10 @@ export const SurfaceParamsSchema = new StructSchema(
  * Parâmetros da malha adaptativa (spec 010): retalhos, nível máximo, orçamento de triângulos, câmera ativa e
  * transformação (slots nos pools), início da geometria diferencial, modo sem desenho indireto (todos no nível máximo),
  * domínios periódicos, lado da grade do nível máximo (2^L + 1), tolerância de corda (m) e fração da tela por segmento.
+ * Numa vista (spec 041, R20; `view` = 1): o slot da entidade da vista no pool dela (`view_slot`: `CameraMatrices` ou
+ * `ShadowMatrix`), o erro de corda e o menor segmento em texels do nível do mapa (`view_error`, `view_segment`), o
+ * primeiro registro da vista na série dos níveis (`levels_base`), se o registro do quadro anterior vale
+ * (`levels_valid`) e a emissão forçada de todos os retalhos (`force`).
  */
 export const SurfaceAdaptParamsSchema = new StructSchema(
     'SurfaceAdaptParams',
@@ -59,11 +63,15 @@ export const SurfaceAdaptParamsSchema = new StructSchema(
         periodic_u: FieldType.u32,
         periodic_v: FieldType.u32,
         side: FieldType.u32,
-        _pad0: FieldType.u32,
+        view: FieldType.u32,
         tolerance: FieldType.f32,
         screen: FieldType.f32,
-        _pad1: FieldType.f32,
-        _pad2: FieldType.f32,
+        view_error: FieldType.f32,
+        view_segment: FieldType.f32,
+        view_slot: FieldType.u32,
+        levels_base: FieldType.u32,
+        levels_valid: FieldType.u32,
+        force: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );

@@ -33,7 +33,7 @@ fn fs_reflection_request(in: VsOut, @builtin(front_facing) front: bool) -> Refle
     let hidden = in.clip_position.z > textureLoad(scene_depth, vec2i(in.clip_position.xy), 0) + 2.0 * slope + 1e-6;
     let cam = cameras[forward_frame.cameraSlot];
     let v = forward_view_dir(cam, in.world_position);
-    let weight = closure_reflected(surface.c, surface.n, v) * scene_fog(in.world_position).a;
+    let weight = closure_reflected(surface.c, surface.n, v) * scene_fog(in.world_position).transmittance;
     if (hidden || all(weight <= vec3f(1e-4))) { discard; }
     // A direção refletida fica do lado de fora da face (a normal interpolada ou a do relevo podem levá-la para dentro:
     // o raio acertava a própria malha, e o reflexo rasante saía preto).

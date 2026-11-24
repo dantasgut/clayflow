@@ -113,6 +113,20 @@ export interface DeviceLostInfo {
 /** Handler chamado quando o GPU device é perdido. */
 export type DeviceLostHandler = (info: DeviceLostInfo) => void;
 
+/**
+ * Um erro do device que nenhum escopo de erro capturou (o evento `uncapturederror` do WebGPU): a criação de um recurso,
+ * uma escrita na fila ou um quadro gravado fora de `withErrorScope`.
+ */
+export interface UncapturedErrorInfo {
+    /** O tipo do erro, no vocabulário dos filtros do escopo. */
+    readonly filter: GPUErrorFilter;
+    /** Mensagem do device. */
+    readonly message: string;
+}
+
+/** Handler chamado a cada erro do device sem escopo. */
+export type UncapturedErrorHandler = (info: UncapturedErrorInfo) => void;
+
 /** Granularidade do profiling por quadro: um par de timestamps por passe, ou só o total da gravação. */
 export type FrameProfilingGranularity = 'passes' | 'frame';
 
@@ -188,6 +202,12 @@ export interface EngineCore {
      * (ou `requestRecover()`) cria um device novo.
      */
     onDeviceLost(handler: DeviceLostHandler): () => void;
+
+    /**
+     * Registra handler para os erros do device que nenhum escopo capturou (`uncapturederror`): sem ele, um erro de
+     * validação fora de `withErrorScope` só aparece como aviso do navegador. Retorna função de unsubscribe.
+     */
+    onUncapturedError(handler: UncapturedErrorHandler): () => void;
 
     /**
      * Recupera após device-lost: cria um GPUAdapter+GPUDevice novos com as `DeviceOptions` guardadas e re-attacha

@@ -11,25 +11,6 @@ fn fs_vignette(in: VsOut) -> @location(0) vec4<f32> {
 }
 
 @fragment
-fn fs_bloom(in: VsOut) -> @location(0) vec4<f32> {
-    let texel = vec2<f32>(1.0) / vec2<f32>(textureDimensions(src_tex, 0));
-    var sum = vec3<f32>(0.0);
-    let r = i32(2);
-    var w = 0.0;
-    for (var dy: i32 = -r; dy <= r; dy = dy + 1) {
-        for (var dx: i32 = -r; dx <= r; dx = dx + 1) {
-            let s = textureSample(src_tex, src_smp, in.uv + vec2<f32>(f32(dx), f32(dy)) * texel).rgb;
-            let bright = max(0.0, max_channel(s) - params.p0.y);
-            sum = sum + s * bright;
-            w = w + bright;
-        }
-    }
-    let bloom = select(vec3<f32>(0.0), sum / max(w, 1e-3), w > 0.0);
-    let cc = textureSample(src_tex, src_smp, in.uv).rgb;
-    return vec4<f32>(cc + bloom * params.p0.x, 1.0);
-}
-
-@fragment
 fn fs_blur(in: VsOut) -> @location(0) vec4<f32> {
     let texel = vec2<f32>(1.0) / vec2<f32>(textureDimensions(src_tex, 0));
     let r = i32(2);

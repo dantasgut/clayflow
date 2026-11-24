@@ -30,7 +30,10 @@ const SKY_SUN_DISK_MAX: f32 = 60000.0;
 
 /**
  * Fundo visível: o céu e, dentro do raio angular do sol, o disco atenuado pela atmosfera — a radiância física do disco
- * (iluminância / ângulo sólido, ~10⁹ nits com o sol a 100 mil lux) é limitada ao teto do alvo meio-float.
+ * (iluminância / ângulo sólido, ~10⁹ nits com o sol a 100 mil lux) é limitada ao teto do alvo meio-float. O céu em volta
+ * não é limitado aqui (spec 041, T075): o fundo com os froxels tira dele a luz do trecho perto sem sombra e soma a com
+ * sombra — o clarão do Mie a poucos graus do sol baixo passa do teto, e o céu limitado antes da diferença deixava cada
+ * canal errado de um jeito (a faixa ciano/magenta junto ao sol); quem desenha o fundo limita a soma.
  */
 fn sky_background(dir: vec3f) -> vec3f {
     var l = sky_radiance(dir);
@@ -39,5 +42,5 @@ fn sky_background(dir: vec3f) -> vec3f {
         let solid = PI * radius * radius;
         l += min(sky.sunIlluminance.rgb * sky_sun_transmittance(vec3f(0.0)) / solid, vec3f(SKY_SUN_DISK_MAX));
     }
-    return min(l, vec3f(SKY_SUN_DISK_MAX));
+    return l;
 }

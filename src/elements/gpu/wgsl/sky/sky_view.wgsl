@@ -2,14 +2,16 @@
 // torno do horizonte, o espalhamento simples (Rayleigh e Mie com a transmitância até o sol) mais o múltiplo (Ψms), por
 // unidade de iluminância do sol, vistos da altitude do observador — 32 passos em distribuição quadrática — e, abaixo do
 // horizonte, o chão do planeta iluminado pelo sol. Regerada a cada quadro (o sol se move).
-// Despacho linear: um texel por invocação.
-// Requer: WORKGROUP_SIZE, sky_atmosphere, sky_lookup, sky, sky_view_out.
+// Despacho linear: um texel por invocação. A primeira também grava a direção para o sol do quadro na série
+// `Sky.sunTrack` (spec 041: onde o disco estava, para quem guarda entre quadros o que ele mostrava).
+// Requer: WORKGROUP_SIZE, sky_atmosphere, sky_lookup, sky, sky_view_out, sky_sun_track_out.
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn sky_view_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let size = textureDimensions(sky_view_out);
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i >= size.x * size.y) { return; }
+    if (i == 0u) { textureStore(sky_sun_track_out, vec2u(0u), vec4f(sky.sunDirection.xyz, 1.0)); }
     let texel = vec2u(i % size.x, i / size.x);
     let uv = (vec2f(texel) + 0.5) / vec2f(size);
     let r = sky_bottom() + max(sky.radii.w, 0.001);
