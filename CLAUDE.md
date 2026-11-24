@@ -2,7 +2,7 @@
 
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
-`specs/041-nuvens-volumetricas/plan.md`
+`specs/013-sombras-varias-luzes/plan.md`
 
 Project governance: `.specify/memory/constitution.md` (Clay Engine Constitution v1.2.1).
 
