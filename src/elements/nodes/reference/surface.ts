@@ -136,6 +136,48 @@ export function surfaceRelief(
     return [(value - level) * height, height * gradient[0]! * w[0]!, height * gradient[1]! * w[1]!];
 }
 
+/** `surface.solidSpace`: a posição no objeto no referencial do bloco (p, largura do pixel, ∂p/∂u, ∂p/∂v). */
+export function surfaceSolidSpace(
+    position: V,
+    dodu: V,
+    dodv: V,
+    duvdx: V,
+    duvdy: V,
+    footprint: number,
+    scale: number,
+    offset: V,
+    axis: V,
+): { p: number[]; width: number; du: number[]; dv: number[] } {
+    const y = dot(axis, axis) > 1e-12 ? norm(axis) : [0, 1, 0];
+    const pick = Math.abs(y[0]!) > 0.9 ? [0, 0, 1] : [1, 0, 0];
+    const z = norm(cross(pick, y));
+    const x = cross(y, z);
+    const k = Math.abs(scale) > 1e-9 ? scale : 1;
+    const turn = (a: V): number[] => [dot(a, x) * k, dot(a, y) * k, dot(a, z) * k];
+    const du = turn(dodu);
+    const dv = turn(dodv);
+    const step = (d: V): number => Math.hypot(...du.map((c, n) => c * d[0]! + dv[n]! * d[1]!));
+    const w = Math.max(step(duvdx), step(duvdy));
+    return {
+        p: turn(position).map((c, n) => c + offset[n]!),
+        width: w > 0 ? w : footprint * Math.abs(k),
+        du,
+        dv,
+    };
+}
+
+/** `surface.solidRelief`: o relevo (mm) de um padrão maciço e as derivadas dele no uv. */
+export function surfaceSolidRelief(
+    value: number,
+    gradient: V,
+    du: V,
+    dv: V,
+    height: number,
+    level: number,
+): number[] {
+    return [(value - level) * height, height * dot(gradient, du), height * dot(gradient, dv)];
+}
+
 /** `surface.reliefNormal`: a normal da superfície deslocada pelo relevo (mm), `scale` unidades por metro. */
 export function surfaceReliefNormal(
     normal: V,
@@ -255,6 +297,59 @@ export const surfaceCases: readonly NodeCase[] = [
                 vec(x.scale),
                 vec(x.offset),
             ),
+    },
+    {
+        node: 'surface.solidSpace',
+        tolerance: 1e-5,
+        sample: (r, k) => ({
+            position: vector(r, 3, -2, 2),
+            dodu: k % 5 === 4 ? [0, 0, 0] : vector(r, 3, -2, 2),
+            dodv: k % 5 === 4 ? [0, 0, 0] : vector(r, 3, -2, 2),
+            duvdx: vector(r, 2, -0.01, 0.01),
+            duvdy: vector(r, 2, -0.01, 0.01),
+            footprint: uniform(r, 0.001, 0.02),
+            scale: k % 7 === 6 ? 0 : uniform(r, 0.5, 8),
+            offset: vector(r, 3, -1, 1),
+            axis: [
+                [0, 1, 0],
+                [1, 0, 0],
+                [0.3, 0.2, -0.9],
+            ][k % 3]!,
+        }),
+        reference: (x) =>
+            surfaceSolidSpace(
+                vec(x.position),
+                vec(x.dodu),
+                vec(x.dodv),
+                vec(x.duvdx),
+                vec(x.duvdy),
+                x.footprint as number,
+                x.scale as number,
+                vec(x.offset),
+                vec(x.axis),
+            ),
+    },
+    {
+        node: 'surface.solidRelief',
+        tolerance: 1e-5,
+        sample: (r) => ({
+            value: uniform(r, 0, 1),
+            gradient: vector(r, 3, -4, 4),
+            du: vector(r, 3, -2, 2),
+            dv: vector(r, 3, -2, 2),
+            height: uniform(r, 0.1, 3),
+            level: uniform(r, 0, 1),
+        }),
+        reference: (x) => ({
+            value: surfaceSolidRelief(
+                x.value as number,
+                vec(x.gradient),
+                vec(x.du),
+                vec(x.dv),
+                x.height as number,
+                x.level as number,
+            ),
+        }),
     },
     {
         node: 'surface.bump',

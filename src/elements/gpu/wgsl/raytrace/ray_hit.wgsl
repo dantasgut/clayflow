@@ -37,6 +37,9 @@ fn ray_hit_surface(hit: RayHit, time: f32, width: f32) -> RayHitSurface {
         vec2f(0.0, duv),
         vec3f(0.0),
         vec3f(0.0),
+        hit.position,
+        vec3f(0.0),
+        vec3f(0.0),
     );
     return RayHitSurface(inst.ids.w & 0xFFFFu, inst.material1.y, s, m);
 }

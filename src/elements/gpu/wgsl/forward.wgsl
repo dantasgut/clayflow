@@ -32,6 +32,8 @@ struct VsOut {
     // Vetores de movimento (spec 034): o ponto em clip no quadro anterior e neste, sem o deslocamento da amostra.
     @location(9) motion_previous: vec4<f32>,
     @location(10) motion_current: vec4<f32>,
+    // A posição no objeto (spec 011): a coordenada dos padrões maciços.
+    @location(11) object_position: vec3<f32>,
 }
 
 @vertex
@@ -46,6 +48,7 @@ fn vs_main(
     let world = w.world * vec4<f32>(in.position, 1.0);
     out.clip_position = camera_clip(forward_frame.cameraSlot, world);
     out.world_position = world.xyz;
+    out.object_position = in.position;
     out.world_normal = w.normal * in.normal;
     out.material_slot = r.materialSlot;
     out.uv = in.uv;
@@ -114,6 +117,11 @@ fn forward_surface(in: VsOut, front: bool) -> ForwardSurface {
     let uv_inv = select(0.0, 1.0 / uv_det, abs(uv_det) > 1e-24);
     let dpdu = (dpdx_world * duvdy.y - dpdy_world * duvdx.y) * uv_inv;
     let dpdv = (dpdy_world * duvdx.x - dpdx_world * duvdy.x) * uv_inv;
+    // As mesmas tangentes na posição do objeto (os padrões maciços).
+    let dodx = dpdx(in.object_position);
+    let dody = dpdy(in.object_position);
+    let dodu = (dodx * duvdy.y - dody * duvdx.y) * uv_inv;
+    let dodv = (dody * duvdx.x - dodx * duvdy.x) * uv_inv;
     // As derivadas do uv para os padrões são as da superfície lisa (a da normal interpolada), não as da faceta: numa
     // malha deslocada (spec 011) a faceta inclina com o relevo e, onde a malha mal resolve o detalhe, facetas vizinhas
     // teriam larguras de filtro diferentes — o padrão do material piscaria de triângulo em triângulo. O passo do pixel
@@ -155,6 +163,9 @@ fn forward_surface(in: VsOut, front: bool) -> ForwardSurface {
         pattern_duvdy,
         dpdu,
         dpdv,
+        in.object_position,
+        dodu,
+        dodv,
     );
     // A água no ponto, a película e a dos poros (ponto de cena `scene_wetness`, spec 034; seca, nada muda).
     let c = closure_specular_aa(

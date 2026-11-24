@@ -181,3 +181,44 @@ fn node_surface_direction(du: vec3f, dv: vec3f, direction: vec2f) -> vec3f {
     if (l < 1e-12) { return vec3f(0.0); }
     return t / l;
 }
+
+struct NodeSurfaceSolidSpace {
+    p: vec3f,
+    width: f32,
+    du: vec3f,
+    dv: vec3f,
+}
+
+/**
+ * Espaço dos padrões maciços (spec 011): a posição no objeto `position` no referencial do bloco — o eixo `axis` (a
+ * direção da fibra da madeira no objeto) vira `p.y` —, × `scale` (unidades do padrão por unidade do objeto) + `offset`
+ * (onde a peça está dentro do bloco: `offset.xz` afasta a peça da medula). `width`: a largura do pixel em `p` (das
+ * tangentes do uv no objeto e das derivadas do uv; sem tangentes — os acertos dos raios —, `footprint`); `du`, `dv`:
+ * ∂p/∂u e ∂p/∂v, o que leva o gradiente de um padrão maciço ao uv (`surface.solidRelief`).
+ */
+fn node_surface_solid_space(position: vec3f, dodu: vec3f, dodv: vec3f, duvdx: vec2f, duvdy: vec2f, footprint: f32,
+    scale: f32, offset: vec3f, axis: vec3f) -> NodeSurfaceSolidSpace {
+    let y = select(vec3f(0.0, 1.0, 0.0), normalize(axis), dot(axis, axis) > 1e-12);
+    let pick = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), abs(y.x) > 0.9);
+    let z = normalize(cross(pick, y));
+    let x = cross(y, z);
+    let k = select(1.0, scale, abs(scale) > 1e-9);
+    let du = vec3f(dot(dodu, x), dot(dodu, y), dot(dodu, z)) * k;
+    let dv = vec3f(dot(dodv, x), dot(dodv, y), dot(dodv, z)) * k;
+    let w = max(length(du * duvdx.x + dv * duvdx.y), length(du * duvdy.x + dv * duvdy.y));
+    return NodeSurfaceSolidSpace(
+        vec3f(dot(position, x), dot(position, y), dot(position, z)) * k + offset,
+        select(footprint * abs(k), w, w > 0.0),
+        du,
+        dv,
+    );
+}
+
+/**
+ * Relevo em milímetros de um padrão maciço (spec 011): a altura (`value` − `level`) · `height` e as derivadas dela no
+ * uv da superfície — o gradiente `gradient` (∂/∂p, em 3D) sobre `du`, `dv` (∂p/∂u, ∂p/∂v, de `surface.solidSpace`).
+ * A mesma saída de `surface.relief`: alimenta `surface.reliefNormal` e `surface.displacement`.
+ */
+fn node_surface_solid_relief(value: f32, gradient: vec3f, du: vec3f, dv: vec3f, height: f32, level: f32) -> vec3f {
+    return vec3f((value - level) * height, height * dot(gradient, du), height * dot(gradient, dv));
+}

@@ -7,7 +7,7 @@
 // GPU (a célula e a posição dentro dela saem iguais; as amostras usam frequências exatas em f32), o resto em f64.
 // Tolerância 2e-3: os gradientes multiplicam pela frequência (até 32) o erro de f32 da posição dentro da célula (~4e-6
 // com `p` até 4 e frequência 8) vezes a inclinação dos perfis (até 12 / largura do sulco).
-import { hash2, hashSigned, pcgHash } from '../../math/reference/random';
+import { hash2, hash3, hashSigned, pcgHash } from '../../math/reference/random';
 import { num, uniform, vec, vector, type NodeCase, type NodeValues } from './cases';
 
 const f32 = Math.fround;
@@ -409,6 +409,190 @@ export function patternRings(
         knot,
         along: [p[0]!, r],
         bend: [dr[0], dr[1]],
+    };
+}
+
+type V3 = readonly [number, number, number];
+
+/** `node_pattern_dir3`: uma das 12 direções das arestas do cubo. */
+function dir3(h: number): V3 {
+    const k = (h >>> 4) % 12;
+    const a = (k & 1) === 1 ? -1 : 1;
+    const b = (k & 2) === 2 ? -1 : 1;
+    if (k < 4) return [0, a, b];
+    if (k < 8) return [a, 0, b];
+    return [a, b, 0];
+}
+
+/** `node_pattern_noise3`: o ruído de gradiente 3D em `q` (já em f32) e a derivada — (valor, ∂/∂q). */
+export function patternNoise3(q: V3, seed: number): [number, number, number, number] {
+    const i = [Math.floor(q[0]), Math.floor(q[1]), Math.floor(q[2])];
+    const f = [q[0] - i[0]!, q[1] - i[1]!, q[2] - i[2]!];
+    const corner = (dx: number, dy: number, dz: number): { g: V3; a: number } => {
+        const g = dir3(
+            hash3(
+                (((i[0]! + dx) | 0) + Math.imul(seed, 0x9e3779b1)) >>> 0,
+                (((i[1]! + dy) | 0) + Math.imul(seed, 0x85ebca77)) >>> 0,
+                (((i[2]! + dz) | 0) + Math.imul(seed, 0xc2b2ae3d)) >>> 0,
+            ),
+        );
+        return { g, a: g[0] * (f[0]! - dx) + g[1] * (f[1]! - dy) + g[2] * (f[2]! - dz) };
+    };
+    const c000 = corner(0, 0, 0);
+    const c100 = corner(1, 0, 0);
+    const c010 = corner(0, 1, 0);
+    const c110 = corner(1, 1, 0);
+    const c001 = corner(0, 0, 1);
+    const c101 = corner(1, 0, 1);
+    const c011 = corner(0, 1, 1);
+    const c111 = corner(1, 1, 1);
+    const fade = (t: number): number => t * t * t * (t * (t * 6 - 15) + 10);
+    const dfade = (t: number): number => 30 * t * t * (t * (t - 2) + 1);
+    const [ux, uy, uz] = [fade(f[0]!), fade(f[1]!), fade(f[2]!)];
+    const x00 = mix(c000.a, c100.a, ux);
+    const x10 = mix(c010.a, c110.a, ux);
+    const x01 = mix(c001.a, c101.a, ux);
+    const x11 = mix(c011.a, c111.a, ux);
+    const y0 = mix(x00, x10, uy);
+    const y1 = mix(x01, x11, uy);
+    const blend = (n: 0 | 1 | 2): number =>
+        mix(
+            mix(mix(c000.g[n], c100.g[n], ux), mix(c010.g[n], c110.g[n], ux), uy),
+            mix(mix(c001.g[n], c101.g[n], ux), mix(c011.g[n], c111.g[n], ux), uy),
+            uz,
+        );
+    return [
+        mix(y0, y1, uz),
+        blend(0)
+            + dfade(f[0]!)
+                * mix(
+                    mix(c100.a - c000.a, c110.a - c010.a, uy),
+                    mix(c101.a - c001.a, c111.a - c011.a, uy),
+                    uz,
+                ),
+        blend(1) + dfade(f[1]!) * mix(x10 - x00, x11 - x01, uz),
+        blend(2) + dfade(f[2]!) * (y1 - y0),
+    ];
+}
+
+/** `pattern.grain3`: o fBm 3D anisotrópico e o gradiente dele. */
+export function patternGrain3(
+    p: readonly number[],
+    width: number,
+    scale: readonly number[],
+    seed: number,
+    octaves: number,
+    lacunarity: number,
+    gain: number,
+): { value: number; gradient: number[] } {
+    let freq = [scale[0]!, scale[1]!, scale[2]!];
+    let amp = 1;
+    let norm = 0;
+    const sum = [0, 0, 0, 0];
+    const n = Math.min(8, Math.max(1, octaves));
+    for (let k = 0; k < n; k++) {
+        const v = patternNoise3(
+            [f32(p[0]! * freq[0]!), f32(p[1]! * freq[1]!), f32(p[2]! * freq[2]!)],
+            seed + k,
+        );
+        const top = Math.max(Math.abs(freq[0]!), Math.abs(freq[1]!), Math.abs(freq[2]!));
+        const b = width > 0 ? band(width * top) : 1;
+        sum[0]! += amp * b * v[0];
+        for (let c = 0; c < 3; c++) sum[c + 1]! += amp * b * v[c + 1]! * freq[c]!;
+        norm += amp;
+        amp *= gain;
+        freq = freq.map((x) => f32(x * lacunarity));
+    }
+    return { value: sum[0]! / norm, gradient: [sum[1]! / norm, sum[2]! / norm, sum[3]! / norm] };
+}
+
+/** `pattern.trunk`: os anéis de crescimento no volume (perfil, gradiente, valor do anel, nó, coordenada da fibra). */
+export function patternTrunk(
+    p: readonly number[],
+    width: number,
+    scale: number,
+    knots: number,
+    seed: number,
+    irregularity: number,
+    waviness: number,
+    wavinessScale: readonly number[],
+    wander: number,
+    wanderScale: number,
+    knotSize: number,
+    knotRings: number,
+    fall: number,
+): { value: number; gradient: number[]; ring: number; knot: number; along: number[] } {
+    const [px, py, pz] = [p[0]!, p[1]!, p[2]!];
+    const at = f32(py * wanderScale);
+    const ma = patternNoise([at, 0.5], [0, 0], seed + 4);
+    const mb = patternNoise([at, 7.5], [0, 0], seed + 5);
+    const pith: V2 = [wander * ma[0], wander * mb[0]];
+    const dpith: V2 = [wander * wanderScale * ma[1], wander * wanderScale * mb[1]];
+    const q: V2 = [px - pith[0], pz - pith[1]];
+    const r0 = Math.max(Math.hypot(q[0], q[1]), 1e-6);
+    const dr0 = [q[0] / r0, -(q[0] * dpith[0] + q[1] * dpith[1]) / r0, q[1] / r0];
+    const nw = patternNoise3(
+        [f32(px * wavinessScale[0]!), f32(py * wavinessScale[1]!), f32(pz * wavinessScale[2]!)],
+        seed + 1,
+    );
+    const bump = [0, 0, 0, 0];
+    let knot = 0;
+    if (knots > 0) {
+        const ki = Math.floor(f32(py * knots));
+        const sigma = Math.max(knotSize, 1e-4);
+        const lift = knotRings / Math.max(scale, 1e-6);
+        for (let d = -1; d <= 1; d++) {
+            const c = ki + d;
+            const h = hash2((c | 0) >>> 0, (seed + 3) >>> 0);
+            if (unit24(h) >= 0.6) continue;
+            const h2 = pcgHash(h);
+            const h3 = pcgHash(h2);
+            const phi = 2 * Math.PI * unit24(h2);
+            const len = Math.hypot(Math.cos(phi), 0.35, Math.sin(phi));
+            const dir = [Math.cos(phi) / len, 0.35 / len, Math.sin(phi) / len];
+            const from = [pith[0], (c + 0.5 + 0.35 * hashSigned(h3)) / knots, pith[1]];
+            const v = [px - from[0]!, py - from[1]!, pz - from[2]!];
+            const t = v[0]! * dir[0]! + v[1]! * dir[1]! + v[2]! * dir[2]!;
+            const perp = v.map((x, n) => x - t * dir[n]!);
+            const e = (perp[0]! ** 2 + perp[1]! ** 2 + perp[2]! ** 2) / (sigma * sigma);
+            const u = clamp01((t + sigma) / (2 * sigma));
+            const w = smooth(u);
+            const g = Math.exp(-e);
+            bump[0]! += lift * g * w;
+            for (let n = 0; n < 3; n++)
+                bump[n + 1]! +=
+                    lift
+                    * (g * w * ((-2 * perp[n]!) / (sigma * sigma))
+                        + g * ((6 * u * (1 - u)) / (2 * sigma)) * dir[n]!);
+            knot = Math.max(knot, Math.exp(-4 * e) * w);
+        }
+    }
+    const r = Math.max(r0 + waviness * nw[0] + bump[0]!, 1e-6);
+    const dr = [0, 1, 2].map(
+        (n) => dr0[n]! + waviness * nw[n + 1]! * wavinessScale[n]! + bump[n + 1]!,
+    );
+    const s0 = f32(f32(r) * scale);
+    const irr = clamp01(irregularity);
+    const ni = patternNoise([f32(s0 * 0.1875), 0.5], [0, 0], seed + 2);
+    const s = f32(s0 + irr * ni[0]);
+    const ds = scale * (1 + irr * 0.1875 * ni[1]);
+    const ring = Math.floor(s);
+    const t = s - ring;
+    const fl = Math.min(0.6, Math.max(0.02, fall));
+    const rise = (0.7 * (1 - fl)) / 0.88;
+    const ta = clamp01(t / rise);
+    const tb = clamp01((t - (1 - fl)) / fl);
+    const a = smooth(ta);
+    const b = 1 - smooth(tb);
+    const dv = ((6 * ta * (1 - ta)) / rise) * b - a * ((6 * tb * (1 - tb)) / fl);
+    const k = width > 0 ? band(width * Math.abs(ds) * Math.hypot(dr[0]!, dr[1]!, dr[2]!)) : 1;
+    const h = pcgHash(((ring | 0) ^ Math.imul(seed, 0x9e3779b1)) >>> 0);
+    return {
+        value: mix(1 - 0.5 * (rise + fl), a * b, k),
+        gradient: dr.map((x) => k * dv * ds * x),
+        ring: mix(0.5, unit24(h), k),
+        knot,
+        along: [(q[0] * r) / r0, py, (q[1] * r) / r0],
     };
 }
 
@@ -1241,6 +1425,71 @@ export const patternCases: readonly NodeCase[] = [
                 num(x.waviness),
                 vec(x.waviness_scale),
                 num(x.knots),
+                num(x.knot_size),
+                num(x.knot_rings),
+                num(x.fall),
+            ),
+    },
+    {
+        node: 'pattern.grain3',
+        tolerance: 2e-3,
+        sample: (r, k) => ({
+            p: vector(r, 3, -4, 4),
+            width: k % 3 === 0 ? 0 : uniform(r, 0.005, 0.2),
+            scale: [
+                [1, 1, 1],
+                [8, 0.5, 8],
+                [2, 4, 1],
+            ][k % 3]!,
+            seed: k % 5,
+            octaves: 1 + (k % 4),
+            lacunarity: 2,
+            gain: uniform(r, 0.3, 0.7),
+        }),
+        reference: (x) =>
+            patternGrain3(
+                vec(x.p),
+                num(x.width),
+                vec(x.scale),
+                num(x.seed),
+                num(x.octaves),
+                num(x.lacunarity),
+                num(x.gain),
+            ),
+    },
+    {
+        node: 'pattern.trunk',
+        tolerance: 2e-3,
+        sample: (r, k) => ({
+            p: vector(r, 3, -4, 4),
+            width: k % 3 === 0 ? 0 : uniform(r, 0.005, 0.2),
+            scale: [1, 2, 4, 8][k % 4]!,
+            knots: k % 2 === 0 ? 0 : [0.5, 1][k % 4 === 1 ? 0 : 1]!,
+            seed: k % 5,
+            irregularity: k % 2 === 0 ? 0 : uniform(r, 0, 1),
+            waviness: k % 3 === 0 ? 0 : uniform(r, 0, 0.05),
+            waviness_scale: [
+                [2, 0.5, 2],
+                [1, 1, 1],
+            ][k % 2]!,
+            wander: k % 4 === 0 ? 0 : uniform(r, 0, 0.2),
+            wander_scale: [0.5, 1][k % 2]!,
+            knot_size: uniform(r, 0.05, 0.15),
+            knot_rings: uniform(r, 1, 4),
+            fall: k % 3 === 0 ? 0.12 : uniform(r, 0.1, 0.4),
+        }),
+        reference: (x) =>
+            patternTrunk(
+                vec(x.p),
+                num(x.width),
+                num(x.scale),
+                num(x.knots),
+                num(x.seed),
+                num(x.irregularity),
+                num(x.waviness),
+                vec(x.waviness_scale),
+                num(x.wander),
+                num(x.wander_scale),
                 num(x.knot_size),
                 num(x.knot_rings),
                 num(x.fall),

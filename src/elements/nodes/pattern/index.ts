@@ -431,7 +431,66 @@ const brush = defineNode({
  * tricô, a escova do metal, as células com sulcos, os anéis de crescimento (com os nós da madeira), os tijolos, as tábuas do assoalho, as fissuras da casca, as mossas, as fiadas sobrepostas do telhado, as nervuras da folha, as aréolas arredondadas, as células dos brilhos pontuais, o grão e o
  * limiar com gradiente.
  */
+// Padrões maciços (spec 011): sobre a coordenada `p` em 3D de `surface.solidSpace` (a posição no objeto) — o padrão
+// existe no volume e a superfície o corta, sem emenda nem polo. O gradiente ∂/∂p é a entrada de `surface.solidRelief`.
+
+/**
+ * Grão maciço: `octaves` (1 a 8) oitavas do ruído de gradiente 3D com frequências por eixo `scale` — anisotrópico:
+ * `scale` (60, 2, 60) dá fibras ao longo de `p.y` —, × `lacunarity` e amplitude × `gain` a cada oitava. Saídas: `value`
+ * em [-1, 1] e `gradient` (∂/∂p). Com `p` = `along` de `pattern.trunk`, corre ao longo da fibra do tronco.
+ */
+const grain3 = defineNode({
+    name: 'pattern.grain3',
+    inputs: { p: 'vec3f', width: 'f32' },
+    outputs: { value: 'f32', gradient: 'vec3f' },
+    params: {
+        width: { type: 'f32', default: 0 },
+        scale: { type: 'vec3f', default: [1, 1, 1] },
+        seed: { type: 'u32', default: 0 },
+        octaves: { type: 'u32', default: 3 },
+        lacunarity: { type: 'f32', default: 2 },
+        gain: { type: 'f32', default: 0.5 },
+    },
+    code: nodePattern,
+    fn: 'node_pattern_grain3',
+});
+
+/**
+ * Tronco: os anéis de crescimento no volume — um tronco de eixo ao longo de `p.y`, `scale` anéis por unidade de raio,
+ * a medula serpenteando (`wander`, `wander_scale`), os anéis ondulados (`waviness`, `waviness_scale`) e de largura
+ * irregular (`irregularity` em [0, 1]), o perfil de `pattern.rings` (`fall`: a fração do anel em que o lenho tardio cai
+ * ao inicial do ano seguinte). Os nós são os galhos: retas que saem da medula inclinadas para cima, `knots` células por
+ * unidade ao longo do eixo (um galho em seis de cada dez), de meia largura `knot_size`, desviando `knot_rings` anéis.
+ * A superfície que corta o volume mostra o que a serra mostra: anéis concêntricos no topo, linhas e "catedrais" nas
+ * faces ao longo do eixo, o olho do nó onde corta um galho. Saídas: `value` em [0, 1] (0 o lenho inicial, 1 o tardio)
+ * e o `gradient` (∂/∂p); `ring` o valor em [0, 1] do anel; `knot` o miolo do nó em [0, 1]; `along` a coordenada da
+ * fibra (a `p` de `pattern.grain3`: o grão fica dentro das superfícies dos anéis e desvia com elas).
+ */
+const trunk = defineNode({
+    name: 'pattern.trunk',
+    inputs: { p: 'vec3f', width: 'f32', scale: 'f32', knots: 'f32' },
+    outputs: { value: 'f32', gradient: 'vec3f', ring: 'f32', knot: 'f32', along: 'vec3f' },
+    params: {
+        width: { type: 'f32', default: 0 },
+        scale: { type: 'f32', default: 8 },
+        knots: { type: 'f32', default: 0 },
+        seed: { type: 'u32', default: 0 },
+        irregularity: { type: 'f32', default: 0 },
+        waviness: { type: 'f32', default: 0 },
+        waviness_scale: { type: 'vec3f', default: [3, 1, 3] },
+        wander: { type: 'f32', default: 0 },
+        wander_scale: { type: 'f32', default: 1 },
+        knot_size: { type: 'f32', default: 0.04 },
+        knot_rings: { type: 'f32', default: 6 },
+        fall: { type: 'f32', default: 0.12 },
+    },
+    code: nodePattern,
+    fn: 'node_pattern_trunk',
+});
+
 export const pattern = {
+    grain3,
+    trunk,
     checker2: checker('checker2', 'vec2f'),
     checker3: checker('checker3', 'vec3f'),
     grain,

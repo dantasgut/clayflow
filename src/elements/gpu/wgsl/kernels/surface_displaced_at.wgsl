@@ -20,6 +20,9 @@ fn surface_displaced_at(u: f32, v: f32, su: f32, sv: f32, spacing: vec2f, time: 
     s.duvdy = vec2f(0.0, spacing.y);
     s.dpdu = f.du * (surface_params.u1 - surface_params.u0);
     s.dpdv = f.dv * (surface_params.v1 - surface_params.v0);
+    s.object_position = f.position;
+    s.dodu = s.dpdu;
+    s.dodv = s.dpdv;
     s.footprint = max(length(s.dpdu) * spacing.x, length(s.dpdv) * spacing.y);
     let h = displacement_fn(s, displacement_fn_params(surface_params.displacement_slot));
     let p = f.position + f.normal * select(0.0, h, abs(h) < 1e30);

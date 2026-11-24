@@ -176,6 +176,58 @@ const direction = defineNode({
 });
 
 /**
+ * Espaço dos padrões maciços (spec 011): a posição no objeto no referencial do bloco de onde a peça é talhada — o eixo
+ * `axis` (a direção da fibra no objeto) vira `p.y` —, × `scale` (unidades do padrão por unidade do objeto) + `offset`
+ * (onde a peça está no bloco). Saídas: `p` (a coordenada dos padrões maciços, `pattern.trunk` e `pattern.grain3`),
+ * `width` (a largura do pixel em `p`) e `du`, `dv` (∂p/∂u, ∂p/∂v: as entradas de `surface.solidRelief`). O padrão
+ * acompanha o objeto e não depende do uv: sem emenda nem aperto nos polos. Sem ligação, lê a amostra.
+ */
+const solidSpace = defineNode({
+    name: 'surface.solidSpace',
+    inputs: {
+        position: 'vec3f',
+        dodu: 'vec3f',
+        dodv: 'vec3f',
+        duvdx: 'vec2f',
+        duvdy: 'vec2f',
+        footprint: 'f32',
+        scale: 'f32',
+        offset: 'vec3f',
+        axis: 'vec3f',
+    },
+    outputs: { p: 'vec3f', width: 'f32', du: 'vec3f', dv: 'vec3f' },
+    params: {
+        scale: { type: 'f32', default: 1 },
+        offset: { type: 'vec3f', default: [0, 0, 0] },
+        axis: { type: 'vec3f', default: [0, 1, 0] },
+    },
+    defaults: {
+        position: 's.object_position',
+        dodu: 's.dodu',
+        dodv: 's.dodv',
+        duvdx: 's.duvdx',
+        duvdy: 's.duvdy',
+        footprint: 's.footprint',
+    },
+    code: nodeSurface,
+    fn: 'node_surface_solid_space',
+});
+
+/**
+ * Relevo em milímetros de um padrão maciço (spec 011): (`value` − `level`) · `height` e as derivadas no uv, do
+ * `gradient` em 3D do padrão sobre `du`, `dv` de `surface.solidSpace`. A mesma saída de `surface.relief`: soma-se a
+ * outros relevos e alimenta `surface.reliefNormal` (no material) e `surface.displacement` (na geometria).
+ */
+const solidRelief = defineNode({
+    name: 'surface.solidRelief',
+    inputs: { value: 'f32', gradient: 'vec3f', du: 'vec3f', dv: 'vec3f', height: 'f32' },
+    outputs: { value: 'vec3f' },
+    params: { height: { type: 'f32', default: 1 }, level: { type: 'f32', default: 0 } },
+    code: nodeSurface,
+    fn: 'node_surface_solid_relief',
+});
+
+/**
  * Superfície: métrica, curvaturas, direções principais, ondulações, o espaço dos padrões no uv, o relevo na normal
  * (`bump`), o relevo em milímetros com a normal e o deslocamento dele (`relief`, `reliefNormal`, `displacement`) e a
  * direção de um padrão em mundo (`direction`).
@@ -186,8 +238,10 @@ export const surface = {
     principal,
     ripple,
     uvSpace,
+    solidSpace,
     bump,
     relief,
+    solidRelief,
     reliefNormal,
     displacement,
     direction,

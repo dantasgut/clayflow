@@ -4,6 +4,7 @@ import { Subgraph } from '../../../scene/graph/Subgraph';
 import { bsdf } from '../bsdf';
 import { closure } from '../closure';
 import { color } from '../color';
+import { input } from '../input';
 import { map } from '../map';
 import { math } from '../math';
 import { pattern } from '../pattern';
@@ -27,6 +28,10 @@ import {
     ASH_RINGS,
     PINE_FINE_OFFSET,
     PINE_FINE_RINGS,
+    SOLID_LINKS,
+    SOLID_WOOD_FIBER,
+    SOLID_WOOD_OFFSET,
+    SOLID_WOOD_TRUNK,
     BIRCH_DASH,
     BIRCH_EDGE,
     BIRCH_LENTICELS,
@@ -847,6 +852,128 @@ export const woodPineFine = ash('material.woodPineFine', relief.woodPineFine, {
         amount: 1,
     },
 });
+
+/**
+ * `material.woodSolid` — madeira maciça clara, crua e jateada: a peça talhada de um bloco. Os anéis existem no volume
+ * (`pattern.trunk` na posição do objeto) e a superfície os corta — numa esfera, as curvas fechadas e as linhas que
+ * abrem e fecham; num cubo, os anéis concêntricos no topo e as "catedrais" nas faces ao longo da fibra; o olho do nó
+ * onde a superfície corta um galho —, sem emenda nem aperto nos polos, em qualquer forma com uv. Cor de mel clara
+ * (`color`), o lenho tardio em linha castanha (`late_color`), cada anel com o seu tom, manchas largas, a fibra fina
+ * dentro das superfícies dos anéis e o miolo dos nós escuro (`knot_color`). O corpo é subsuperfície (`radius`, (1,2;
+ * 0,75; 0,35) mm, estimado como o do pinho): o aspecto macio, o fundo dos degraus mais claro. O relevo é o de
+ * `relief.woodSolid`, em milímetros — cada anel um degrau (`ring_height`, 0,7) e a fibra (`fiber_height`, 0,05) —, na
+ * normal; com `Displacements.woodSolid()` na entidade de uma `ParametricSurface`, na geometria. `ring_count`,
+ * `knot_density`, `pattern_scale`, `offset` e `axis` são um valor só para a cor e o relevo: passe os mesmos ao
+ * material e ao deslocamento. Parâmetros: `color`, `late_color`, `knot_color`, `roughness`, `radius`, `ring_height`,
+ * `fiber_height`, `ring_count`, `knot_density`, `scale`, `pattern_scale`, `offset`, `axis`.
+ */
+export const woodSolid = Subgraph.point(
+    new NodeGraph({
+        nodes: {
+            s: input.surfaceSample(),
+            solid: surface.solidSpace.with({ offset: [...SOLID_WOOD_OFFSET] }),
+            place: math.value3.with({ value: [...SOLID_WOOD_OFFSET] }),
+            turn: math.value3.with({ value: [0, 1, 0] }),
+            tile: math.value.with({ value: 1 }),
+            count: math.value.with({ value: SOLID_WOOD_TRUNK.scale }),
+            knots: math.value.with({ value: SOLID_WOOD_TRUNK.knots }),
+            rings: pattern.trunk.with(SOLID_WOOD_TRUNK),
+            fiber: pattern.grain3.with(SOLID_WOOD_FIBER),
+            thread: pattern.grain3.with({ scale: [260, 5, 260], octaves: 1, seed: 62 }),
+            broad: pattern.grain3.with({
+                scale: [1.1, 0.5, 1.1],
+                octaves: 2,
+                gain: 0.55,
+                seed: 63,
+            }),
+            tone: color.ramp.with({
+                color_a: [0.66, 0.46, 0.23],
+                color_b: [0.26, 0.12, 0.04],
+                low: 0.3,
+                high: 1,
+            }),
+            year: map.range.with({ out_min: 0.88, out_max: 1.12 }),
+            wide: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.8, out_max: 1.2 }),
+            streak: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.86, out_max: 1.14 }),
+            hair: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.93, out_max: 1.07 }),
+            shade_a: math.mul,
+            shade_b: math.mul,
+            shade: math.mul,
+            lit: math.scale3,
+            knot_color: math.value3.with({ value: [0.2, 0.09, 0.03] }),
+            knotted: math.mix3,
+            world: math.value.with({ value: 1 }),
+            body: bsdf.subsurface.with({ radius: [1.2, 0.75, 0.35] }),
+            specular: bsdf.dielectric.with({ ior: 1.5, roughness: 0.6 }),
+            sum: closure.add,
+            height: relief.woodSolid,
+            normal: surface.reliefNormal,
+            out: closure.normal,
+        },
+        links: [
+            ...SOLID_LINKS,
+            ['tile.value', 'solid.scale'],
+            ['place.value', 'solid.offset'],
+            ['turn.value', 'solid.axis'],
+            ['count.value', 'rings.scale'],
+            ['knots.value', 'rings.knots'],
+            ['rings.along', 'thread.p'],
+            ['solid.width', 'thread.width'],
+            ['solid.p', 'broad.p'],
+            ['solid.width', 'broad.width'],
+            ['rings.value', 'tone.t'],
+            ['rings.ring', 'year.x'],
+            ['broad.value', 'wide.x'],
+            ['fiber.value', 'streak.x'],
+            ['thread.value', 'hair.x'],
+            ['year.value', 'shade_a.a'],
+            ['wide.value', 'shade_a.b'],
+            ['streak.value', 'shade_b.a'],
+            ['hair.value', 'shade_b.b'],
+            ['shade_a.value', 'shade.a'],
+            ['shade_b.value', 'shade.b'],
+            ['tone.color', 'lit.v'],
+            ['shade.value', 'lit.s'],
+            ['lit.value', 'knotted.a'],
+            ['knot_color.value', 'knotted.b'],
+            ['rings.knot', 'knotted.t'],
+            ['knotted.value', 'body.color'],
+            ['world.value', 'body.scale'],
+            ['specular.value', 'sum.a'],
+            ['body.value', 'sum.b'],
+            ['s.value', 'height.s'],
+            ['tile.value', 'height.pattern_scale'],
+            ['place.value', 'height.offset'],
+            ['turn.value', 'height.axis'],
+            ['count.value', 'height.ring_count'],
+            ['knots.value', 'height.knot_density'],
+            ['height.value', 'normal.relief'],
+            ['world.value', 'normal.scale'],
+            ['sum.value', 'out.c'],
+            ['normal.value', 'out.normal'],
+        ],
+        output: 'out.value',
+    }),
+    {
+        name: 'material.woodSolid',
+        ...SAMPLE_INPUT,
+        expose: [
+            ['tone.color_a', 'color'],
+            ['tone.color_b', 'late_color'],
+            ['knot_color.value', 'knot_color'],
+            ['specular.roughness', 'roughness'],
+            ['body.radius', 'radius'],
+            ['height.ring_height', 'ring_height'],
+            ['height.fiber_height', 'fiber_height'],
+            ['count.value', 'ring_count'],
+            ['knots.value', 'knot_density'],
+            ['world.value', 'scale'],
+            ['tile.value', 'pattern_scale'],
+            ['place.value', 'offset'],
+            ['turn.value', 'axis'],
+        ],
+    },
+);
 
 /**
  * `material.barkBirch` — casca de bétula: lisa, branca e acetinada (`color`; a betulina, rugosidade 0,45), manchada de

@@ -2440,6 +2440,8 @@ interface DisplacedPiece {
     readonly label: string;
     readonly name: DisplacedName;
     readonly values?: Readonly<Record<string, number | number[]>>;
+    /** Os valores que vão ao material e ao deslocamento (os do padrão: os dois leem o mesmo relevo). */
+    readonly both?: Readonly<Record<string, number | number[]>>;
     /** Falso: a mesma esfera sem a `DisplacementFunction` (o relevo só na normal). */
     readonly displaced?: boolean;
 }
@@ -2491,7 +2493,8 @@ type DisplacedName =
     | 'leafDry'
     | 'woodAsh'
     | 'woodAshBrushed'
-    | 'woodPineFine';
+    | 'woodPineFine'
+    | 'woodSolid';
 
 /**
  * A esfera de parametrização frontal (spec 011, T119): o quadrado do uv vai ao disco (a grade elíptica: x = a √(1 −
@@ -2959,6 +2962,28 @@ const DISPLACED: readonly DisplacedFrame[] = [
         backdrop: 0.3,
         measure: measurePine,
     },
+    // A madeira maciça (os anéis no volume, a peça talhada do bloco): a esfera longe da medula e a esfera que a medula
+    // atravessa, as duas com a subsuperfície e o deslocamento, sob a mesma luz do pinho.
+    {
+        name: 'madeira-macica',
+        rows: [[], []],
+        pieces: [
+            { label: 'woodSolid', name: 'woodSolid', both: { pattern_scale: 1 } },
+            {
+                label: 'woodSolid, pela medula',
+                name: 'woodSolid',
+                both: { pattern_scale: 1, offset: [0.35, 0.3, 0.2] },
+            },
+        ],
+        layout: GALLERY_BIG,
+        scale: 20,
+        front: true,
+        rough: 0.05,
+        subsurface: true,
+        panel: 5,
+        key: PINE_KEY,
+        backdrop: 0.3,
+    },
 ];
 
 /**
@@ -3045,6 +3070,7 @@ async function galleryDisplaced(
             pattern_scale: [...(frame.pattern ?? (front ? [1, 1] : [2, 1]))],
             scale: frame.scale ?? RELIEF_SCALE,
             ...frame.values?.[name],
+            ...piece.both,
         };
         const ball = front
             ? new ParametricSurface({

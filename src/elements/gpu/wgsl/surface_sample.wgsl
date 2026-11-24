@@ -26,4 +26,11 @@ struct SurfaceSample {
     // some ali, a cor do padrão continua).
     dpdu: vec3f,
     dpdv: vec3f,
+    // A posição no objeto (spec 011): a do vértice antes da transformação de mundo — a coordenada dos padrões maciços
+    // (`surface.solidSpace`: a madeira talhada de um bloco), que acompanha o objeto quando ele se move — e as tangentes
+    // do uv nela (∂posição no objeto/∂u e ∂v). Nos acertos dos raios: a posição de mundo e tangentes zero (o padrão
+    // coincide com o do desenho só no objeto sem transformação; o relevo some ali).
+    object_position: vec3f,
+    dodu: vec3f,
+    dodv: vec3f,
 }

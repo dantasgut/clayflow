@@ -18,6 +18,9 @@ const SURFACE_SAMPLE_FIELDS = {
     duvdy: 'vec2f',
     dpdu: 'vec3f',
     dpdv: 'vec3f',
+    object_position: 'vec3f',
+    dodu: 'vec3f',
+    dodv: 'vec3f',
 } as const;
 
 /** Campos do corpo do ponto `field` (`FieldBody`). */

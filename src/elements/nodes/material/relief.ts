@@ -1,5 +1,6 @@
 import { NodeGraph } from '../../../scene/graph/NodeGraph';
 import { Subgraph } from '../../../scene/graph/Subgraph';
+import { input } from '../input';
 import { map } from '../map';
 import { math } from '../math';
 import { pattern } from '../pattern';
@@ -1059,6 +1060,95 @@ const woodPineFine = ashRelief(
     { offset: PINE_FINE_OFFSET, rings: PINE_FINE_RINGS },
 );
 
+/** Onde a peça de madeira maciça está no bloco: afastada da medula (em unidades do padrão), fora do eixo. */
+export const SOLID_WOOD_OFFSET = [1.55, 0.3, 0.35] as const;
+
+/**
+ * O tronco da madeira maciça (`pattern.trunk`): 16 anéis por unidade do padrão, de largura irregular, ondulados, a
+ * medula serpenteando de leve, o perfil em degrau (`fall` 0,3: o lenho tardio cai ao inicial do ano seguinte em três décimos
+ * do anel — mais estreita, a queda fica menor que o passo da malha do deslocamento) e os galhos (0,8 célula por unidade ao longo do eixo).
+ */
+export const SOLID_WOOD_TRUNK = {
+    scale: 16,
+    irregularity: 0.9,
+    waviness: 0.045,
+    waviness_scale: [2.6, 1.1, 2.6],
+    wander: 0.12,
+    wander_scale: 0.4,
+    seed: 23,
+    knots: 0.8,
+    knot_size: 0.08,
+    knot_rings: 6,
+    fall: 0.3,
+};
+
+/** A fibra da madeira maciça: riscos finos ao longo do eixo do tronco, dentro das superfícies dos anéis. */
+export const SOLID_WOOD_FIBER = { scale: [70, 1.6, 70], octaves: 2, gain: 0.6, seed: 61 };
+
+/** As ligações da amostra ao espaço maciço (`solid`, um `surface.solidSpace`). */
+export const SOLID_LINKS = [
+    ['s.object_position', 'solid.position'],
+    ['s.dodu', 'solid.dodu'],
+    ['s.dodv', 'solid.dodv'],
+    ['s.duvdx', 'solid.duvdx'],
+    ['s.duvdy', 'solid.duvdy'],
+    ['s.footprint', 'solid.footprint'],
+    ['solid.p', 'rings.p'],
+    ['solid.width', 'rings.width'],
+    ['rings.along', 'fiber.p'],
+    ['solid.width', 'fiber.width'],
+] as const;
+
+/**
+ * `relief.woodSolid` — o relevo da madeira maciça jateada: a areia tira o lenho inicial, macio, e deixa o tardio — cada
+ * anel um degrau, que sobe devagar e cai de uma vez (`ring_height`, 0,7 mm do fundo à crista), mais a fibra levantada
+ * (`fiber_height`, 0,05 mm). O relevo é o do campo dos anéis no volume (`pattern.trunk` na posição do objeto): segue
+ * as curvas do veio em qualquer forma. Medidas estimadas. Parâmetros: `ring_height`, `fiber_height`, `ring_count`
+ * (anéis por unidade do padrão), `knot_density` (células de galho por unidade ao longo do eixo), `pattern_scale`
+ * (unidades do padrão por unidade do objeto), `offset` (onde a peça está no bloco) e `axis` (a direção da fibra no
+ * objeto) — os mesmos do material: passe os mesmos valores aos dois.
+ */
+const woodSolid = Subgraph.point(
+    new NodeGraph({
+        nodes: {
+            s: input.surfaceSample(),
+            solid: surface.solidSpace.with({ offset: [...SOLID_WOOD_OFFSET] }),
+            rings: pattern.trunk.with(SOLID_WOOD_TRUNK),
+            fiber: pattern.grain3.with(SOLID_WOOD_FIBER),
+            ring_relief: surface.solidRelief.with({ height: 0.7, level: 0.5 }),
+            fiber_relief: surface.solidRelief.with({ height: 0.05 }),
+            out: math.add3,
+        },
+        links: [
+            ...SOLID_LINKS,
+            ['rings.value', 'ring_relief.value'],
+            ['rings.gradient', 'ring_relief.gradient'],
+            ['solid.du', 'ring_relief.du'],
+            ['solid.dv', 'ring_relief.dv'],
+            ['fiber.value', 'fiber_relief.value'],
+            ['fiber.gradient', 'fiber_relief.gradient'],
+            ['solid.du', 'fiber_relief.du'],
+            ['solid.dv', 'fiber_relief.dv'],
+            ['ring_relief.value', 'out.a'],
+            ['fiber_relief.value', 'out.b'],
+        ],
+        output: 'out.value',
+    }),
+    {
+        name: 'relief.woodSolid',
+        ...SAMPLE_INPUT,
+        expose: [
+            ['ring_relief.height', 'ring_height'],
+            ['fiber_relief.height', 'fiber_height'],
+            ['rings.scale', 'ring_count'],
+            ['rings.knots', 'knot_density'],
+            ['solid.scale', 'pattern_scale'],
+            ['solid.offset', 'offset'],
+            ['solid.axis', 'axis'],
+        ],
+    },
+);
+
 /**
  * Relevos dos materiais prontos (spec 011): sub-grafos de ponto que devolvem o relevo (`vec3f`: altura em milímetros e
  * as derivadas no uv) da amostra de superfície — a entrada de `surface.reliefNormal` no material e de
@@ -1082,4 +1172,5 @@ export const relief = {
     woodAsh,
     woodAshBrushed,
     woodPineFine,
+    woodSolid,
 } as const;

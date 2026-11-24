@@ -1123,3 +1123,174 @@ fn node_pattern_brush(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, spread: f
     }
     return NodePatternBrush(out.x, out.yz, normalize(dir), gouge);
 }
+
+// Padrões maciços (spec 011): sobre a coordenada `p` de `surface.solidSpace` — a posição no objeto, em 3D. O padrão
+// existe no volume e a superfície o corta: a peça talhada de um bloco, sem emenda nem polo. Cada um com o gradiente
+// analítico em `p` (∂/∂p, a entrada de `surface.solidRelief`) e filtrado pela largura do pixel em `p`.
+
+struct NodePatternGrain3 {
+    value: f32,
+    gradient: vec3f,
+}
+
+struct NodePatternTrunk {
+    value: f32,
+    gradient: vec3f,
+    ring: f32,
+    knot: f32,
+    along: vec3f,
+}
+
+// Uma das 12 direções das arestas do cubo pelo hash — as do ruído de gradiente de Perlin (2002).
+fn node_pattern_dir3(h: u32) -> vec3f {
+    let k = (h >> 4u) % 12u;
+    let a = select(1.0, -1.0, (k & 1u) == 1u);
+    let b = select(1.0, -1.0, (k & 2u) == 2u);
+    if (k < 4u) { return vec3f(0.0, a, b); }
+    if (k < 8u) { return vec3f(a, 0.0, b); }
+    return vec3f(a, b, 0.0);
+}
+
+fn node_pattern_corner3(i: vec3f, seed: u32) -> vec3f {
+    return node_pattern_dir3(hash3(bitcast<vec3u>(vec3i(i)) + seed * vec3u(0x9e3779b1u, 0x85ebca77u, 0xc2b2ae3du)));
+}
+
+// Ruído de gradiente 3D em `q` com a derivada analítica: (valor em [-1, 1], ∂/∂q); interpolação quíntica.
+fn node_pattern_noise3(q: vec3f, seed: u32) -> vec4f {
+    let i = floor(q);
+    let f = q - i;
+    let g000 = node_pattern_corner3(i, seed);
+    let g100 = node_pattern_corner3(i + vec3f(1.0, 0.0, 0.0), seed);
+    let g010 = node_pattern_corner3(i + vec3f(0.0, 1.0, 0.0), seed);
+    let g110 = node_pattern_corner3(i + vec3f(1.0, 1.0, 0.0), seed);
+    let g001 = node_pattern_corner3(i + vec3f(0.0, 0.0, 1.0), seed);
+    let g101 = node_pattern_corner3(i + vec3f(1.0, 0.0, 1.0), seed);
+    let g011 = node_pattern_corner3(i + vec3f(0.0, 1.0, 1.0), seed);
+    let g111 = node_pattern_corner3(i + vec3f(1.0, 1.0, 1.0), seed);
+    let a000 = dot(g000, f);
+    let a100 = dot(g100, f - vec3f(1.0, 0.0, 0.0));
+    let a010 = dot(g010, f - vec3f(0.0, 1.0, 0.0));
+    let a110 = dot(g110, f - vec3f(1.0, 1.0, 0.0));
+    let a001 = dot(g001, f - vec3f(0.0, 0.0, 1.0));
+    let a101 = dot(g101, f - vec3f(1.0, 0.0, 1.0));
+    let a011 = dot(g011, f - vec3f(0.0, 1.0, 1.0));
+    let a111 = dot(g111, f - vec3f(1.0, 1.0, 1.0));
+    let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    let du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
+    let x00 = mix(a000, a100, u.x);
+    let x10 = mix(a010, a110, u.x);
+    let x01 = mix(a001, a101, u.x);
+    let x11 = mix(a011, a111, u.x);
+    let y0 = mix(x00, x10, u.y);
+    let y1 = mix(x01, x11, u.y);
+    let grad = mix(mix(mix(g000, g100, u.x), mix(g010, g110, u.x), u.y),
+        mix(mix(g001, g101, u.x), mix(g011, g111, u.x), u.y), u.z)
+        + du * vec3f(
+            mix(mix(a100 - a000, a110 - a010, u.y), mix(a101 - a001, a111 - a011, u.y), u.z),
+            mix(x10 - x00, x11 - x01, u.z),
+            y1 - y0,
+        );
+    return vec4f(mix(y0, y1, u.z), grad);
+}
+
+/**
+ * Grão maciço (spec 011): `octaves` (1 a 8) oitavas do ruído de gradiente 3D com frequências por eixo `scale`
+ * (anisotrópico: `scale` (60, 2, 60) dá fibras ao longo de `p.y`), × `lacunarity` e amplitude × `gain` a cada oitava;
+ * normalizado pela soma das amplitudes. Saídas: o valor em [-1, 1] e o gradiente ∂/∂p.
+ */
+fn node_pattern_grain3(p: vec3f, width: f32, scale: vec3f, seed: u32, octaves: u32, lacunarity: f32, gain: f32)
+    -> NodePatternGrain3 {
+    var freq = scale;
+    var amp = 1.0;
+    var norm = 0.0;
+    var sum = vec4f(0.0);
+    let n = clamp(octaves, 1u, 8u);
+    for (var k = 0u; k < n; k++) {
+        let v = node_pattern_noise3(p * freq, seed + k);
+        let band = select(1.0, node_pattern_band(width * max(abs(freq.x), max(abs(freq.y), abs(freq.z)))),
+            width > 0.0);
+        sum += amp * band * vec4f(v.x, v.yzw * freq);
+        norm += amp;
+        amp *= gain;
+        freq *= lacunarity;
+    }
+    return NodePatternGrain3(sum.x / norm, sum.yzw / norm);
+}
+
+/**
+ * Tronco (spec 011): os anéis de crescimento no volume — um tronco de eixo ao longo de `p.y` (a direção da fibra), com
+ * a medula em `p.xz` = `wander` · ruído(`p.y` · `wander_scale`) (a medula serpenteia ao longo do tronco). O raio r =
+ * |p.xz − medula| + `waviness` · ruído3(p · `waviness_scale`) (os anéis não são círculos) + os nós; `scale` anéis por
+ * unidade de raio em média — a posição em anéis s = r · `scale` + `irregularity` · ruído(0,1875 · r · `scale`): anos
+ * largos e estreitos. `value` em [0, 1] é o perfil do anel, o de `pattern.rings`: sobe devagar do lenho inicial (0) ao
+ * tardio (1, a faixa escura e dura) e cai na fração `fall` do anel. `ring`: o valor em [0, 1] do anel (o tom de cada
+ * ano). Os nós: os galhos, que saem da medula — `knots` células por unidade ao longo do eixo, um galho em seis de cada
+ * dez, cada um uma reta da medula para fora, inclinada para cima, em ângulo sorteado; soma ao raio um monte gaussiano
+ * de meia largura `knot_size` em volta da reta e altura de `knot_rings` anéis: os anéis do tronco desviam em volta do
+ * galho e, dentro, fecham em voltas concêntricas — o olho do nó onde a superfície corta o galho. `knot`: o miolo em
+ * [0, 1]. `along`: a coordenada da fibra — (p.xz − medula) esticado até o raio r, com `p.y` no meio —: o que corre ao
+ * longo da fibra (`pattern.grain3` com `p` = `along`) fica dentro das superfícies dos anéis e desvia com elas em volta
+ * dos nós. A superfície que corta o volume mostra o que a serra mostra: no topo, os anéis concêntricos; na face ao
+ * longo do eixo, as linhas paralelas longe da medula e as "catedrais" perto dela. Abaixo do pixel: o perfil à média,
+ * `ring` a 0,5, gradiente a zero.
+ */
+fn node_pattern_trunk(p: vec3f, width: f32, scale: f32, knots: f32, seed: u32, irregularity: f32, waviness: f32,
+    waviness_scale: vec3f, wander: f32, wander_scale: f32, knot_size: f32, knot_rings: f32, fall: f32)
+    -> NodePatternTrunk {
+    let ma = node_pattern_noise(vec2f(p.y * wander_scale, 0.5), vec2f(0.0), seed + 4u);
+    let mb = node_pattern_noise(vec2f(p.y * wander_scale, 7.5), vec2f(0.0), seed + 5u);
+    let pith = wander * vec2f(ma.x, mb.x);
+    let dpith = wander * wander_scale * vec2f(ma.y, mb.y);
+    let q = p.xz - pith;
+    let r0 = max(length(q), 1e-6);
+    let dr0 = vec3f(q.x, -dot(q, dpith), q.y) / r0;
+    let nw = node_pattern_noise3(p * waviness_scale, seed + 1u);
+    // Os galhos: um monte gaussiano em volta da reta de cada um (3 células ao longo do eixo), e o miolo.
+    var bump = vec4f(0.0);
+    var knot = 0.0;
+    if (knots > 0.0) {
+        let ki = floor(p.y * knots);
+        let sigma = max(knot_size, 1e-4);
+        let lift = knot_rings / max(scale, 1e-6);
+        for (var d = -1; d <= 1; d++) {
+            let c = ki + f32(d);
+            let h = hash2(vec2u(bitcast<u32>(i32(c)), seed + 3u));
+            if (f32(h >> 8u) / 16777215.0 >= 0.6) { continue; }
+            let h2 = pcg_hash(h);
+            let h3 = pcg_hash(h2);
+            let phi = TAU * f32(h2 >> 8u) / 16777215.0;
+            let dir = normalize(vec3f(cos(phi), 0.35, sin(phi)));
+            let root = vec3f(pith.x, (c + 0.5 + 0.35 * hash_signed(h3)) / knots, pith.y);
+            let v = p - root;
+            let t = dot(v, dir);
+            let perp = v - t * dir;
+            let e = dot(perp, perp) / (sigma * sigma);
+            let u = clamp((t + sigma) / (2.0 * sigma), 0.0, 1.0);
+            let w = u * u * (3.0 - 2.0 * u);
+            let g = exp(-e);
+            bump += lift * vec4f(g * w, g * w * (-2.0 * perp / (sigma * sigma)) + g * (6.0 * u * (1.0 - u) / (2.0 * sigma)) * dir);
+            knot = max(knot, exp(-4.0 * e) * w);
+        }
+    }
+    let r = max(r0 + waviness * nw.x + bump.x, 1e-6);
+    let dr = dr0 + waviness * nw.yzw * waviness_scale + bump.yzw;
+    let s0 = r * scale;
+    let irr = clamp(irregularity, 0.0, 1.0);
+    let ni = node_pattern_noise(vec2f(s0 * 0.1875, 0.5), vec2f(0.0), seed + 2u);
+    let s = s0 + irr * ni.x;
+    let ds = scale * (1.0 + irr * 0.1875 * ni.y);
+    let ring = floor(s);
+    let t = s - ring;
+    let fl = clamp(fall, 0.02, 0.6);
+    let rise = 0.7 * (1.0 - fl) / 0.88;
+    let ta = clamp(t / rise, 0.0, 1.0);
+    let tb = clamp((t - (1.0 - fl)) / fl, 0.0, 1.0);
+    let a = ta * ta * (3.0 - 2.0 * ta);
+    let b = 1.0 - tb * tb * (3.0 - 2.0 * tb);
+    let dv = (6.0 * ta * (1.0 - ta) / rise) * b - a * (6.0 * tb * (1.0 - tb) / fl);
+    let k = select(1.0, node_pattern_band(width * abs(ds) * length(dr)), width > 0.0);
+    let hr = pcg_hash(bitcast<u32>(i32(ring)) ^ (seed * 0x9e3779b1u));
+    let fiber = q * (r / r0);
+    return NodePatternTrunk(mix(1.0 - 0.5 * (rise + fl), a * b, k), k * dv * ds * dr,
+        mix(0.5, f32(hr >> 8u) / 16777215.0, k), knot, vec3f(fiber.x, p.y, fiber.y));
+}
