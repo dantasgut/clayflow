@@ -88,9 +88,11 @@ const skinGrain = (scale: number, octaves: number, seed: number) =>
  * `flush_color`); as sardas (`freckles` em [0, 1]) são pontos de melanina. O brilho são dois lobos da interface (IOR
  * 1,4): o largo da pele seca (`roughness`, 0,55) e o estreito da película de óleo (`oil_roughness`, 0,3), misturados
  * por `oil` em [0, 1] — a mistura varia em manchas: a pele brilha por partes. O relevo, em milímetros: os poros e as
- * linhas finas (`pore_height`, 0,08) e a irregularidade larga (`fold_height`, 0,08), na normal. Os padrões são maciços
+ * linhas finas (`pore_height`, 0,12) e a irregularidade larga (`fold_height`, 0,08), na normal. Os padrões são maciços
  * (a posição no objeto, `pattern_scale` unidades do padrão por unidade do objeto): não dependem do uv da malha, sem
  * emenda. Sem medida publicada para as proporções de cor: `light_color`, `dark_color` e `flush_color` são estimados.
+ * A cor varia também no fino: os capilares mancham a vermelhidão na escala de milímetros e um amarelado desigual
+ * cobre o resto; e o brilho do óleo some dentro dos poros (as cavidades do relevo), quebrando o realce em pontos.
  * A penugem é um lobo de fibra fraco (`fuzz_color`): o brilho rasante no contorno. Três entradas por região, para
  * quem monta o rosto (sem ligação valem 1): `blood_mask` multiplica a vermelhidão (as bochechas, o nariz, as
  * orelhas), `oil_mask` o brilho do óleo (a testa, o nariz, os lábios) e `tint` a cor (os lábios).
@@ -114,6 +116,9 @@ export const skinDetailed = Subgraph.point(
             mottle: skinGrain(9, 2, 74),
             speck: skinGrain(60, 1, 75),
             sheen: skinGrain(5, 2, 76),
+            // A variação fina: os capilares (o vermelho em manchas de milímetros) e o amarelado desigual.
+            capillary: skinGrain(38, 3, 77),
+            sallow: skinGrain(14, 2, 78),
             melanin: math.value.with({ value: 0.25 }),
             blood: math.value.with({ value: 0.5 }),
             freckles: math.value.with({ value: 0.25 }),
@@ -128,6 +133,8 @@ export const skinDetailed = Subgraph.point(
             // O sangue: a vermelhidão onde o grão largo passa do nível, até 70 % com `blood` 1.
             rosy: map.range.with({ in_min: -0.25, in_max: 0.45, out_min: 0, out_max: 0.7 }),
             rosy_amount: math.mul,
+            fine: map.range.with({ in_min: -0.35, in_max: 0.35, out_min: 0.72, out_max: 1.28 }),
+            rosy_fine: math.mul,
             rosy_region: math.mul,
             rosy_bound: math.clamp,
             reddened: math.mul3,
@@ -138,6 +145,10 @@ export const skinDetailed = Subgraph.point(
             spot_color: math.value3.with({ value: [0.6, 0.42, 0.3] }),
             spotted: math.mul3,
             toned: math.mix3,
+            yellow: math.value3.with({ value: [1, 0.92, 0.74] }),
+            yellowed: math.mul3,
+            yellow_amount: map.range.with({ in_min: -0.3, in_max: 0.4, out_min: 0, out_max: 0.4 }),
+            uneven_tone: math.mix3,
             tinted: math.mul3,
             body: bsdf.subsurface.with({ radius: [2.2, 1.1, 0.85] }),
             dry: bsdf.dielectric.with({ ior: 1.4, roughness: 0.55 }),
@@ -146,13 +157,16 @@ export const skinDetailed = Subgraph.point(
             slick: map.range.with({ in_min: -0.4, in_max: 0.4, out_min: 0.4, out_max: 1.6 }),
             slick_amount: math.mul,
             slick_region: math.mul,
+            // O poro é uma cavidade: o brilho do óleo some dentro dele (a face do fundo não reflete para quem vê).
+            cavity: map.range.with({ in_min: -0.12, in_max: -0.45, out_min: 1, out_max: 0.15 }),
+            slick_open: math.mul,
             slick_bound: math.clamp,
             specular: closure.mix,
             sum: closure.add,
             // A penugem: o brilho rasante das fibras finas no contorno.
             fuzz: bsdf.sheen.with({ color: [0.05, 0.045, 0.04], roughness: 0.5 }),
             soft: closure.add,
-            pore_relief: surface.solidRelief.with({ height: 0.08 }),
+            pore_relief: surface.solidRelief.with({ height: 0.12 }),
             fold_relief: surface.solidRelief.with({ height: 0.08 }),
             height: math.add3,
             normal: surface.reliefNormal,
@@ -166,12 +180,19 @@ export const skinDetailed = Subgraph.point(
             ['s.duvdy', 'solid.duvdy'],
             ['s.footprint', 'solid.footprint'],
             ['tile.value', 'solid.scale'],
-            ...['pore', 'fold', 'blotch', 'mottle', 'speck', 'sheen'].flatMap(
-                (id): [string, string][] => [
-                    ['solid.p', `${id}.p`],
-                    ['solid.width', `${id}.width`],
-                ],
-            ),
+            ...[
+                'pore',
+                'fold',
+                'blotch',
+                'mottle',
+                'speck',
+                'sheen',
+                'capillary',
+                'sallow',
+            ].flatMap((id): [string, string][] => [
+                ['solid.p', `${id}.p`],
+                ['solid.width', `${id}.width`],
+            ]),
             ['mottle.value', 'uneven.x'],
             ['melanin.value', 'pigment.a'],
             ['uneven.value', 'pigment.b'],
@@ -183,7 +204,10 @@ export const skinDetailed = Subgraph.point(
             ['blood.value', 'rosy_amount.b'],
             ['base.value', 'reddened.a'],
             ['flush.value', 'reddened.b'],
-            ['rosy_amount.value', 'rosy_region.a'],
+            ['capillary.value', 'fine.x'],
+            ['rosy_amount.value', 'rosy_fine.a'],
+            ['fine.value', 'rosy_fine.b'],
+            ['rosy_fine.value', 'rosy_region.a'],
             ['blood_mask.value', 'rosy_region.b'],
             ['rosy_region.value', 'rosy_bound.x'],
             ['base.value', 'flushed.a'],
@@ -197,7 +221,13 @@ export const skinDetailed = Subgraph.point(
             ['flushed.value', 'toned.a'],
             ['spotted.value', 'toned.b'],
             ['spot_amount.value', 'toned.t'],
-            ['toned.value', 'tinted.a'],
+            ['sallow.value', 'yellow_amount.x'],
+            ['toned.value', 'yellowed.a'],
+            ['yellow.value', 'yellowed.b'],
+            ['toned.value', 'uneven_tone.a'],
+            ['yellowed.value', 'uneven_tone.b'],
+            ['yellow_amount.value', 'uneven_tone.t'],
+            ['uneven_tone.value', 'tinted.a'],
             ['tint.value', 'tinted.b'],
             ['tinted.value', 'body.color'],
             ['world.value', 'body.scale'],
@@ -208,7 +238,10 @@ export const skinDetailed = Subgraph.point(
             ['oily.value', 'specular.b'],
             ['slick_amount.value', 'slick_region.a'],
             ['oil_mask.value', 'slick_region.b'],
-            ['slick_region.value', 'slick_bound.x'],
+            ['pore.value', 'cavity.x'],
+            ['slick_region.value', 'slick_open.a'],
+            ['cavity.value', 'slick_open.b'],
+            ['slick_open.value', 'slick_bound.x'],
             ['slick_bound.value', 'specular.t'],
             ['specular.value', 'sum.a'],
             ['body.value', 'sum.b'],
