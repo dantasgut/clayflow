@@ -25,8 +25,12 @@ fn shadow_virtual_thickness(m: ShadowMatrix, world_pos: vec3f, normal: vec3f, li
     let levels = sv_levels(m);
     if (levels == 0u) { return vec2f(-1.0, 0.0); }
     let p0 = sv_light(m, world_pos);
-    let k = sv_readable_level(m, sv_level(m, p0.xy), p0.xy);
-    if (k >= levels) { return vec2f(-1.0, 0.0); }
+    // Só o nível do ponto (ou o seguinte): num nível mais grosso o recuo de um texel para dentro do corpo passa de
+    // centímetros e atravessa as partes finas — nada fica à frente e a espessura sairia zero (a luz inteira
+    // atravessando o nariz, a orelha, a borda do rosto). Sem a página fina desenhada, a espessura não é conhecida.
+    let want = sv_level(m, p0.xy);
+    let k = sv_readable_level(m, want, p0.xy);
+    if (k >= levels || k > want + 1u) { return vec2f(-1.0, 0.0); }
     let t = sv_texel(m, k);
     let pl = sv_light(m, world_pos - normal * t);
     let x = pl.xy / t - 0.5;
