@@ -1,4 +1,5 @@
 import { wgslModule } from '../../../scene/shaders/WgslModule';
+import { NONE } from '../../../scene/shaders/engineConstants';
 import { slot } from '../../../scene/flows/slots';
 import { wgslResource, type WgslResource } from '../../../scene/shaders/WgslResource';
 import { FieldType } from '../../../scene/descriptors/FieldType';
@@ -11,6 +12,8 @@ import areaShadowFilterSource from '../../gpu/wgsl/area_shadow/area_shadow_filte
 import areaShadowAtrousASource from '../../gpu/wgsl/area_shadow/area_shadow_atrous_a.wgsl?raw';
 import areaShadowAtrousBSource from '../../gpu/wgsl/area_shadow/area_shadow_atrous_b.wgsl?raw';
 import areaShadowReadSource from '../../gpu/wgsl/area_shadow/area_shadow_read.wgsl?raw';
+import areaShadowLookupSource from '../../gpu/wgsl/area_shadow/area_shadow_lookup.wgsl?raw';
+import areaShadowThicknessSource from '../../gpu/wgsl/area_shadow/area_shadow_thickness.wgsl?raw';
 import { random, viewSpace } from '../../gpu/shaders/math';
 import { rayScene } from '../../raytrace/shaders';
 import { Camera } from '../../scene/Camera';
@@ -107,6 +110,8 @@ export const areaShadowResources = Object.freeze({
     workOut: write('as_work_out', AREA_SHADOW_FORMAT),
     work: read('as_work'),
     outputOut: write('as_output_out', AREA_SHADOW_FORMAT),
+    thicknessOut: write('as_thickness_out', AREA_SHADOW_FORMAT),
+    entryOut: write('as_entry_out', AREA_SHADOW_FORMAT),
 });
 
 const R = areaShadowResources;
@@ -132,6 +137,9 @@ const traceOf = (multisampled: boolean) =>
             depthOf(multisampled),
             R.tracedOut,
             R.pointOut,
+            R.thicknessOut,
+            R.entryOut,
+            NONE.module,
         ],
         structs: [AreaShadowParamsSchema, Camera.matricesSchema, Light.schema],
     });
@@ -182,15 +190,14 @@ const consumed = (name: string, descId: string): WgslResource =>
         provider: { consumer: `AreaShadow.${descId}` },
     });
 
-/** O que o desenho lê: a fração filtrada e o ponto de cada texel (os do quadro anterior) e os parâmetros. */
-export const areaShadowRead = wgslModule({
-    name: 'area_shadow_read',
-    source: areaShadowReadSource,
+/** Os texels que valem para um ponto de mundo e o canal de cada luz: o comum às leituras do desenho. */
+const areaShadowLookup = wgslModule({
+    name: 'area_shadow_lookup',
+    source: areaShadowLookupSource,
     requires: [
         viewSpace,
         camerasResource,
         lightsResource,
-        rayScene,
         wgslResource({
             name: 'area_shadow',
             binding: { uniform: true },
@@ -198,8 +205,25 @@ export const areaShadowRead = wgslModule({
             frequency: 'frame',
             provider: { consumer: 'AreaShadow.params' },
         }),
-        consumed('area_shadow_output', 'output'),
         consumed('area_shadow_point', 'point'),
     ],
     structs: [AreaShadowSchema],
+});
+
+/** O que o desenho lê: a fração filtrada (a do quadro anterior, pelo ponto de mundo). */
+export const areaShadowRead = wgslModule({
+    name: 'area_shadow_read',
+    source: areaShadowReadSource,
+    requires: [areaShadowLookup, rayScene, consumed('area_shadow_output', 'output')],
+});
+
+/** A espessura atravessada pela luz de área e o cosseno na saída, no desenho. */
+export const areaShadowThickness = wgslModule({
+    name: 'area_shadow_thickness',
+    source: areaShadowThicknessSource,
+    requires: [
+        areaShadowLookup,
+        consumed('area_shadow_thickness_map', 'thickness'),
+        consumed('area_shadow_entry', 'entry'),
+    ],
 });

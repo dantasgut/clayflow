@@ -40,6 +40,8 @@ fn area_shadow_trace_main(@builtin(global_invocation_id) gid: vec3u) {
     let depth = area_shadow_depth(px);
     if (depth >= 1.0) {
         textureStore(as_traced_out, q, vec4f(1.0));
+        textureStore(as_thickness_out, q, vec4f(-1.0));
+        textureStore(as_entry_out, q, vec4f(0.0));
         textureStore(as_point_out, q, vec4f(0.0, 0.0, 0.0, -1.0));
         return;
     }
@@ -54,6 +56,9 @@ fn area_shadow_trace_main(@builtin(global_invocation_id) gid: vec3u) {
     if (dot(n, to_eye) < 0.0) { n = -n; }
     let origin = p + n * (1.0e-3 * far + 1.0e-5);
     var visible = vec4f(1.0);
+    // A espessura atravessada pela luz e o cosseno na saída, por luz (−1: não medida — o ponto virado para a luz).
+    var thickness = vec4f(-1.0);
+    var entry = vec4f(0.0);
     let index = u32(px.y) * u32(full.x) + u32(px.x);
     for (var c = 0u; c < 4u; c++) {
         if (c >= asp.count) { break; }
@@ -62,6 +67,18 @@ fn area_shadow_trace_main(@builtin(global_invocation_id) gid: vec3u) {
         let ln = normalize(light.direction.xyz);
         // Atrás do lado que emite: a luz não chega de qualquer modo.
         if (dot(p - centre, ln) <= 0.0) { continue; }
+        // Do lado contra a luz: a espessura do corpo até a saída na direção do centro da fonte (um raio por dentro).
+        let to_centre = centre - p;
+        if (dot(n, to_centre) < 0.0) {
+            let inside = p - n * (1.0e-3 * far + 1.0e-5);
+            let along = centre - inside;
+            let span = length(along);
+            let hit = ray_scene_hit(inside, along / span, span);
+            if (hit.instance != NONE && hit.t < span) {
+                thickness[c] = hit.t;
+                entry[c] = abs(dot(normalize(hit.normal), along / span));
+            }
+        }
         let ax = light.axis.xyz;
         let up = cross(ln, ax);
         // O ponto do retângulo: o sorteio do pixel avançado a cada quadro pela sequência R2 (as amostras de quadros
@@ -84,5 +101,7 @@ fn area_shadow_trace_main(@builtin(global_invocation_id) gid: vec3u) {
         visible[c] = 1.0 - blocked / f32(AS_RAYS);
     }
     textureStore(as_traced_out, q, visible);
+    textureStore(as_thickness_out, q, thickness);
+    textureStore(as_entry_out, q, entry);
     textureStore(as_point_out, q, vec4f(p, 1.0));
 }
