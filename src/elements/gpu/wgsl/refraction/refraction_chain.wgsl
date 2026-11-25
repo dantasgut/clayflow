@@ -1307,6 +1307,9 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     }
     textureStore(refraction_radiance_out, q, sum / weight);
     textureStore(refraction_hit_out, q, end);
-    textureStore(refraction_albedo_out, q, albedo / weight);
+    // Com as luzes mudando, a marca de movimento do pixel fica cheia: o filtro do sinal traçado (`refraction_change`)
+    // encurta o histórico dele como onde algo se moveu — senão acumulava em cada pixel a luz de quadros diferentes.
+    let mixed = albedo / weight;
+    textureStore(refraction_albedo_out, q, vec4f(mixed.rgb, select(mixed.a, 1.0, refraction_lights_changed())));
     textureStore(refraction_noise_out, q, vec4f(noise / weight));
 }
