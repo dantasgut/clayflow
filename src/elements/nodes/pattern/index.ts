@@ -61,12 +61,13 @@ const grain = defineNode({
 /**
  * Células (Voronoi 2D): `scale` células por unidade de `p`, o ponto de cada uma deslocado por `jitter` (0 = grade).
  * `height` = smoothstep(0, `crease`, distância à borda) — 0 no sulco entre as células, 1 no platô (o grão do couro) —
- * com o `gradient`; `cell` o valor em [0, 1] da célula; `random` dois valores em [-1, 1] dela (a inclinação de um floco).
+ * com o `gradient`; `cell` o valor em [0, 1] da célula; `random` dois valores em [-1, 1] dela (a inclinação de um floco);
+ * `point` o ponto da célula em `p` (o mesmo na célula inteira: a cor de cada pedra de um mosaico pelo lugar dela).
  */
 const cells = defineNode({
     name: 'pattern.cells',
     inputs: RELIEF_INPUTS,
-    outputs: { height: 'f32', gradient: 'vec2f', cell: 'f32', random: 'vec2f' },
+    outputs: { height: 'f32', gradient: 'vec2f', cell: 'f32', random: 'vec2f', point: 'vec2f' },
     params: {
         ...RELIEF_VALUES,
         scale: { type: 'f32', default: 1 },
@@ -238,6 +239,32 @@ const bricks = defineNode({
     },
     code: nodePattern,
     fn: 'node_pattern_bricks',
+});
+
+/**
+ * Cantaria: o muro de blocos de tamanhos variados — fiadas de `scale.y` por unidade de `p.y`, com `scale.x` vãos por
+ * unidade de `p.x`, cada fiada deslocada `shift` vão; cada vão é cortado até `levels` vezes (0 a 4), sempre o lado mais
+ * comprido, entre 30 % e 70 % dele (`even` 1: no meio), e a cada corte depois do primeiro a peça fica inteira com a
+ * chance `keep`. `gap` a largura da junta e `bevel` a da aresta arredondada, em frações da altura da fiada. Saídas:
+ * `height` em [0, 1] (0 na junta, 1 na face) e o `gradient`; `block` o valor em [0, 1] da peça; `mortar` 1 na junta.
+ */
+const ashlar = defineNode({
+    name: 'pattern.ashlar',
+    inputs: RELIEF_INPUTS,
+    outputs: { height: 'f32', gradient: 'vec2f', block: 'f32', mortar: 'f32' },
+    params: {
+        ...RELIEF_VALUES,
+        scale: { type: 'vec2f', default: [2, 4] },
+        shift: { type: 'f32', default: 0.5 },
+        levels: { type: 'u32', default: 2 },
+        keep: { type: 'f32', default: 0.25 },
+        even: { type: 'f32', default: 0 },
+        gap: { type: 'f32', default: 0.1 },
+        bevel: { type: 'f32', default: 0.08 },
+        seed: { type: 'u32', default: 0 },
+    },
+    code: nodePattern,
+    fn: 'node_pattern_ashlar',
 });
 
 /**
@@ -572,6 +599,7 @@ export const pattern = {
     weave,
     knit,
     bricks,
+    ashlar,
     planks,
     fissures,
     dents,

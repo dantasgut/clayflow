@@ -15,6 +15,22 @@ import {
 import { aluminiumAnodized, bronzePatina, castIron, metalHammered } from './metalFinish';
 import { carbonFiber, ice, ivory, motherOfPearl, paper, snow, soap } from './organic';
 import { openpbr } from './openpbr';
+import {
+    asphaltCoarse,
+    asphaltCracked,
+    asphaltFine,
+    bamboo,
+    cobblestone,
+    concreteBlock,
+    concreteSlab,
+    flagstone,
+    grassPaver,
+    pavementPortuguese,
+    paverHerringbone,
+    stackedSlate,
+    stoneSetts,
+    stoneWall,
+} from './paving';
 import { bark, barkPine, corkStopper, leaf, leafDry, leafMatte } from './plant';
 import { roofSlate, roofTile } from './roof';
 import {
@@ -69,7 +85,7 @@ import {
 } from './woodSpecies';
 
 /**
- * Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de 71 materiais prontos — cada um um nó
+ * Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de 92 materiais prontos — cada um um nó
  * sem ligações obrigatórias que devolve o fechamento, com os parâmetros expostos (valor por uso, sem recompilar) também
  * como entradas (ligáveis a outros nós). Usados inteiros (`Materials.x()`), abertos e religados, ou como nó de um grafo
  * maior.
@@ -154,6 +170,20 @@ export const material = {
     ivory,
     motherOfPearl,
     snow,
+    asphaltFine,
+    asphaltCoarse,
+    asphaltCracked,
+    pavementPortuguese,
+    grassPaver,
+    paverHerringbone,
+    concreteBlock,
+    concreteSlab,
+    stoneSetts,
+    stoneWall,
+    stackedSlate,
+    flagstone,
+    cobblestone,
+    bamboo,
 } as const;
 
 export { relief } from './relief';

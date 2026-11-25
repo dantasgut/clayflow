@@ -255,7 +255,7 @@ export function patternCells(
     jitter: number,
     crease: number,
     seed: number,
-): { height: number; gradient: number[]; cell: number; random: number[] } {
+): { height: number; gradient: number[]; cell: number; random: number[]; point: number[] } {
     const fx = fit(scale, wrap[0]!, 1);
     const fy = fit(scale, wrap[1]!, 1);
     const per: V2 = [fx[1], fy[1]];
@@ -314,6 +314,7 @@ export function patternCells(
         gradient: [-slope * nrm[0] * fx[0], -slope * nrm[1] * fy[0]],
         cell: mix(0.5, unit24(h1), k),
         random: [k * hashSigned(h2), k * hashSigned(pcgHash(h2))],
+        point: [p[0]! + r1[0] / fx[0], p[1]! + r1[1] / fy[0]],
     };
 }
 
@@ -699,6 +700,64 @@ export function patternBricks(
         height: mix(face, smooth(t), k),
         gradient: ex < ey ? [-Math.sign(f[0]) * slope, 0] : [0, -Math.sign(f[1]) * slope],
         brick: mix(0.5, unit24(cellHash(col, row, [fx[1], fy[1]], seed)), k),
+        mortar: mix(1 - face, d <= 0 ? 1 : 0, k),
+    };
+}
+
+/** `pattern.ashlar`: a cantaria de blocos de tamanhos variados (altura, gradiente, valor da peça, junta). */
+export function patternAshlar(
+    p: readonly number[],
+    width: number,
+    wrap: readonly number[],
+    scale: readonly number[],
+    shift: number,
+    levels: number,
+    keep: number,
+    even: number,
+    gap: number,
+    bevel: number,
+    seed: number,
+): { height: number; gradient: number[]; block: number; mortar: number } {
+    const fx = fit(scale[0]!, wrap[0]!, 1);
+    const fy = fit(scale[1]!, wrap[1]!, shift !== 0 ? 2 : 1);
+    const qy = f32(p[1]! * fy[0]);
+    const row = Math.floor(qy);
+    const qx = f32(f32(p[0]! * fx[0]) + shift * row);
+    const col = Math.floor(qx);
+    const f: V2 = [qx - col, qy - row];
+    const aspect = fy[0] / fx[0];
+    let h = cellHash(col, row, [fx[1], fy[1]], seed);
+    const lo = [0, 0];
+    const hi = [1, 1];
+    const n = Math.min(levels, 4);
+    for (let l = 0; l < n; l++) {
+        const u = (h >>> 8) / 16777216;
+        const stay = (pcgHash((h ^ 0x5bd1e995) >>> 0) >>> 8) / 16777216;
+        if (l > 0 && stay < keep) break;
+        const s = mix(0.3 + 0.4 * u, 0.5, even);
+        const axis = (hi[0]! - lo[0]!) * aspect >= hi[1]! - lo[1]! ? 0 : 1;
+        const c = f32(mix(lo[axis]!, hi[axis]!, s));
+        const upper = f[axis]! >= c;
+        if (upper) lo[axis] = c;
+        else hi[axis] = c;
+        h = pcgHash((h + 1 + 2 * axis + (upper ? 1 : 0)) >>> 0);
+    }
+    const g = Math.min(0.9, Math.max(0, gap));
+    const nearX = f[0] - lo[0]! < hi[0]! - f[0];
+    const nearY = f[1] - lo[1]! < hi[1]! - f[1];
+    const ex = Math.min(f[0] - lo[0]!, hi[0]! - f[0]) * aspect - 0.5 * g;
+    const ey = Math.min(f[1] - lo[1]!, hi[1]! - f[1]) - 0.5 * g;
+    const d = Math.min(ex, ey);
+    const bw = Math.max(bevel, 1e-4);
+    const t = clamp01(d / bw);
+    const fine = 1 << ((n + 1) >> 1);
+    const k = width > 0 ? band(width * Math.max(Math.abs(fx[0]), Math.abs(fy[0])) * fine) : 1;
+    const slope = ((k * 6 * t * (1 - t)) / bw) * fy[0];
+    const face = clamp01(1 - 1.5 * g * fine);
+    return {
+        height: mix(face, smooth(t), k),
+        gradient: ex < ey ? [(nearX ? 1 : -1) * slope, 0] : [0, (nearY ? 1 : -1) * slope],
+        block: mix(0.5, unit24(h), k),
         mortar: mix(1 - face, d <= 0 ? 1 : 0, k),
     };
 }
@@ -1640,6 +1699,40 @@ export const patternCases: readonly NodeCase[] = [
                 vec(x.wrap),
                 vec(x.scale),
                 num(x.shift),
+                num(x.gap),
+                num(x.bevel),
+                num(x.seed),
+            ),
+    },
+    {
+        node: 'pattern.ashlar',
+        tolerance: 2e-3,
+        sample: (r, k) => ({
+            ...relief(r, k),
+            scale: [
+                [1, 2],
+                [2, 4],
+                [3, 3],
+                [2, 8],
+            ][k % 4]!,
+            shift: [0.5, 0, 0.25][k % 3]!,
+            levels: k % 5,
+            keep: uniform(r, 0, 0.5),
+            even: [0, 0.5, 1][k % 3]!,
+            gap: uniform(r, 0.02, 0.2),
+            bevel: uniform(r, 0.05, 0.3),
+            seed: k % 5,
+        }),
+        reference: (x) =>
+            patternAshlar(
+                vec(x.p),
+                num(x.width),
+                vec(x.wrap),
+                vec(x.scale),
+                num(x.shift),
+                num(x.levels),
+                num(x.keep),
+                num(x.even),
                 num(x.gap),
                 num(x.bevel),
                 num(x.seed),

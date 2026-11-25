@@ -40,6 +40,14 @@ struct NodePatternCells {
     gradient: vec2f,
     cell: f32,
     random: vec2f,
+    point: vec2f,
+}
+
+struct NodePatternAshlar {
+    height: f32,
+    gradient: vec2f,
+    block: f32,
+    mortar: f32,
 }
 
 struct NodePatternCellPoint {
@@ -248,7 +256,8 @@ fn node_pattern_cell_point(i: vec2f, o: vec2f, f: vec2f, per: vec2f, seed: u32, 
  * sulco entre as células, 1 no platô (o grão do couro, os poros) —, com o gradiente ∂/∂p; `cell` o valor em [0, 1] da
  * célula e `random` dois valores em [-1, 1] dela (a inclinação de um floco). A distância à borda é a exata (a mediatriz
  * com cada vizinha, 5 × 5 células em volta da mais próxima). Abaixo do pixel: altura à média (1 − `crease`), `cell` a
- * 0,5, gradiente e `random` a zero.
+ * 0,5, gradiente e `random` a zero. `point` é o ponto da célula em `p` (o mesmo em toda a célula: o que se calcula
+ * com ele vale para a pedra inteira — a cor de uma pedra de mosaico pela posição dela no desenho).
  */
 fn node_pattern_cells(p: vec2f, width: f32, wrap: vec2f, scale: f32, jitter: f32, crease: f32, seed: u32)
     -> NodePatternCells {
@@ -303,6 +312,7 @@ fn node_pattern_cells(p: vec2f, width: f32, wrap: vec2f, scale: f32, jitter: f32
         k * (6.0 * t * (1.0 - t) / cw) * (-nrm) * fr,
         mix(0.5, f32(h1 >> 8u) / 16777215.0, k),
         k * vec2f(hash_signed(h2), hash_signed(pcg_hash(h2))),
+        p + r1 / fr,
     );
 }
 
@@ -593,6 +603,68 @@ fn node_pattern_bricks(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, shift: f
     let h = node_pattern_hash(vec2f(col, row), vec2f(fx.y, fy.y), seed);
     let face = max(1.0 - g, 0.0) * max(1.0 - g / max(aspect, 1e-6), 0.0);
     return NodePatternBricks(
+        mix(face, t * t * (3.0 - 2.0 * t), k),
+        k * (6.0 * t * (1.0 - t) / bw) * toward,
+        mix(0.5, f32(h >> 8u) / 16777215.0, k),
+        mix(1.0 - face, select(0.0, 1.0, d <= 0.0), k),
+    );
+}
+
+/**
+ * Cantaria (spec 011): o muro de blocos de tamanhos variados — fiadas de `scale.y` por unidade de `p.y`, cada uma com
+ * `scale.x` vãos por unidade de `p.x` e deslocada `shift` vão em relação à de baixo; cada vão é cortado até `levels`
+ * vezes (0 a 4), sempre o lado mais comprido da peça que sobra, numa posição ao acaso entre 30 % e 70 % dele (`even` 1:
+ * no meio) — a cada corte depois do primeiro, a peça fica inteira com a chance `keep`. A junta tem a largura `gap` e a
+ * aresta sobe arredondada em `bevel` (frações da altura da fiada, as mesmas nos dois sentidos). Saídas: `height` em
+ * [0, 1] (0 na junta, 1 na face) e o gradiente ∂/∂p; `block` o valor em [0, 1] da peça; `mortar` 1 na junta. Abaixo do
+ * pixel: a altura e a junta à média aproximada da área, `block` a 0,5, gradiente a zero.
+ */
+fn node_pattern_ashlar(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, shift: f32, levels: u32, keep: f32, even: f32,
+    gap: f32, bevel: f32, seed: u32) -> NodePatternAshlar {
+    let fx = node_pattern_fit(scale.x, wrap.x, 1.0);
+    let fy = node_pattern_fit(scale.y, wrap.y, select(1.0, 2.0, shift != 0.0));
+    let fr = vec2f(fx.x, fy.x);
+    let qy = p.y * fr.y;
+    let row = floor(qy);
+    let qx = p.x * fr.x + shift * row;
+    let col = floor(qx);
+    let f = vec2f(qx - col, qy - row);
+    let aspect = fr.y / fr.x;
+    var h = node_pattern_hash(vec2f(col, row), vec2f(fx.y, fy.y), seed);
+    var lo = vec2f(0.0);
+    var hi = vec2f(1.0);
+    let n = min(levels, 4u);
+    for (var l = 0u; l < n; l++) {
+        let u = f32(h >> 8u) / 16777216.0;
+        let stay = f32(pcg_hash(h ^ 0x5bd1e995u) >> 8u) / 16777216.0;
+        if (l > 0u && stay < keep) { break; }
+        let s = mix(0.3 + 0.4 * u, 0.5, even);
+        let size = (hi - lo) * vec2f(aspect, 1.0);
+        if (size.x >= size.y) {
+            let c = mix(lo.x, hi.x, s);
+            let upper = f.x >= c;
+            if (upper) { lo.x = c; } else { hi.x = c; }
+            h = pcg_hash(h + select(1u, 2u, upper));
+        } else {
+            let c = mix(lo.y, hi.y, s);
+            let upper = f.y >= c;
+            if (upper) { lo.y = c; } else { hi.y = c; }
+            h = pcg_hash(h + select(3u, 4u, upper));
+        }
+    }
+    let g = clamp(gap, 0.0, 0.9);
+    let near_lo = (f - lo) < (hi - f);
+    let ex = min(f.x - lo.x, hi.x - f.x) * aspect - 0.5 * g;
+    let ey = min(f.y - lo.y, hi.y - f.y) - 0.5 * g;
+    let along = ex < ey;
+    let d = min(ex, ey);
+    let bw = max(bevel, 1e-4);
+    let t = clamp(d / bw, 0.0, 1.0);
+    let toward = select(vec2f(0.0, select(-1.0, 1.0, near_lo.y)), vec2f(select(-1.0, 1.0, near_lo.x), 0.0), along) * fr.y;
+    let fine = f32(1u << ((n + 1u) / 2u));
+    let k = select(1.0, node_pattern_band(width * max(abs(fr.x), abs(fr.y)) * fine), width > 0.0);
+    let face = clamp(1.0 - 1.5 * g * fine, 0.0, 1.0);
+    return NodePatternAshlar(
         mix(face, t * t * (3.0 - 2.0 * t), k),
         k * (6.0 * t * (1.0 - t) / bw) * toward,
         mix(0.5, f32(h >> 8u) / 16777215.0, k),
