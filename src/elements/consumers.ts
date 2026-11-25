@@ -8,6 +8,7 @@ import { HemisphereLightSchema } from './scene/HemisphereLightSchema';
 import { RaySceneSchema } from './raytrace/schemas';
 import { SkySchema } from './scene/sky/SkySchema';
 import { GlobalIlluminationSchema } from './lighting/schemas';
+import { AreaShadowSchema } from './lighting/areaShadow/areaShadowSchema';
 import { CausticsSchema } from './lighting/caustics/schemas';
 import { EnvironmentMapSchema } from './scene/environment/schema';
 import { FluidFieldSchema } from './fields/schemas';
@@ -111,6 +112,10 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
             new SingletonResolver(GlobalIlluminationSchema, id, {
                 name: `GlobalIllumination.${id}`,
             }),
+    ),
+    // A sombra das luzes de área (spec 013, R5): os parâmetros, a fração filtrada e o ponto de cada texel.
+    ...(['params', 'output', 'point'] as const).map(
+        (id) => new SingletonResolver(AreaShadowSchema, id, { name: `AreaShadow.${id}` }),
     ),
     // As cáusticas (spec 034, T067c): os parâmetros e o hash dos fótons.
     ...(['params', 'hash'] as const).map(

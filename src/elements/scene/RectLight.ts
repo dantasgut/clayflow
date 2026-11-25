@@ -3,7 +3,7 @@ import { Light, type LightValues } from './Light';
 import { rectLightContribution } from './points/lightContributions';
 
 /** Valores de uma `RectLight`: os de uma luz, o tamanho do retângulo e o eixo da largura. */
-export interface RectLightValues extends Omit<LightValues, 'castShadow'> {
+export interface RectLightValues extends LightValues {
     /** Largura e altura do retângulo, em unidades do mundo. Padrão: 1 × 1. */
     readonly size?: readonly [number, number];
     /**
@@ -48,7 +48,9 @@ function rectFrame(
  * num metal escovado —, e o difuso recebe a irradiância do painel inteiro. Onde as luzes são lidas por raio ou por
  * volume (a luz rebatida, os acertos da refração e do reflexo, a névoa), o painel vale pelo centro dele: a intensidade
  * luminosa do painel visto do ponto (luminância × área × cosseno), pelo inverso do quadrado. O painel não aparece no
- * quadro nem nos reflexos traçados (é luz, não geometria) e não projeta sombra.
+ * quadro nem nos reflexos traçados (é luz, não geometria). Com `castShadow: true` (spec 013) projeta sombra: a fração
+ * do retângulo que cada ponto vê, por raios (o `AreaShadow` da cena; o canal dela fica em `cones.z`, 0 sem sombra —
+ * acima do teto de luzes de área com sombra do perfil, o evento `shadowUnavailable`).
  */
 export class RectLight extends Light {
     constructor(values: RectLightValues = {}) {
@@ -57,7 +59,7 @@ export class RectLight extends Light {
         const size = values.size ?? [1, 1];
         this.data = {
             kind: 3,
-            castShadow: 0,
+            castShadow: values.castShadow === true ? 1 : 0,
             intensity: values.intensity ?? 1.0,
             range: values.range ?? 0,
             position: values.position ?? [0, 2, 0, 1],
