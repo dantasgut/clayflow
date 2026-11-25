@@ -59,9 +59,11 @@ fn shadow_virtual_thickness(m: ShadowMatrix, world_pos: vec3f, normal: vec3f, li
         }
     }
     let facing = max(-dot(normal, light_dir), 0.0);
-    // Na vista em perspectiva, nenhuma profundidade lida (o ponto recuado saiu do tronco, na aresta entre duas faces do
-    // cubo): a espessura não é conhecida — nunca zero.
-    if (m.kind == 1u && !read) { return vec2f(-1.0, 0.0); }
+    // Nenhuma profundidade lida: a espessura não é conhecida — nunca zero. Na vista em perspectiva, o ponto recuado saiu
+    // do tronco (a aresta entre duas faces do cubo); em qualquer vista, ele caiu numa página ainda não desenhada (a
+    // câmera andou e a página vizinha ainda não foi pedida). Devolvendo zero, a luz atravessava inteira ali por um
+    // quadro: uma linha tracejada clara ao longo do lado contra a luz, que piscava com a câmera em movimento.
+    if (!read) { return vec2f(-1.0, 0.0); }
     if (weight <= 0.0) { return vec2f(0.0, facing); }
     // A inclinação da superfície de entrada (dz por metro no plano da luz) pelos pares de texels que valem.
     var slope = vec2f(0.0);

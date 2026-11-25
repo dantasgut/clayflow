@@ -214,6 +214,11 @@ fn sv_blockers(m: ShadowMatrix, k: u32, pl: vec3f, slope: vec2f, spread: f32, re
     return vec2f(z / max(count, 1.0), count);
 }
 
+/** Valor em [0, 1) por célula `c` do plano da vista (o ruído de gradiente intercalado de Jimenez 2014). */
+fn sv_grain(c: vec2f) -> f32 {
+    return fract(52.9829189 * fract(dot(c, vec2f(0.06711056, 0.00583715))));
+}
+
 /**
  * Visibilidade da luz no ponto `world_pos` (1 = iluminado) pelo mapa virtual. Num volume (normal 0),
  * `shadow_virtual_volume`. Na superfície, PCSS (Fernando 2005) com o disco da luz de raio angular `angular_radius` (rad;
@@ -261,8 +266,24 @@ fn shadow_virtual_visibility(
     let slope = sv_receiver_slope(m, normal, pl);
     // Metros por unidade do plano da vista no receptor (1 na ortográfica).
     let scale = sv_metres(m, pl.z);
-    let r = m.kernelRotation;
+    // A rotação e o deslocamento do padrão: os da sequência do quadro (`m.kernelRotation`, `m.texelJitter`) compostos
+    // com um valor por ponto, fixo na superfície (do ponto no plano da vista, em quartos de texel). Só com os do quadro,
+    // todos os pixels vizinhos mudam juntos de um quadro para o outro, e a resolução temporal lê isso como mudança de
+    // iluminação (a luz do quadro anterior sai da faixa da vizinhança 3 × 3) e não acumula: a borda da sombra treme. Com
+    // o valor por ponto, a variação fica dentro da vizinhança e o acúmulo faz a média.
+    let moving = any(m.texelJitter != vec2f(0.0)) || m.kernelRotation.y != 0.0;
+    let grain = floor(pl.xy / (0.25 * t0));
+    let spin = select(0.0, 1.5707963 * sv_grain(grain), moving);
+    let r = vec2f(
+        m.kernelRotation.x * cos(spin) - m.kernelRotation.y * sin(spin),
+        m.kernelRotation.x * sin(spin) + m.kernelRotation.y * cos(spin),
+    );
     let turn = mat2x2f(r.x, r.y, -r.y, r.x);
+    let shift = select(
+        m.texelJitter,
+        fract(m.texelJitter + 0.5 + vec2f(sv_grain(grain + vec2f(17.0, 3.0)), sv_grain(grain + vec2f(5.0, 29.0)))) - 0.5,
+        moving,
+    );
     // A meia largura da penumbra (no plano da vista) pelo tamanho da fonte — o disco da luz direcional, o raio da luz
     // local; sem ele, a do texel.
     let spread = sv_source_size(m, angular_radius);
@@ -292,9 +313,9 @@ fn shadow_virtual_visibility(
         if (iy >= side) { break; }
         for (var ix = 0u; ix < 3u; ix++) {
             if (ix >= side) { break; }
-            let cell = vec2f(f32(ix), f32(iy)) - half + m.texelJitter;
+            let cell = vec2f(f32(ix), f32(iy)) - half + shift;
             let o = select(
-                (turn * (vec2f(f32(ix), f32(iy)) - half) + m.texelJitter) * t,
+                (turn * (vec2f(f32(ix), f32(iy)) - half) + shift) * t,
                 turn * sv_concentric(cell * (2.0 / f32(side))) * penumbra,
                 disc,
             );

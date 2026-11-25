@@ -6,12 +6,20 @@ const SP_FREE_COUNT: u32 = 0u;
 const SP_DIRTY_COUNT: u32 = 1u;
 /**
  * O estado de cada vista de sombra (spec 013), no começo da seção dela no `sp_scratch` (`SPV_STATE` palavras): as
- * dinâmicas (quantas, e se a lista transbordou) e as filas por nível (16 contadores a partir de `SPV_LEVEL_WORK`).
+ * dinâmicas (quantas, e se a lista transbordou: `SP_OVERFLOW_*`) e as filas por nível (16 contadores a partir de
+ * `SPV_LEVEL_WORK`).
  */
 const SPV_DYNAMIC_COUNT: u32 = 0u;
 const SPV_OVERFLOW: u32 = 1u;
 const SPV_LEVEL_WORK: u32 = 16u;
 const SPV_STATE: u32 = 32u;
+/**
+ * A lista das dinâmicas da vista cheia (`SPV_OVERFLOW`). `SP_OVERFLOW_INSTANCES`: o que não coube vem de instâncias —
+ * as páginas tocadas são as do retângulo de cada instância que mudou (`movedBase`), não todas. `SP_OVERFLOW_ALL`: o que
+ * não coube não tem retângulo por instância (os sprites, o aglomerado sem a caixa de antes) — todas as páginas.
+ */
+const SP_OVERFLOW_INSTANCES: u32 = 1u;
+const SP_OVERFLOW_ALL: u32 = 2u;
 /** Quadros sem pedido em que a página ainda fica no atlas. */
 const SP_MAX_AGE: u32 = 30u;
 /** Bit do grupo na palavra da instância: grupo que não projeta (fora do desenho). */

@@ -180,9 +180,38 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     let cam = cameras[taa_params.cameraSlot];
     let r = taa_reproject(pixel, in.uv);
     let depth = r.depth;
-    let prev_uv = r.prev_uv;
     // No fundo, o ponto no plano distante.
     let distance = length(r.world - cam.position.xyz);
+    // Na silhueta, o pixel anda com a superfície da frente (o ponto mais perto da câmera na vizinhança 3 × 3; Karis
+    // 2014): o histórico dele é a mistura das duas superfícies (a borda antisserrilhada), que acompanha a da frente. Com
+    // o movimento da amostra do próprio pixel — ora a superfície, ora o que está atrás, conforme o deslocamento do quadro
+    // — o histórico era buscado ora num lugar, ora no outro, e comparado com a distância de uma amostra só: a borda
+    // recomeçava em metade dos quadros e alternava entre a cor do objeto e a do fundo (uma linha de um pixel piscando no
+    // contorno, com a câmera andando mais de um pixel por quadro).
+    var near_pixel = pixel;
+    var near_depth = depth;
+    for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            let q = clamp(pixel + vec2i(dx, dy), vec2i(0), vec2i(dims) - 1);
+            let dq = textureLoad(taa_depth, q, 0);
+            if (dq < near_depth) {
+                near_depth = dq;
+                near_pixel = q;
+            }
+        }
+    }
+    var prev_uv = r.prev_uv;
+    var near_distance = distance;
+    if (any(near_pixel != pixel)) {
+        let near_uv = (vec2f(near_pixel) + 0.5) / size;
+        let nr = taa_reproject(near_pixel, near_uv);
+        let d = length(nr.world - cam.position.xyz);
+        // Só na silhueta (a da frente a mais de 5 % de distância): dentro de uma superfície, o movimento do próprio ponto.
+        if (abs(d - distance) > 0.05 * distance) {
+            prev_uv = in.uv + (nr.prev_uv - near_uv);
+            near_distance = d;
+        }
+    }
     let inside = all(prev_uv >= vec2f(0.0)) && all(prev_uv <= vec2f(1.0));
     let history = taa_history_catmull(prev_uv, size);
     let moving = taa_moving(r, pixel, in.uv, size);
@@ -200,14 +229,15 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     // A tolerância: 5 % mais, parado, o quanto a distância muda num pixel (a amostra deslocada numa superfície vista
     // rente). Em movimento, só os 5 %: o ponto reprojetado é o do mesmo lugar da superfície, e a folga deixaria passar o
     // histórico do que andou (o meio turvo da água com a câmera girando, `waterOrbit` do `antialiasing`).
-    let tolerance = 0.05 * distance
+    let tolerance = 0.05 * near_distance
         + select(0.0, taa_distance_slope(pixel, size, distance), stirred <= 0.0 && depth < 1.0);
     var occluded = true;
     for (var dy = -reach; dy <= reach; dy++) {
         for (var dx = -reach; dx <= reach; dx++) {
             let q = clamp(prev_pixel + vec2i(dx, dy), vec2i(0), vec2i(dims) - 1);
-            let prev_distance = textureLoad(taa_history_distance, q, 0).r;
-            if (abs(prev_distance - distance) <= tolerance) { occluded = false; }
+            // A distância da superfície da frente na vizinhança do quadro anterior (o canal a).
+            let prev_distance = textureLoad(taa_history_distance, q, 0).a;
+            if (abs(prev_distance - near_distance) <= tolerance) { occluded = false; }
         }
     }
     // O conteúdo traçado mudou (máscara reativa acima de ¾): como uma desoclusão. Na acumulação ninguém a escreve.
@@ -218,7 +248,7 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     let prev_frames = textureLoad(taa_history_distance, prev_pixel, 0).b;
     let frames = select(0.0, prev_frames, inside && !occluded && !reacted && !temporal_cut(cam.history));
     var out: TaaOut;
-    out.state = vec4f(distance, moving, 0.0, 0.0);
+    out.state = vec4f(distance, moving, 0.0, near_distance);
     if (taa_params.mode == TAA_ACCUMULATE) {
         out.light = light;
         let n = min(frames, TAA_MAX_FRAMES - 1.0);
@@ -228,9 +258,11 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     }
     // Em movimento (perto de algo que se move), a caixa da variância da vizinhança 3 × 3 em YCoCg (Salvi) recorta o
     // histórico (o que saiu do pixel não deixa rastro). Parado, sem recorte: o histórico de um detalhe menor que o pixel
-    // converge para a integral do pixel. A caixa e a reconstrução só com as amostras da mesma superfície do centro (a
-    // profundidade de vista a até 5 %, o critério da desoclusão): a amostra de um objeto vizinho (um sprite, a borda de
-    // outro objeto) não entra na cor do fundo nem alarga a caixa que recorta o que ele deixou.
+    // converge para a integral do pixel. A caixa com toda a vizinhança: no pixel da silhueta o histórico é a mistura das
+    // duas superfícies (a borda antisserrilhada), e a caixa só da superfície do centro o recortava para a cor de um
+    // lado. A reconstrução só com as amostras da mesma superfície do centro (a profundidade de vista a até 5 %, o
+    // critério da desoclusão): a amostra de um objeto vizinho (um sprite, a borda de outro objeto) não entra na cor do
+    // fundo.
     let center_depth = view_depth(depth, cam.projection);
     var m1 = vec3f(0.0);
     var m2 = vec3f(0.0);
@@ -248,15 +280,15 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
             // outra, e a luz acumulada é a mistura das duas.
             light_lo = min(light_lo, lq);
             light_hi = max(light_hi, lq);
-            // Só em movimento a caixa e a reconstrução valem: parado, sem as leituras da profundidade.
-            if (stirred > 0.0) {
-                let near = view_depth(textureLoad(taa_depth, q, 0), cam.projection);
-                if (abs(near - center_depth) > 0.05 * center_depth) { continue; }
-            }
+            // Só em movimento a reconstrução vale: parado, sem as leituras da profundidade.
             let c = ycocg(rgb);
             m1 += c;
             m2 += c * c;
             count += 1.0;
+            if (stirred > 0.0) {
+                let near = view_depth(textureLoad(taa_depth, q, 0), cam.projection);
+                if (abs(near - center_depth) > 0.05 * center_depth) { continue; }
+            }
             // A amostra do vizinho caiu em (vizinho − deslocamento): o peso é o da distância dela ao centro, dividido por
             // (1 + brilho) — uma amostra muito clara (uma luz, radiância ≫ 1) não domina o pixel vizinho, que o
             // histórico guardaria depois que ela passa.

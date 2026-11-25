@@ -95,13 +95,13 @@ fn sp_overlap(a: vec4f, b: vec4f) -> bool {
 
 /**
  * Põe o retângulo `u` (o de antes unido ao de agora, no plano da luz da vista `v`) na lista das dinâmicas da vista;
- * cheia, tudo é tocado.
+ * cheia, fica o aviso `overflow` (`SP_OVERFLOW_*`: o que responde pelo que não coube).
  */
-fn sp_push_dynamic(v: u32, u: vec4f) {
+fn sp_push_dynamic(v: u32, u: vec4f, overflow: u32) {
     let base = sp_vb(v);
     let d = atomicAdd(&sp_scratch[base + SPV_DYNAMIC_COUNT], 1u);
     if (d >= sp.dynamicCap) {
-        atomicStore(&sp_scratch[base + SPV_OVERFLOW], 1u);
+        atomicMax(&sp_scratch[base + SPV_OVERFLOW], overflow);
         return;
     }
     let o = base + sp.dynamicBase + d * 4u;
@@ -202,16 +202,30 @@ fn sp_instances_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wo
     sp_set_f(r + 3u, rect.w);
     let series = v * sp.rectStride + j;
     sp_rects_out[series] = rect;
+    // O que a instância tocou ao mudar neste quadro (`movedBase`): vazio na parada.
+    let w = sp_vb(v) + sp.movedBase + j * 4u;
+    sp_set_f(w, 3.0e38);
+    sp_set_f(w + 1u, 3.0e38);
+    sp_set_f(w + 2u, -3.0e38);
+    sp_set_f(w + 3u, -3.0e38);
     if (group == SP_SKIP || sp_view_reset(v, m)) { return; }
     let before = sp_rects_previous[series];
     // A geometria deformada neste quadro suja a instância inteira — salvo a em aglomerados (a lista do grupo, palavra
     // 2), cujos aglomerados que mudaram entram sozinhos (`sp_cluster_bounds_main`).
     let clustered = sp_groups[group * SP_GROUP_WORDS + 2u] != 0u;
     let deforming = (sp_groups[group * SP_GROUP_WORDS + 5u] & SP_GROUP_DEFORMING) != 0u;
-    let moved = any(abs(before - rect) > vec4f(1.0e-5 * (1.0 + abs(rect)))) || (deforming && !clustered);
-    if (!moved) { return; }
-    // O de antes e o de agora: as páginas onde a instância estava e onde está.
-    sp_push_dynamic(v, vec4f(min(before.xy, rect.xy), max(before.zw, rect.zw)));
+    let displaced = any(abs(before - rect) > vec4f(1.0e-5 * (1.0 + abs(rect))));
+    if (!displaced && !deforming) { return; }
+    // O de antes e o de agora: as páginas onde a instância estava e onde está. Fica também por instância: com a lista
+    // das dinâmicas cheia (a malha em aglomerados refeita inteira põe um retângulo por aglomerado), as páginas tocadas
+    // são as deste retângulo, não todas as da vista.
+    let u = vec4f(min(before.xy, rect.xy), max(before.zw, rect.zw));
+    sp_set_f(w, u.x);
+    sp_set_f(w + 1u, u.y);
+    sp_set_f(w + 2u, u.z);
+    sp_set_f(w + 3u, u.w);
+    if (!displaced && clustered) { return; }
+    sp_push_dynamic(v, u, SP_OVERFLOW_INSTANCES);
 }
 
 // ---- 3b. os pedidos no referencial do quadro ----
@@ -311,14 +325,27 @@ fn sp_in_frustum(m: ShadowMatrix, rect: vec4f) -> bool {
     return !(any(below.xyz == vec3u(8u)) || any(above.xyz == vec3u(8u)));
 }
 
-/** Alguma dinâmica da vista `v` tocou a página (ou a lista dela transbordou)? */
+/**
+ * Alguma dinâmica da vista `v` tocou a página? Com a lista cheia, o que não coube responde pelo retângulo da instância
+ * que mudou (`SP_OVERFLOW_INSTANCES`: a malha em aglomerados refeita com a câmera põe um retângulo por aglomerado e
+ * enche a lista — tocadas são as páginas dela, não as da cena inteira) ou, sem retângulo por instância
+ * (`SP_OVERFLOW_ALL`), todas.
+ */
 fn sp_touched(v: u32, rect: vec4f) -> bool {
     let base = sp_vb(v);
-    if (atomicLoad(&sp_scratch[base + SPV_OVERFLOW]) != 0u) { return true; }
+    let overflow = atomicLoad(&sp_scratch[base + SPV_OVERFLOW]);
+    if (overflow >= SP_OVERFLOW_ALL) { return true; }
     let n = min(atomicLoad(&sp_scratch[base + SPV_DYNAMIC_COUNT]), sp.dynamicCap);
     for (var d = 0u; d < 65536u; d++) {
         if (d >= n) { break; }
         let o = base + sp.dynamicBase + d * 4u;
+        if (sp_overlap(rect, vec4f(sp_f(o), sp_f(o + 1u), sp_f(o + 2u), sp_f(o + 3u)))) { return true; }
+    }
+    if (overflow == 0u) { return false; }
+    if (sp.instanceCount > 65536u) { return true; }
+    for (var j = 0u; j < 65536u; j++) {
+        if (j >= sp.instanceCount) { break; }
+        let o = base + sp.movedBase + j * 4u;
         if (sp_overlap(rect, vec4f(sp_f(o), sp_f(o + 1u), sp_f(o + 2u), sp_f(o + 3u)))) { return true; }
     }
     return false;
@@ -879,7 +906,7 @@ fn sp_cluster_moved(deforming: bool, stamped: bool, old: array<vec3f, 2>, lo: ve
         let m = sp_view_matrix(v);
         if (sp_view_reset(v, m)) { continue; }
         if (!stamped) {
-            atomicStore(&sp_scratch[sp_vb(v) + SPV_OVERFLOW], 1u);
+            atomicMax(&sp_scratch[sp_vb(v) + SPV_OVERFLOW], SP_OVERFLOW_ALL);
             continue;
         }
         for (var j = 0u; j < SP_CLUSTER_MAX_INSTANCES; j++) {
@@ -887,7 +914,7 @@ fn sp_cluster_moved(deforming: bool, stamped: bool, old: array<vec3f, 2>, lo: ve
             let world = worlds[instances[firstInstance + j].world].world;
             let a = sp_box_rect(m, world, old[0], old[1]);
             let r = sp_box_rect(m, world, lo, hi);
-            sp_push_dynamic(v, vec4f(min(a.xy, r.xy), max(a.zw, r.zw)));
+            sp_push_dynamic(v, vec4f(min(a.xy, r.xy), max(a.zw, r.zw)), SP_OVERFLOW_INSTANCES);
         }
     }
 }
@@ -1080,7 +1107,7 @@ fn ss_rect_main(@builtin(workgroup_id) wid: vec3u, @builtin(local_invocation_ind
     let before = sp_rects_previous[slot];
     let moved = ss_source.dynamic != 0u || any(abs(before - rect) > vec4f(1.0e-5 * (1.0 + abs(rect))));
     if (!moved) { return; }
-    sp_push_dynamic(v, vec4f(min(before.xy, rect.xy), max(before.zw, rect.zw)));
+    sp_push_dynamic(v, vec4f(min(before.xy, rect.xy), max(before.zw, rect.zw)), SP_OVERFLOW_ALL);
 }
 
 /**
