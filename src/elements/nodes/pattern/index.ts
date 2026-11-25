@@ -273,12 +273,19 @@ const ashlar = defineNode({
  * coordenada dentro da peça (o comprimento ao longo de x, com um deslocamento próprio de cada peça) — a entrada dos
  * padrões do veio: cada tábua com os seus anéis, na sua direção —; `height` em [0, 1] (0 na junta de largura `gap`, 1
  * na face, a aresta arredondada em `bevel`, em larguras) e o `gradient`; `plank` o valor em [0, 1] da peça; `joint` 1
- * na junta.
+ * na junta; `local` a posição dentro da peça (o comprimento em [0, `length`], a largura em [0, 1]).
  */
 const planks = defineNode({
     name: 'pattern.planks',
     inputs: RELIEF_INPUTS,
-    outputs: { p: 'vec2f', height: 'f32', gradient: 'vec2f', plank: 'f32', joint: 'f32' },
+    outputs: {
+        p: 'vec2f',
+        height: 'f32',
+        gradient: 'vec2f',
+        plank: 'f32',
+        joint: 'f32',
+        local: 'vec2f',
+    },
     params: {
         ...RELIEF_VALUES,
         scale: { type: 'f32', default: 4 },

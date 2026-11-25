@@ -106,6 +106,8 @@ const NAMES = [
     'bamboo',
     'gravel',
     'silver',
+    'goldMatte',
+    'silverMatte',
     'glassGreen',
     'glassBlue',
     'glassAmber',
@@ -141,7 +143,7 @@ function inner(name: MaterialName): Record<string, string> {
 }
 
 describe('Materials (spec 011, US5)', () => {
-    it('a biblioteca tem os 118 materiais, cada um um nó registrado sem ligação obrigatória', () => {
+    it('a biblioteca tem os 120 materiais, cada um um nó registrado sem ligação obrigatória', () => {
         expect(Object.keys(Materials).sort()).toEqual([...NAMES].sort());
         for (const name of NAMES) {
             const def = nodes.material[name];
@@ -582,7 +584,7 @@ describe('Materials (spec 011, US5)', () => {
         }
         const chrome = rgb('chrome', 'color');
         expect(Math.max(...chrome) - Math.min(...chrome)).toBeLessThan(0.02);
-        expect(rgb('gold', 'color')).toEqual([1, 0.77, 0.34]);
+        expect(rgb('gold', 'color')).toEqual([1, 0.7, 0.22]);
         expect(rgb('copper', 'color')).toEqual([0.955, 0.638, 0.538]);
         for (const name of [
             'aluminiumAnodized',
@@ -631,9 +633,9 @@ describe('Materials (spec 011, US5)', () => {
             motherOfPearl: 'closure.thinFilm',
             paper: 'bsdf.translucent',
             snow: 'pattern.glints',
-            asphaltFine: 'pattern.cells',
-            asphaltCoarse: 'pattern.cells',
-            asphaltCracked: 'pattern.cells',
+            asphaltFine: 'pattern.areoles',
+            asphaltCoarse: 'pattern.areoles',
+            asphaltCracked: 'pattern.areoles',
             pavementPortuguese: 'pattern.cells',
             grassPaver: 'pattern.bricks',
             paverHerringbone: 'pattern.planks',
@@ -643,9 +645,9 @@ describe('Materials (spec 011, US5)', () => {
             stoneWall: 'pattern.ashlar',
             stackedSlate: 'pattern.ashlar',
             flagstone: 'pattern.cells',
-            cobblestone: 'pattern.dents',
+            cobblestone: 'pattern.areoles',
             bamboo: 'pattern.planks',
-            gravel: 'pattern.dents',
+            gravel: 'pattern.areoles',
         };
         for (const [name, node] of Object.entries(promised) as [MaterialName, string][])
             expect(has(name, node), name).toBe(true);

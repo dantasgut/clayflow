@@ -45,18 +45,63 @@ function mineralLinks(color: string, normal: string): Link[] {
     ];
 }
 
+/**
+ * As pedras embutidas numa massa, com os nós que já existem: as células arredondadas de `pattern.areoles` (`scale` por
+ * unidade do padrão), das quais só a fração `fill` tem pedra (as de valor acima de 1 − `fill`) e cada pedra encolhe
+ * conforme o valor dela (a altura da almofada menos 0,45 · o valor: pedras grandes e pequenas). Saem os nós
+ * `<id>_weight` (o peso da pedra sobre a massa, de borda suave) e `<id>_seen` (1 sobre a pedra, de borda viva: liga o
+ * relevo dela).
+ */
+function embedded(
+    id: string,
+    scale: number,
+    fill: number,
+    seed: number,
+): { nodes: Record<string, GraphNode>; links: Link[] } {
+    return {
+        nodes: {
+            [id]: pattern.areoles.with({ scale, jitter: 0.8, wall: 0.3, seed }),
+            [`${id}_some`]: map.range.with({ in_min: 1 - fill, in_max: 1 - fill + 0.02 }),
+            [`${id}_vary`]: math.value.with({ value: 0.45 }),
+            [`${id}_shrink`]: math.mul,
+            [`${id}_raised`]: math.sub,
+            [`${id}_body`]: map.range.with({ in_min: 0.08, in_max: 0.32 }),
+            [`${id}_edge`]: map.range.with({ in_min: 0.08, in_max: 0.1 }),
+            [`${id}_weight`]: math.mul,
+            [`${id}_seen`]: math.mul,
+        },
+        links: [
+            ...patternLinks(id),
+            [`${id}.cell`, `${id}_some.x`],
+            [`${id}.cell`, `${id}_shrink.a`],
+            [`${id}_vary.value`, `${id}_shrink.b`],
+            [`${id}.height`, `${id}_raised.a`],
+            [`${id}_shrink.value`, `${id}_raised.b`],
+            [`${id}_raised.value`, `${id}_body.x`],
+            [`${id}_raised.value`, `${id}_edge.x`],
+            [`${id}_body.value`, `${id}_weight.a`],
+            [`${id}_some.value`, `${id}_weight.b`],
+            [`${id}_edge.value`, `${id}_seen.a`],
+            [`${id}_some.value`, `${id}_seen.b`],
+        ],
+    };
+}
+
 /** Os valores de um asfalto. */
 interface AsphaltValues {
-    /** Britas por unidade do padrão e a largura do betume entre elas (fração da célula). */
+    /** Britas graúdas por unidade do padrão e a fração das células que tem brita. */
     readonly stones: number;
-    readonly crease: number;
-    /** A altura das britas e a da areia, em unidades do padrão. */
+    readonly fill: number;
+    /** A altura das britas graúdas, das miúdas e da areia, em unidades do padrão. */
     readonly relief: number;
+    readonly fine: number;
     readonly grit: number;
     readonly dark: Rgb;
     readonly light: Rgb;
     /** O expoente da escolha do tom da brita (maior: menos pedras claras). */
     readonly pale: number;
+    /** Quanto do betume ainda cobre o topo das britas (0: pedra limpa e gasta; 1: asfalto novo, todo preto). */
+    readonly coated: number;
     readonly roughness: number;
     /** A rede de trincas: a profundidade, em unidades do padrão (sem: asfalto inteiro). */
     readonly cracks?: number;
@@ -64,21 +109,23 @@ interface AsphaltValues {
 }
 
 /**
- * Sub-grafo de um asfalto: as britas (`pattern.cells`, cada célula uma pedra de tom próprio entre `color` e
- * `stone_color`) presas no betume (`binder_color`, nos sulcos, mais liso que a pedra), as manchas largas do desgaste e
- * a areia que pica a face. Com `cracks`, a rede de trincas: as placas grandes (um Voronoi de 3,5 células por unidade:
- * a "pele de jacaré") e, só nas manchas mais gastas, as trincas finas dentro delas — escuras e fundas, com o traçado
- * entortado por um grão largo (a coordenada das trincas é a do padrão deslocada 4 % de uma unidade).
+ * Sub-grafo de um asfalto (concreto betuminoso): a massa preta de betume e areia com as britas embutidas em duas
+ * granulometrias — as graúdas (as células arredondadas de `pattern.areoles`, só numa parte delas e de tamanhos variados:
+ * `embedded`) e, entre elas, as miúdas (três vezes menores) —, cada pedra do seu tom entre `color` e `stone_color`, o
+ * topo mais claro onde o trânsito limpou o betume e ainda escuro onde ele cobre (`coated`). O betume é mais liso que a
+ * pedra (rugosidade 0,5 contra `roughness`); as manchas largas do desgaste mudam o tom. Três relevos na normal: as
+ * britas graúdas, as miúdas (só entre as graúdas) e a areia. Com `cracks`, a rede de trincas: as placas grandes (a
+ * "pele de jacaré") e, nas manchas mais gastas, as finas dentro delas, de traçado entortado por um grão largo.
  */
 function asphaltOf(name: string, a: AsphaltValues): NodeDefinition {
     const cracked = a.cracks !== undefined;
     const crackNodes: Record<string, GraphNode> = cracked
         ? {
               crack: pattern.cells.with({ scale: 3.5, jitter: 1, crease: 0.03, seed: a.seed + 10 }),
-              fine: pattern.cells.with({ scale: 9, jitter: 1, crease: 0.045, seed: a.seed + 11 }),
-              bend_x: pattern.grain.with({ scale: [5, 5], octaves: 3, seed: a.seed + 12 }),
-              bend_y: pattern.grain.with({ scale: [5, 5], octaves: 3, seed: a.seed + 13 }),
-              bend: math.value.with({ value: 0.04 }),
+              hair: pattern.cells.with({ scale: 9, jitter: 1, crease: 0.045, seed: a.seed + 11 }),
+              bend_x: pattern.grain.with({ scale: [5, 5], octaves: 4, seed: a.seed + 12 }),
+              bend_y: pattern.grain.with({ scale: [5, 5], octaves: 4, seed: a.seed + 13 }),
+              bend: math.value.with({ value: 0.05 }),
               straight: math.split2,
               off_x: math.mul,
               off_y: math.mul,
@@ -87,15 +134,15 @@ function asphaltOf(name: string, a: AsphaltValues): NodeDefinition {
               bent: math.combine2,
               where: map.range.with({ in_min: 0, in_max: 0.35 }),
               gap: map.range.with({ out_min: 1, out_max: 0 }),
-              fine_gap: map.range.with({ out_min: 1, out_max: 0 }),
-              fine_part: math.mul,
+              hair_gap: map.range.with({ out_min: 1, out_max: 0 }),
+              hair_part: math.mul,
               open: math.max,
-              crack_color: math.value3.with({ value: [0.008, 0.008, 0.009] }),
+              crack_color: math.value3.with({ value: [0.006, 0.006, 0.007] }),
               split: math.mix3,
               crack_depth: math.value.with({ value: a.cracks! }),
-              fine_depth: math.mul,
+              hair_depth: math.mul,
               crack_relief: surface.bump,
-              fine_relief: surface.bump,
+              hair_relief: surface.bump,
           }
         : {};
     const crackLinks: Link[] = cracked
@@ -112,92 +159,129 @@ function asphaltOf(name: string, a: AsphaltValues): NodeDefinition {
               ['off_y.value', 'bent_y.b'],
               ['bent_x.value', 'bent.x'],
               ['bent_y.value', 'bent.y'],
-              ...(['crack', 'fine'] as const).flatMap((id): Link[] => [
+              ...(['crack', 'hair'] as const).flatMap((id): Link[] => [
                   ['bent.value', `${id}.p`],
                   ['uv.width', `${id}.width`],
                   ['uv.wrap', `${id}.wrap`],
               ]),
               ['patch.value', 'where.x'],
               ['crack.height', 'gap.x'],
-              ['fine.height', 'fine_gap.x'],
-              ['fine_gap.value', 'fine_part.a'],
-              ['where.value', 'fine_part.b'],
+              ['hair.height', 'hair_gap.x'],
+              ['hair_gap.value', 'hair_part.a'],
+              ['where.value', 'hair_part.b'],
               ['gap.value', 'open.a'],
-              ['fine_part.value', 'open.b'],
+              ['hair_part.value', 'open.b'],
               ['road.value', 'split.a'],
               ['crack_color.value', 'split.b'],
               ['open.value', 'split.t'],
               ...bumpLinks('crack_relief', 'crack.gradient', 'grit_relief.value'),
               ['crack_depth.value', 'crack_relief.strength'],
-              ['crack_depth.value', 'fine_depth.a'],
-              ['where.value', 'fine_depth.b'],
-              ...bumpLinks('fine_relief', 'fine.gradient', 'crack_relief.value'),
-              ['fine_depth.value', 'fine_relief.strength'],
+              ['crack_depth.value', 'hair_depth.a'],
+              ['where.value', 'hair_depth.b'],
+              ...bumpLinks('hair_relief', 'hair.gradient', 'crack_relief.value'),
+              ['hair_depth.value', 'hair_relief.strength'],
           ]
         : [];
     return Subgraph.point(
         new NodeGraph({
             nodes: {
                 ...patternSpace(),
-                stone: pattern.cells.with({
-                    scale: a.stones,
-                    jitter: 1,
-                    crease: a.crease,
-                    seed: a.seed,
-                }),
+                ...embedded('stone', a.stones, a.fill, a.seed).nodes,
+                ...embedded('chip', 3.1 * a.stones, 0.8, a.seed + 5).nodes,
                 grit: pattern.grain.with({
-                    scale: [3.2 * a.stones, 3.2 * a.stones],
+                    scale: [9 * a.stones, 9 * a.stones],
                     octaves: 2,
                     seed: a.seed + 1,
                 }),
-                patch: pattern.grain.with({ scale: [4, 4], octaves: 3, seed: a.seed + 2 }),
+                patch: pattern.grain.with({ scale: [4, 4], octaves: 4, seed: a.seed + 2 }),
                 dark: math.value3.with({ value: [...a.dark] }),
                 light: math.value3.with({ value: [...a.light] }),
-                binder: math.value3.with({ value: [0.012, 0.012, 0.013] }),
+                binder: math.value3.with({ value: [0.014, 0.014, 0.015] }),
                 pale: math.value.with({ value: a.pale }),
                 pick: math.pow,
-                aggregate: math.mix3,
-                worn: map.range.with({ in_min: -0.6, in_max: 0.6, out_min: 0.8, out_max: 1.2 }),
-                gritty: map.range.with({
-                    in_min: -0.6,
-                    in_max: 0.6,
-                    out_min: 0.85,
-                    out_max: 1.15,
-                }),
+                rock: math.mix3,
+                chip_pick: math.pow,
+                chip_rock: math.mix3,
+                // O betume que ainda cobre a pedra: o tom dela puxado para o do betume.
+                coated: math.value.with({ value: a.coated }),
+                rock_coated: math.mix3,
+                chip_coated: math.mix3,
+                worn: map.range.with({ in_min: -0.6, in_max: 0.6, out_min: 0.78, out_max: 1.22 }),
+                gritty: map.range.with({ in_min: -0.6, in_max: 0.6, out_min: 0.8, out_max: 1.2 }),
                 tone: math.mul,
-                toned: math.scale3,
-                road: math.mix3,
-                rough: map.range.with({ out_min: 0.45, out_max: a.roughness }),
-                relief: surface.bump.with({ strength: a.relief }),
+                binder_lit: math.scale3,
+                with_chips: math.mix3,
+                with_stones: math.mix3,
+                road: math.scale3,
+                top: math.max,
+                rough: map.range.with({ out_min: 0.5, out_max: a.roughness }),
+                relief_height: math.value.with({ value: a.relief }),
+                relief_on: math.mul,
+                relief: surface.bump,
+                between: map.range.with({ out_min: 1, out_max: 0 }),
+                chip_height: math.value.with({ value: a.fine }),
+                chip_between: math.mul,
+                chip_on: math.mul,
+                chip_relief: surface.bump,
                 grit_relief: surface.bump.with({ strength: a.grit }),
                 ...crackNodes,
                 ...mineral(0.85, 1.55),
             },
             links: [
                 ...SPACE_LINKS,
-                ...patternLinks('stone', 'grit', 'patch'),
+                ...patternLinks('grit', 'patch'),
+                ...embedded('stone', a.stones, a.fill, a.seed).links,
+                ...embedded('chip', 3.1 * a.stones, 0.8, a.seed + 5).links,
                 ['stone.cell', 'pick.x'],
                 ['pale.value', 'pick.e'],
-                ['dark.value', 'aggregate.a'],
-                ['light.value', 'aggregate.b'],
-                ['pick.value', 'aggregate.t'],
+                ['dark.value', 'rock.a'],
+                ['light.value', 'rock.b'],
+                ['pick.value', 'rock.t'],
+                ['chip.cell', 'chip_pick.x'],
+                ['pale.value', 'chip_pick.e'],
+                ['dark.value', 'chip_rock.a'],
+                ['light.value', 'chip_rock.b'],
+                ['chip_pick.value', 'chip_rock.t'],
+                ['rock.value', 'rock_coated.a'],
+                ['binder.value', 'rock_coated.b'],
+                ['coated.value', 'rock_coated.t'],
+                ['chip_rock.value', 'chip_coated.a'],
+                ['binder.value', 'chip_coated.b'],
+                ['coated.value', 'chip_coated.t'],
                 ['patch.value', 'worn.x'],
                 ['grit.value', 'gritty.x'],
                 ['worn.value', 'tone.a'],
                 ['gritty.value', 'tone.b'],
-                ['aggregate.value', 'toned.v'],
-                ['tone.value', 'toned.s'],
-                ['binder.value', 'road.a'],
-                ['toned.value', 'road.b'],
-                ['stone.height', 'road.t'],
-                ['stone.height', 'rough.x'],
+                ['binder.value', 'binder_lit.v'],
+                ['gritty.value', 'binder_lit.s'],
+                ['binder_lit.value', 'with_chips.a'],
+                ['chip_coated.value', 'with_chips.b'],
+                ['chip_weight.value', 'with_chips.t'],
+                ['with_chips.value', 'with_stones.a'],
+                ['rock_coated.value', 'with_stones.b'],
+                ['stone_weight.value', 'with_stones.t'],
+                ['with_stones.value', 'road.v'],
+                ['tone.value', 'road.s'],
+                ['stone_weight.value', 'top.a'],
+                ['chip_weight.value', 'top.b'],
+                ['top.value', 'rough.x'],
                 ['rough.value', 'specular.roughness'],
                 ...bumpLinks('relief', 'stone.gradient'),
-                ...bumpLinks('grit_relief', 'grit.gradient', 'relief.value'),
+                ['relief_height.value', 'relief_on.a'],
+                ['stone_seen.value', 'relief_on.b'],
+                ['relief_on.value', 'relief.strength'],
+                ['stone_seen.value', 'between.x'],
+                ['between.value', 'chip_between.a'],
+                ['chip_seen.value', 'chip_between.b'],
+                ['chip_between.value', 'chip_on.a'],
+                ['chip_height.value', 'chip_on.b'],
+                ...bumpLinks('chip_relief', 'chip.gradient', 'relief.value'),
+                ['chip_on.value', 'chip_relief.strength'],
+                ...bumpLinks('grit_relief', 'grit.gradient', 'chip_relief.value'),
                 ...crackLinks,
                 ...mineralLinks(
                     cracked ? 'split.value' : 'road.value',
-                    cracked ? 'fine_relief.value' : 'grit_relief.value',
+                    cracked ? 'hair_relief.value' : 'grit_relief.value',
                 ),
             ],
             output: 'out.value',
@@ -209,8 +293,9 @@ function asphaltOf(name: string, a: AsphaltValues): NodeDefinition {
                 ['dark.value', 'color'],
                 ['light.value', 'stone_color'],
                 ['binder.value', 'binder_color'],
+                ['coated.value', 'coated'],
                 ['rough.out_max', 'roughness'],
-                ['relief.strength', 'relief'],
+                ['relief_height.value', 'relief'],
                 ...(cracked
                     ? ([
                           ['crack_depth.value', 'crack_depth'],
@@ -224,54 +309,61 @@ function asphaltOf(name: string, a: AsphaltValues): NodeDefinition {
 }
 
 /**
- * `material.asphaltFine` — asfalto de granulometria fina (o da rua recapeada): britas de 5 mm (200 por unidade do
- * padrão), quase todas escuras, o betume ainda cobrindo a pedra — a superfície mais lisa e mais escura dos três.
- * Parâmetros: `color`, `stone_color`, `binder_color`, `roughness`, `relief`, `pattern_scale`.
+ * `material.asphaltFine` — asfalto novo de granulometria fina (a rua recapeada): britas graúdas de 6 mm (160 por
+ * unidade do padrão) em quase todas as células, ainda cobertas de betume (`coated` 0,7) — preto, de relevo baixo, com
+ * o brilho do betume. Parâmetros: `color`, `stone_color`, `binder_color`, `coated`, `roughness`, `relief`,
+ * `pattern_scale`.
  */
 export const asphaltFine = asphaltOf('material.asphaltFine', {
-    stones: 200,
-    crease: 0.5,
-    relief: 0.0011,
+    stones: 160,
+    fill: 0.9,
+    relief: 0.0009,
+    fine: 0.0004,
     grit: 0.00012,
-    dark: [0.03, 0.03, 0.033],
-    light: [0.13, 0.13, 0.125],
-    pale: 3,
+    dark: [0.06, 0.06, 0.062],
+    light: [0.3, 0.29, 0.27],
+    pale: 2.5,
+    coated: 0.7,
     roughness: 0.75,
     seed: 301,
 });
 
 /**
- * `material.asphaltCoarse` — asfalto grosso e gasto (o da estrada antiga): britas de 20 mm (48 por unidade do padrão)
- * à vista, muitas já claras de tão polidas, o betume recuado entre elas — o relevo mais alto dos três. Parâmetros: os
- * de `asphaltFine`.
+ * `material.asphaltCoarse` — asfalto grosso e gasto (a estrada antiga): britas graúdas de 16 a 20 mm (55 por unidade
+ * do padrão) à vista, limpas e polidas pelo trânsito (`coated` 0,1: do cinza ao bege claro), com as miúdas e o betume
+ * recuados entre elas — o relevo mais alto dos três. Parâmetros: os de `asphaltFine`.
  */
 export const asphaltCoarse = asphaltOf('material.asphaltCoarse', {
-    stones: 48,
-    crease: 0.45,
-    relief: 0.0075,
-    grit: 0.0007,
-    dark: [0.045, 0.045, 0.048],
-    light: [0.2, 0.19, 0.18],
-    pale: 2,
-    roughness: 0.9,
+    stones: 55,
+    fill: 0.75,
+    relief: 0.004,
+    fine: 0.0015,
+    grit: 0.0004,
+    dark: [0.1, 0.1, 0.1],
+    light: [0.46, 0.43, 0.38],
+    pale: 1.3,
+    coated: 0.1,
+    roughness: 0.92,
     seed: 311,
 });
 
 /**
- * `material.asphaltCracked` — asfalto rachado: o asfalto médio (80 britas por unidade) cortado pela rede de trincas —
- * as placas grandes da "pele de jacaré" e, nas manchas mais gastas, as trincas finas dentro delas —, escuras e fundas
- * (`crack_depth`, em unidades do padrão; `crack_color`). Parâmetros: os de `asphaltFine`, `crack_depth`,
- * `crack_color`.
+ * `material.asphaltCracked` — asfalto velho rachado: britas de 10 mm (95 por unidade) meio limpas (`coated` 0,35),
+ * cortado pela rede de trincas — as placas grandes da "pele de jacaré" e, nas manchas mais gastas, as finas dentro
+ * delas —, escuras e fundas (`crack_depth`, em unidades do padrão; `crack_color`). Parâmetros: os de `asphaltFine`,
+ * `crack_depth`, `crack_color`.
  */
 export const asphaltCracked = asphaltOf('material.asphaltCracked', {
-    stones: 80,
-    crease: 0.4,
-    relief: 0.0035,
-    grit: 0.0004,
-    dark: [0.055, 0.055, 0.058],
-    light: [0.26, 0.25, 0.235],
-    pale: 2,
-    roughness: 0.88,
+    stones: 95,
+    fill: 0.8,
+    relief: 0.002,
+    fine: 0.0008,
+    grit: 0.00025,
+    dark: [0.08, 0.08, 0.082],
+    light: [0.36, 0.34, 0.31],
+    pale: 1.8,
+    coated: 0.35,
+    roughness: 0.9,
     cracks: 0.012,
     seed: 321,
 });
@@ -476,8 +568,8 @@ interface PieceValues {
     /** As peças correm ao longo de `p.y` (o padrão é calculado com os eixos trocados). */
     readonly turned?: boolean;
     /**
-     * O padrão é o de mossas (`pattern.dents`: a altura cresce do ponto da célula para a borda) lido ao contrário — a
-     * pedra abaulada com o vale vivo onde duas se encostam —: a faixa da altura dele que vira a junta.
+     * A faixa da altura do padrão em que a cor passa da junta à peça (sem: a altura inteira) — nas pedras abauladas
+     * (`pattern.areoles`: a almofada sobe da borda ao meio), a terra só no fundo do vale.
      */
     readonly inverted?: readonly [number, number];
     /** Um segundo padrão de peças sobre o primeiro (os nós do bambu): escurece e afunda onde a altura dele desce. */
@@ -538,8 +630,6 @@ function pieceNodes(v: PieceValues): Record<string, GraphNode> {
                   rise: map.range.with({
                       in_min: v.inverted[0],
                       in_max: v.inverted[1],
-                      out_min: 1,
-                      out_max: 0,
                   }),
               }
             : {}),
@@ -611,11 +701,7 @@ function pieceRelief(id: string, v: PieceValues): NodeDefinition {
         new NodeGraph({
             nodes: {
                 ...pieceNodes(v),
-                joint_relief: surface.relief.with(
-                    dome
-                        ? { height: -1000 * v.relief, level: 0 }
-                        : { height: 1000 * v.relief, level: 1 },
-                ),
+                joint_relief: surface.relief.with({ height: 1000 * v.relief, level: 1 }),
                 face_height: math.value.with({ value: 1000 * v.face.height }),
                 face_on: math.mul,
                 face_relief: surface.relief,
@@ -941,86 +1027,301 @@ export const flagstone = piecesOf('material.flagstone', {
 });
 
 /**
- * `material.cobblestone` — pedras roladas assentadas (o pé de moleque): seixos de 14 cm (7 por unidade do padrão), cada
- * um uma calota abaulada com o vale vivo onde dois se encostam (`pattern.dents` lido ao contrário), do seu tom entre o
- * cinza e o pardo, lisos de rio, com terra no fundo dos vales. Parâmetros: os de `piecesOf`.
+ * `material.cobblestone` — calçamento de pedras roladas (o pé de moleque): seixos de rio de 14 cm (as células
+ * arredondadas de `pattern.areoles`, 7 por unidade do padrão), cada um abaulado da borda ao meio (3,5 cm), do seu tom
+ * entre o cinza e o pardo, lisos, com terra batida no fundo dos vales. Parâmetros: os de `piecesOf`.
  */
 export const cobblestone = piecesOf('material.cobblestone', {
-    bond: pattern.dents.with({ scale: 7, jitter: 0.55, seed: 421 }),
+    bond: pattern.areoles.with({ scale: 7, jitter: 0.8, wall: 0.3, seed: 421 }),
     piece: 'cell',
-    inverted: [0.4, 0.62],
+    inverted: [0.02, 0.2],
     color: [0.3, 0.29, 0.28],
-    alt: [0.33, 0.26, 0.19],
-    lot: [0.66, 1.25],
-    joint: [0.08, 0.065, 0.05],
-    stain: { scale: [9, 9], octaves: 3, range: [0.88, 1.1] },
-    face: { scale: [60, 60], octaves: 3, height: 0.0007 },
-    grit: { scale: 300, height: 0.00025 },
-    relief: 0.03,
-    roughness: 0.5,
+    alt: [0.34, 0.26, 0.18],
+    lot: [0.6, 1.3],
+    joint: [0.07, 0.055, 0.04],
+    stain: { scale: [9, 9], octaves: 3, range: [0.85, 1.12] },
+    face: { scale: [50, 50], octaves: 4, height: 0.0012 },
+    grit: { scale: 300, height: 0.0003 },
+    relief: 0.035,
+    roughness: 0.55,
     seed: 421,
 });
 
 /**
- * `material.gravel` — brita solta (o cascalho de jardim): pedras de 4 cm (26 por unidade do padrão), cada uma uma
- * calota com o vale vivo onde duas se encostam (`pattern.dents` lido ao contrário), o tom do cinza claro ao pardo de
- * pedra para pedra, a sombra no fundo entre elas. Parâmetros: os de `piecesOf`.
+ * `material.gravel` — brita (o cascalho de jardim, uma camada): pedras de 3 a 4 cm (`pattern.areoles`, 28 por unidade
+ * do padrão) abauladas, do cinza claro ao pardo, com a sombra funda entre elas. Parâmetros: os de `piecesOf`.
  */
 export const gravel = piecesOf('material.gravel', {
-    bond: pattern.dents.with({ scale: 26, jitter: 0.75, seed: 441 }),
+    bond: pattern.areoles.with({ scale: 28, jitter: 0.8, wall: 0.3, seed: 441 }),
     piece: 'cell',
-    inverted: [0.36, 0.6],
-    color: [0.36, 0.35, 0.34],
-    alt: [0.3, 0.25, 0.2],
-    lot: [0.55, 1.3],
-    joint: [0.03, 0.028, 0.025],
+    inverted: [0.02, 0.3],
+    color: [0.4, 0.39, 0.37],
+    alt: [0.3, 0.24, 0.18],
+    lot: [0.5, 1.35],
+    joint: [0.025, 0.022, 0.02],
     stain: { scale: [6, 6], octaves: 3, range: [0.9, 1.1] },
-    face: { scale: [240, 240], octaves: 2, height: 0.0002 },
-    grit: { scale: 400, height: 0.0001 },
-    relief: 0.009,
+    face: { scale: [200, 200], octaves: 3, height: 0.0005 },
+    grit: { scale: 400, height: 0.00015 },
+    relief: 0.012,
     roughness: 0.8,
     seed: 441,
 });
 
+/** O painel de bambu: 14 colmos por unidade do padrão (7 cm de diâmetro), um nó a cada 5 diâmetros. */
+const BAMBOO = { scale: 14, spacing: 5, ring_height: 0.1, ring_width: 0.16 };
+
+/** A fibra fina ao longo do colmo (um grão muito alongado). */
+const BAMBOO_FIBRE = { scale: [170, 2.5], octaves: 2, seed: 432 };
+
 /**
- * `material.bamboo` — painel de bambu: colmos de 7 cm lado a lado, em pé (`pattern.planks` com os eixos trocados: 14
- * colmos por unidade do padrão), a seção redonda (a aresta arredondada até o meio do colmo), os nós — um anel fino
- * escuro e afundado a cada oito diâmetros, em alturas diferentes de colmo para colmo (um segundo `pattern.planks` de
- * mesmas fileiras) —, a casca dourada lisa com a fibra fina ao longo. Parâmetros: os de `piecesOf`.
+ * O perfil dos colmos, com os nós que já existem: as fileiras de `pattern.planks` com os eixos trocados (cada fileira
+ * um colmo em pé, cada peça um entrenó, deslocada ao acaso de colmo para colmo) dão a posição dentro da peça
+ * (`local`), e os nós de matemática fazem dela o meio cilindro — √(1 − x²), x de −1 a 1 através do colmo — engrossado
+ * `ring_height` no anel do nó (1 − smoothstep da distância à ponta do entrenó, em diâmetros). Saem `cane_height.value`
+ * (a altura em diâmetros), `cane_slope.value` (o gradiente dela ∂/∂p, a borda do cilindro presa em 20) e
+ * `ring.value` (1 no meio do nó).
  */
-export const bamboo = piecesOf('material.bamboo', {
-    bond: pattern.planks.with({
-        scale: 14,
-        length: 64,
-        arrangement: 0,
-        gap: 0.05,
-        bevel: 0.5,
-        seed: 431,
+function bambooProfile(): { nodes: Record<string, GraphNode>; links: Link[] } {
+    const { scale, spacing, ring_height: swell, ring_width: wide } = BAMBOO;
+    return {
+        nodes: {
+            p_parts: math.split2,
+            p_turned: math.combine2,
+            wrap_parts: math.split2,
+            wrap_turned: math.combine2,
+            cane: pattern.planks.with({
+                scale,
+                length: spacing,
+                arrangement: 0,
+                gap: 0,
+                bevel: 0.02,
+                seed: 431,
+            }),
+            at: math.split2,
+            one: math.value.with({ value: 1 }),
+            two: math.value.with({ value: 2 }),
+            twice: math.mul,
+            x: math.sub,
+            x2: math.mul,
+            inside: math.sub,
+            floor: math.value.with({ value: 0.0025 }),
+            kept: math.max,
+            arc: math.sqrt,
+            length: math.value.with({ value: spacing }),
+            rest: math.sub,
+            near: math.min,
+            wide: math.value.with({ value: wide }),
+            fall: math.smoothstep,
+            ring: math.sub,
+            ring_height: math.value.with({ value: swell }),
+            thick: math.mul,
+            swell: math.add,
+            round: math.mul,
+            half: math.value.with({ value: 0.5 }),
+            cane_height: math.mul,
+            // ∂/∂(através) = −x / corpo · engrosso; em `p`, × −(colmos por unidade) já com o sinal.
+            lean: math.div,
+            lean_swell: math.mul,
+            minus_scale: math.value.with({ value: -scale }),
+            slope_across: math.mul,
+            // ∂/∂(ao longo) = ½ · corpo · `ring_height` · (∓ 6 t (1 − t) / largura), t a distância à ponta em larguras.
+            t_raw: math.div,
+            t: math.clamp,
+            t_left: math.sub,
+            t_bell: math.mul,
+            side: math.sub,
+            sign: map.range.with({ in_min: -0.001, in_max: 0.001, out_min: -1, out_max: 1 }),
+            bell_signed: math.mul,
+            bell_body: math.mul,
+            along_gain: math.value.with({ value: (0.5 * swell * 6 * scale) / wide }),
+            slope_along: math.mul,
+            cane_slope: math.combine2,
+        },
+        links: [
+            ['uv.p', 'p_parts.v'],
+            ['p_parts.y', 'p_turned.x'],
+            ['p_parts.x', 'p_turned.y'],
+            ['uv.wrap', 'wrap_parts.v'],
+            ['wrap_parts.y', 'wrap_turned.x'],
+            ['wrap_parts.x', 'wrap_turned.y'],
+            ['p_turned.value', 'cane.p'],
+            ['uv.width', 'cane.width'],
+            ['wrap_turned.value', 'cane.wrap'],
+            ['cane.local', 'at.v'],
+            ['at.y', 'twice.a'],
+            ['two.value', 'twice.b'],
+            ['twice.value', 'x.a'],
+            ['one.value', 'x.b'],
+            ['x.value', 'x2.a'],
+            ['x.value', 'x2.b'],
+            ['one.value', 'inside.a'],
+            ['x2.value', 'inside.b'],
+            ['inside.value', 'kept.a'],
+            ['floor.value', 'kept.b'],
+            ['kept.value', 'arc.x'],
+            ['length.value', 'rest.a'],
+            ['at.x', 'rest.b'],
+            ['at.x', 'near.a'],
+            ['rest.value', 'near.b'],
+            ['wide.value', 'fall.edge1'],
+            ['near.value', 'fall.x'],
+            ['one.value', 'ring.a'],
+            ['fall.value', 'ring.b'],
+            ['ring.value', 'thick.a'],
+            ['ring_height.value', 'thick.b'],
+            ['one.value', 'swell.a'],
+            ['thick.value', 'swell.b'],
+            ['arc.value', 'round.a'],
+            ['swell.value', 'round.b'],
+            ['round.value', 'cane_height.a'],
+            ['half.value', 'cane_height.b'],
+            ['x.value', 'lean.a'],
+            ['arc.value', 'lean.b'],
+            ['lean.value', 'lean_swell.a'],
+            ['swell.value', 'lean_swell.b'],
+            ['lean_swell.value', 'slope_across.a'],
+            ['minus_scale.value', 'slope_across.b'],
+            ['near.value', 't_raw.a'],
+            ['wide.value', 't_raw.b'],
+            ['t_raw.value', 't.x'],
+            ['one.value', 't_left.a'],
+            ['t.value', 't_left.b'],
+            ['t.value', 't_bell.a'],
+            ['t_left.value', 't_bell.b'],
+            ['at.x', 'side.a'],
+            ['rest.value', 'side.b'],
+            ['side.value', 'sign.x'],
+            ['t_bell.value', 'bell_signed.a'],
+            ['sign.value', 'bell_signed.b'],
+            ['bell_signed.value', 'bell_body.a'],
+            ['arc.value', 'bell_body.b'],
+            ['bell_body.value', 'slope_along.a'],
+            ['along_gain.value', 'slope_along.b'],
+            ['slope_across.value', 'cane_slope.x'],
+            ['slope_along.value', 'cane_slope.y'],
+        ],
+    };
+}
+
+/**
+ * `relief.bamboo` — o relevo do painel de bambu: cada colmo um meio cilindro (`diameter`, 71 mm por diâmetro do
+ * padrão), engrossado no anel do nó, com a fibra fina ao longo (0,2 mm). Parâmetros: `diameter`, `pattern_scale`.
+ */
+const bambooRelief = Subgraph.point(
+    new NodeGraph({
+        nodes: {
+            ...patternSpace(),
+            ...bambooProfile().nodes,
+            fibre: pattern.grain.with(BAMBOO_FIBRE),
+            cane_relief: surface.relief.with({ height: 71 }),
+            fibre_relief: surface.relief.with({ height: 0.2 }),
+            out: math.add3,
+        },
+        links: [
+            ...SPACE_LINKS,
+            ...bambooProfile().links,
+            ...patternLinks('fibre'),
+            ...reliefLinks('cane_relief', 'cane_height.value', 'cane_slope.value'),
+            ...reliefLinks('fibre_relief', 'fibre.value', 'fibre.gradient'),
+            ['cane_relief.value', 'out.a'],
+            ['fibre_relief.value', 'out.b'],
+        ],
+        output: 'out.value',
     }),
-    marks: {
-        node: pattern.planks.with({
-            scale: 14,
-            length: 8,
-            arrangement: 0,
-            gap: 0.03,
-            bevel: 0.07,
-            seed: 432,
-        }),
-        relief: 0.002,
+    {
+        name: 'relief.bamboo',
+        ...SAMPLE_INPUT,
+        expose: [['cane_relief.height', 'diameter'], PATTERN_SCALE],
     },
-    piece: 'plank',
-    turned: true,
-    color: [0.56, 0.42, 0.2],
-    alt: [0.45, 0.31, 0.14],
-    lot: [0.84, 1.14],
-    joint: [0.07, 0.05, 0.025],
-    stain: { scale: [22, 5], octaves: 3, range: [0.86, 1.12] },
-    face: { scale: [130, 3], octaves: 2, height: 0.0005 },
-    grit: { scale: 200, height: 0.0001 },
-    relief: 0.02,
-    roughness: 0.35,
-    seed: 431,
-});
+);
+reliefs.bamboo = bambooRelief;
+
+/**
+ * `material.bamboo` — painel de bambu: colmos de 7 cm lado a lado, em pé, cada um um cilindro de verdade no relevo (na
+ * normal e, com `Displacements.bamboo`, na geometria), do seu tom entre o dourado (`color`) e o palha esverdeado
+ * (`alt_color`), com as estrias compridas da casca, o nó — o anel saliente, escuro (`node_color`) numa faixa estreita
+ * e mais claro logo acima e abaixo — e a sombra na folga entre vizinhos. A casca é lisa e encerada (IOR 1,5,
+ * rugosidade 0,3). Montado com `pattern.planks` e os nós de matemática (`bambooProfile`). Parâmetros: `color`,
+ * `alt_color`, `node_color`, `roughness`, `diameter` (mm), `scale` (unidades por metro), `pattern_scale`.
+ */
+export const bamboo = Subgraph.point(
+    new NodeGraph({
+        nodes: {
+            ...patternSpace(),
+            ...bambooProfile().nodes,
+            streak: pattern.grain.with({ scale: [45, 1.2], octaves: 3, gain: 0.55, seed: 433 }),
+            blotch: pattern.grain.with({ scale: [6, 2], octaves: 3, seed: 434 }),
+            gold: math.value3.with({ value: [0.6, 0.45, 0.2] }),
+            straw: math.value3.with({ value: [0.5, 0.46, 0.22] }),
+            knot: math.value3.with({ value: [0.16, 0.1, 0.045] }),
+            pick: math.mix3,
+            lot: map.range.with({ out_min: 0.82, out_max: 1.14 }),
+            streaked: map.range.with({ in_min: -0.6, in_max: 0.6, out_min: 0.86, out_max: 1.12 }),
+            blotched: map.range.with({ in_min: -0.6, in_max: 0.6, out_min: 0.9, out_max: 1.08 }),
+            // Logo acima e abaixo do nó a casca é mais clara (a cera); no meio dele, a faixa escura.
+            halo: map.range.with({ in_min: 0.05, in_max: 0.5, out_min: 1, out_max: 1.14 }),
+            tone_a: math.mul,
+            tone_b: math.mul,
+            tone: math.mul,
+            lit: math.scale3,
+            band: map.range.with({ in_min: 0.8, in_max: 0.97, out_min: 0, out_max: 0.85 }),
+            ringed: math.mix3,
+            // A folga entre colmos: escura onde o cilindro desce a zero.
+            deep: map.range.with({ in_min: 0.05, in_max: 0.4, out_min: 0.15, out_max: 1 }),
+            shaded: math.scale3,
+            tile: math.value2.with({ value: [1, 1] }),
+            height: bambooRelief,
+            normal: surface.reliefNormal,
+            ...mineral(0.3),
+        },
+        links: [
+            ...SPACE_LINKS,
+            ...bambooProfile().links,
+            ...patternLinks('streak', 'blotch'),
+            ['tile.value', 'uv.scale'],
+            ['gold.value', 'pick.a'],
+            ['straw.value', 'pick.b'],
+            ['cane.plank', 'pick.t'],
+            ['cane.plank', 'lot.x'],
+            ['streak.value', 'streaked.x'],
+            ['blotch.value', 'blotched.x'],
+            ['ring.value', 'halo.x'],
+            ['lot.value', 'tone_a.a'],
+            ['streaked.value', 'tone_a.b'],
+            ['blotched.value', 'tone_b.a'],
+            ['halo.value', 'tone_b.b'],
+            ['tone_a.value', 'tone.a'],
+            ['tone_b.value', 'tone.b'],
+            ['pick.value', 'lit.v'],
+            ['tone.value', 'lit.s'],
+            ['ring.value', 'band.x'],
+            ['lit.value', 'ringed.a'],
+            ['knot.value', 'ringed.b'],
+            ['band.value', 'ringed.t'],
+            ['arc.value', 'deep.x'],
+            ['ringed.value', 'shaded.v'],
+            ['deep.value', 'shaded.s'],
+            ['s.value', 'height.s'],
+            ['tile.value', 'height.pattern_scale'],
+            ['height.value', 'normal.relief'],
+            ...mineralLinks('shaded.value', 'normal.value'),
+        ],
+        output: 'out.value',
+    }),
+    {
+        name: 'material.bamboo',
+        ...SAMPLE_INPUT,
+        expose: [
+            ['gold.value', 'color'],
+            ['straw.value', 'alt_color'],
+            ['knot.value', 'node_color'],
+            ['specular.roughness', 'roughness'],
+            ['height.diameter', 'diameter'],
+            ['normal.scale', 'scale'],
+            ['tile.value', 'pattern_scale'],
+        ],
+    },
+);
 
 /** Os relevos em milímetros dos materiais de peças (`relief.<nome>`, `Displacements.<nome>`). */
 export const pavingRelief = {

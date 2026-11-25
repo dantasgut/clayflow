@@ -77,6 +77,7 @@ struct NodePatternPlanks {
     gradient: vec2f,
     plank: f32,
     joint: f32,
+    local: vec2f,
 }
 
 struct NodePatternFissures {
@@ -717,7 +718,9 @@ fn node_pattern_dents(p: vec2f, width: f32, wrap: vec2f, scale: f32, jitter: f32
  * veio (`pattern.rings`, `pattern.grain`): cada tábua tem os seus anéis, na sua direção —; `height` em [0, 1] (0 na
  * junta, 1 na face, a aresta arredondada em `bevel` larguras) e o gradiente ∂/∂p; `plank` o valor em [0, 1] da peça (o
  * tom de tábua para tábua); `joint` 1 na junta (de largura `gap` larguras). Abaixo do pixel: a altura a 1, a junta a
- * zero, `plank` a 0,5, gradiente a zero (a coordenada da peça não tem média: os padrões do veio filtram a deles).
+ * zero, `plank` a 0,5, gradiente a zero (a coordenada da peça não tem média: os padrões do veio filtram a deles). `local` é a
+ * posição dentro da peça — o comprimento em [0, `length`] e a largura em [0, 1], em larguras —: o perfil de uma peça
+ * (um colmo redondo, um friso) calculado com ela pelos nós de matemática.
  */
 fn node_pattern_planks(p: vec2f, width: f32, wrap: vec2f, scale: f32, length: f32, arrangement: u32, gap: f32, bevel: f32,
     seed: u32) -> NodePatternPlanks {
@@ -773,6 +776,7 @@ fn node_pattern_planks(p: vec2f, width: f32, wrap: vec2f, scale: f32, length: f3
         k * (6.0 * t * (1.0 - t) / bw) * toward,
         mix(0.5, f32(h >> 8u) / 16777215.0, k),
         k * select(0.0, 1.0, d <= 0.0),
+        local,
     );
 }
 

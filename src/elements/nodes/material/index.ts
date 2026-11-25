@@ -11,7 +11,9 @@ import {
     metalBrushed,
     metalOxidized,
     metalPolished,
+    goldMatte,
     silver,
+    silverMatte,
 } from './metal';
 import {
     amber,
@@ -113,7 +115,7 @@ import {
 } from './woodSpecies';
 
 /**
- * Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de 118 materiais prontos — cada um um nó
+ * Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de 120 materiais prontos — cada um um nó
  * sem ligações obrigatórias que devolve o fechamento, com os parâmetros expostos (valor por uso, sem recompilar) também
  * como entradas (ligáveis a outros nós). Usados inteiros (`Materials.x()`), abertos e religados, ou como nó de um grafo
  * maior.
@@ -214,6 +216,8 @@ export const material = {
     bamboo,
     gravel,
     silver,
+    goldMatte,
+    silverMatte,
     glassGreen,
     glassBlue,
     glassAmber,

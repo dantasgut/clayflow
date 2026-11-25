@@ -773,7 +773,14 @@ export function patternPlanks(
     gap: number,
     bevel: number,
     seed: number,
-): { p: number[]; height: number; gradient: number[]; plank: number; joint: number } {
+): {
+    p: number[];
+    height: number;
+    gradient: number[];
+    plank: number;
+    joint: number;
+    local: number[];
+} {
     const n = Math.max(Math.round(length), 1);
     const herring = layout === 1;
     const fx = fit(scale, wrap[0]!, herring ? 2 * n : n);
@@ -826,6 +833,7 @@ export function patternPlanks(
         gradient: [slope * toward[0] * fx[0], slope * toward[1] * fy[0]],
         plank: mix(0.5, unit24(h), k),
         joint: k * (d <= 0 ? 1 : 0),
+        local: [local[0], local[1]],
     };
 }
 

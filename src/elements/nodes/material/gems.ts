@@ -132,7 +132,7 @@ export const amethyst = clearOf('material.amethyst', {
     ior: 1.544,
     abbe: 69,
     color: [0.42, 0.1, 0.72],
-    depth: 2.5,
+    depth: 1.2,
 });
 
 /** `material.citrine` — citrino (quartzo amarelo): IOR 1,544; do amarelo-palha ao mel. */
@@ -140,7 +140,7 @@ export const citrine = clearOf('material.citrine', {
     ior: 1.544,
     abbe: 69,
     color: [0.95, 0.6, 0.1],
-    depth: 2.5,
+    depth: 1.2,
 });
 
 /**
@@ -151,7 +151,7 @@ export const roseQuartz = clearOf('material.roseQuartz', {
     ior: 1.544,
     abbe: 69,
     color: [0.96, 0.62, 0.66],
-    depth: 2.5,
+    depth: 1.2,
     scatter: [1.6, 1.5, 1.5],
 });
 
@@ -166,7 +166,7 @@ export const ruby = clearOf('material.ruby', {
     ior: 1.77,
     abbe: 72,
     color: [0.78, 0.02, 0.07],
-    depth: 2.5,
+    depth: 1.2,
 });
 
 /** `material.sapphire` — safira azul (coríndon com ferro e titânio): IOR 1,77. */
@@ -174,7 +174,7 @@ export const sapphire = clearOf('material.sapphire', {
     ior: 1.77,
     abbe: 72,
     color: [0.03, 0.1, 0.72],
-    depth: 2.5,
+    depth: 1.2,
 });
 
 /** `material.emerald` — esmeralda (berilo com cromo): IOR 1,58; verde levemente azulado. */
@@ -182,7 +182,7 @@ export const emerald = clearOf('material.emerald', {
     ior: 1.58,
     abbe: 60,
     color: [0.02, 0.56, 0.24],
-    depth: 2.5,
+    depth: 1.2,
 });
 
 /** `material.aquamarine` — água-marinha (berilo com ferro): IOR 1,58; azul-esverdeado claro. */
@@ -190,7 +190,7 @@ export const aquamarine = clearOf('material.aquamarine', {
     ior: 1.58,
     abbe: 60,
     color: [0.45, 0.86, 0.92],
-    depth: 2.5,
+    depth: 1.2,
 });
 
 /** `material.topaz` — topázio azul: IOR 1,62. */
@@ -198,7 +198,7 @@ export const topaz = clearOf('material.topaz', {
     ior: 1.62,
     abbe: 60,
     color: [0.2, 0.66, 0.95],
-    depth: 2.5,
+    depth: 1.2,
 });
 
 /** `material.garnet` — granada (piropo-almandina): IOR 1,79; vermelho-vinho escuro. */
@@ -206,7 +206,7 @@ export const garnet = clearOf('material.garnet', {
     ior: 1.79,
     abbe: 42,
     color: [0.42, 0.015, 0.04],
-    depth: 2.5,
+    depth: 1.2,
 });
 
 /** `material.peridot` — peridoto (olivina): IOR 1,67; verde-oliva amarelado. */
@@ -214,7 +214,7 @@ export const peridot = clearOf('material.peridot', {
     ior: 1.67,
     abbe: 50,
     color: [0.5, 0.8, 0.12],
-    depth: 2.5,
+    depth: 1.2,
 });
 
 /**
@@ -225,7 +225,7 @@ export const amber = clearOf('material.amber', {
     ior: 1.54,
     abbe: 45,
     color: [0.9, 0.42, 0.04],
-    depth: 2.5,
+    depth: 1.2,
     scatter: [0.5, 0.4, 0.25],
 });
 

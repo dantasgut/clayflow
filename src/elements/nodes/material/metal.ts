@@ -76,20 +76,23 @@ export const metalPolished = metal('material.metalPolished', 0.05, 0);
 // 550 e 450 nm (valores aproximados de Johnson e Christy 1972 para o cobre e a prata, de Johnson e Christy 1974 para o
 // cromo) dividido pelo Schlick do F0; a do latão é estimada (liga sem medida tabelada), entre a do cobre e a do ouro.
 
-/** Os valores de um metal nobre acetinado. */
+/** Os valores de um metal nobre. */
 interface NobleValues {
     readonly f0: Rgb;
     readonly f82: Rgb;
-    /** A rugosidade do polimento e a das passadas mais gastas. */
+    /** A rugosidade do acabamento e a das partes mais gastas. */
     readonly roughness: readonly [number, number];
+    /** O grão do acabamento: as frequências por eixo (alongado: riscos do polimento; igual: o jateado) e a altura. */
+    readonly grain: readonly [number, number];
+    readonly relief: number;
     readonly seed: number;
 }
 
 /**
- * Sub-grafo de um metal nobre com o polimento acetinado da joalheria: um condutor cuja rugosidade varia entre
- * `roughness` e `worn_roughness` pelas passadas do pano (um grão largo) e pelos riscos miúdos (um grão fino alongado,
- * também em relevo, `relief` em unidades do padrão) — o realce das luzes sai largo e desigual, com a cor do metal, em
- * vez do reflexo de espelho do ambiente. Parâmetros: `color`, `edge_tint`, `roughness`, `worn_roughness`, `relief`,
+ * Sub-grafo de um metal nobre: um condutor cuja rugosidade varia entre `roughness` e `worn_roughness` pelas manchas
+ * largas do acabamento (um grão largo) e pelo grão fino dele (também em relevo, `relief` em unidades do padrão). Polido:
+ * o espelho, com os riscos finíssimos do pano; fosco (jateado ou acetinado): o grão miúdo que espalha o realce numa
+ * mancha larga da cor do metal. Parâmetros: `color`, `edge_tint`, `roughness`, `worn_roughness`, `relief`,
  * `pattern_scale`.
  */
 function noble(name: string, v: NobleValues): NodeDefinition {
@@ -98,7 +101,7 @@ function noble(name: string, v: NobleValues): NodeDefinition {
             nodes: {
                 ...patternSpace(),
                 polish: pattern.grain.with({
-                    scale: [420, 90],
+                    scale: [...v.grain],
                     octaves: 3,
                     gain: 0.6,
                     seed: v.seed,
@@ -111,7 +114,7 @@ function noble(name: string, v: NobleValues): NodeDefinition {
                     out_min: v.roughness[0],
                     out_max: v.roughness[1],
                 }),
-                relief: surface.bump.with({ strength: 0.00025 }),
+                relief: surface.bump.with({ strength: v.relief }),
                 metal: bsdf.conductor.with({ color: [...v.f0], edge_tint: [...v.f82] }),
                 out: closure.normal,
             },
@@ -143,31 +146,35 @@ function noble(name: string, v: NobleValues): NodeDefinition {
     );
 }
 
-/**
- * `material.gold` — ouro de joalheria (24 quilates, acetinado): F0 (1,0, 0,77, 0,34) — a refletância do ouro puro de
- * frente (Johnson e Christy 1972, em sRGB linear: quase todo o vermelho, três quartos do verde, um terço do azul) —, a
- * tinta da borda (1,0, 0,95, 0,75); rugosidade de 0,16 a 0,26: o amarelo quente e cheio vem do realce largo das luzes
- * na cor do metal (num espelho, o ouro só tinge o que reflete: num ambiente cinza fica pardo). Parâmetros: os de
- * `noble`.
- */
-export const gold = noble('material.gold', {
-    f0: [1, 0.77, 0.34],
-    f82: [1, 0.95, 0.75],
-    roughness: [0.16, 0.26],
-    seed: 31,
-});
+// O ouro: F0 (1,0, 0,70, 0,22) — o ouro amarelo de joalheria (a liga com prata e cobre, de 18 a 22 quilates), mais
+// saturado que o ouro puro, cuja refletância de frente é (1,0, 0,77, 0,34) (Johnson e Christy 1972, em sRGB linear); o
+// valor da liga é estimado, sem medida tabelada. A tinta da borda (1,0, 0,93, 0,62). A prata: F0 (0,972, 0,960,
+// 0,915) — o metal mais refletivo, de branco levemente quente (a tabela 9.2 de "Real-Time Rendering", 4ª ed.).
+const GOLD = { f0: [1, 0.7, 0.22], f82: [1, 0.93, 0.62] } as const;
+const SILVER = { f0: [0.972, 0.96, 0.915], f82: [1, 1, 0.99] } as const;
+
+/** O polimento de espelho (rugosidade de 0,02 a 0,05, riscos finíssimos) e o fosco jateado (de 0,34 a 0,44). */
+const POLISHED = { roughness: [0.02, 0.05], grain: [420, 90], relief: 0.00004 } as const;
+const MATTE = { roughness: [0.34, 0.44], grain: [520, 520], relief: 0.0005 } as const;
 
 /**
- * `material.silver` — prata de lei acetinada: F0 (0,972, 0,960, 0,915) — o metal mais refletivo, de branco levemente
- * quente (a tabela 9.2 de "Real-Time Rendering", 4ª ed.) —, a tinta da borda (1,0, 1,0, 0,99); rugosidade de 0,12 a
- * 0,22. Parâmetros: os de `noble`.
+ * `material.gold` — ouro polido (24 quilates): o espelho dourado — reflete o ambiente tingido de amarelo quente, e o
+ * que reflete duas vezes (a dobra, a joia vizinha) satura para o laranja. Num ambiente claro é o amarelo vivo da joia;
+ * num escuro, escurece com ele. Parâmetros: os de `noble`.
  */
-export const silver = noble('material.silver', {
-    f0: [0.972, 0.96, 0.915],
-    f82: [1, 1, 0.99],
-    roughness: [0.12, 0.22],
-    seed: 35,
-});
+export const gold = noble('material.gold', { ...GOLD, ...POLISHED, seed: 31 });
+
+/**
+ * `material.goldMatte` — ouro fosco (jateado): o mesmo metal com o grão miúdo do jato de areia — o realce das luzes
+ * vira uma mancha larga e macia, amarela cheia, sem imagem do ambiente. Parâmetros: os de `noble`.
+ */
+export const goldMatte = noble('material.goldMatte', { ...GOLD, ...MATTE, seed: 33 });
+
+/** `material.silver` — prata polida: o espelho branco, levemente quente. Parâmetros: os de `noble`. */
+export const silver = noble('material.silver', { ...SILVER, ...POLISHED, seed: 35 });
+
+/** `material.silverMatte` — prata fosca (jateada): o branco acetinado, sem imagem do ambiente. Parâmetros: os de `noble`. */
+export const silverMatte = noble('material.silverMatte', { ...SILVER, ...MATTE, seed: 37 });
 
 /**
  * `material.goldLeaf` — folha de ouro: as folhas quadradas assentadas uma a uma (`pattern.bricks` em grade, 6 × 6 por
