@@ -319,5 +319,11 @@ Transferido para a fila, sem meta nova:
 - **O motivo, no compilador da GPU, de três leituras da sombra quebrarem um shader grande com GI**: medido o limiar, não
   o mecanismo; a leitura única contorna.
 - **Mais de três luzes com sombra com GI**: não medido.
+- **Tempo da estrutura de raios** (`rayScene`, 2026-11-24): os acertos passam; dois limites de tempo falham por margem
+  mínima (reajuste de 1 milhão de triângulos 1,012 ms > 1 ms; `tlas` 0,301 ms > 0,3 ms). Ajuste em fase própria.
+- **Galeria de materiais** (`materials`, caso `gallery`, 2026-11-24): no `develop` com o #56 o motor não fica pronto no
+  prazo (os shaders dos acertos da luz global e da refração ainda compilando) e a GPU fica presa depois; os demais
+  casos de `materials` passam.
+- **Duração do `clouds`**: não coube em 1500 s (o cabeçalho pedia 400); sem falha no que mediu.
 - **Smokes barrados**: `sky`, `clouds`, `fog`, `globalIllumination`, `refraction`, `parametricSurfaces`, `render`,
   `rayScene` e o `materials` inteiro, sem resultado desde o #54.
