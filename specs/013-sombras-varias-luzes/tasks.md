@@ -242,7 +242,7 @@ do olho: o mármore 3,95 contra 0,32 e o couro 0,89 contra 0,05.
 - [x] T040 [US2] [GPU] A contribuição `light_visibility` da luz de área lendo a série filtrada, na luz direta difusa e no lobo especular (`shadowContribution.ts`, `lightContributions.ts`) — **Feita (2026-11-24, `067bd836`): o `AreaShadow` contribui em `light_visibility`; o desenho lê pelo ponto de mundo na tela do quadro anterior, com um raio ao centro onde não há texel**
 - [x] T041 [US2] [GPU] Caso `rect-shadow` em `src/__smokes__/lighting.ts`: o anteparo que tapa metade da fonte e a esfera sobre o chão, contra a referência (SC-003) — **Feita (2026-11-24): erro médio 1,00 %, maior 1,95 % (≤ 5 %); o oclusor é o anteparo (a esfera ficou no `rect-travel`)**
 - [x] T042 [US2] [GPU] Caso `rect-travel`: a luz de área andando e mudando de tamanho, o último quadro contra o parado (SC-002); sem rastro — **Feita (2026-11-24, `ffd8d5c8`): diferença média 0,60 % / 0,63 % do chão aceso (≤ 1 %); a média fica curta para a luz que muda**
-- [ ] T043 [US2] [GPU] A espessura atravessada pela luz de área no mesmo passe (a distância por dentro até a saída, na direção do centro) e a série `thickness` — **Em andamento (2026-11-24, `824f7de5`): escrita (um raio por dentro até a saída, na direção do centro, e o cosseno na saída; `light_thickness`), nunca rodou na GPU; sem caso de smoke**
+- [ ] T043 [US2] [GPU] A espessura atravessada pela luz de área no mesmo passe (a distância por dentro até a saída, na direção do centro) e a série `thickness` — **Aberta: escrita em `824f7de5` (um raio por dentro até a saída, na direção do centro, e o cosseno na saída; `light_thickness`) e retirada da entrega pela reversão seguinte, porque nunca rodou na GPU; retomar desse registro, com um caso de smoke**
 - [ ] T044 [US2] Registrar a medida da diferença no especular (a visibilidade média da fonte contra a da parte que o lobo vê) e da luz de área pelo centro nos acertos dos raios, como pendência em `tasks.md` — **Aberta: sem medida**
 
 ---
@@ -309,8 +309,8 @@ Sem caso de smoke próprio para a primeira (o caso escrito, `adaptive-travel`, n
 
 Transferido para a fila, sem meta nova:
 
-- **Sombra das luzes de área** (fase 8): feita no ramo `feature/013-sombra-luz-de-area` (T037–T042), ainda sem
-  integrar; abertas a espessura (T043, escrita e sem rodar na GPU), a medida do especular (T044) e o custo por luz
+- **Sombra das luzes de área** (fase 8): feita (T037–T042, ramo
+  `feature/013-sombra-luz-de-area`); abertas a espessura (T043, escrita em `824f7de5` e revertida: nunca rodou na GPU), a medida do especular (T044) e o custo por luz
   (quatro raios por texel a meia resolução, não medido). Nos retratos do claflow-web os painéis são fracos e a sombra
   deles quase não aparece; na vitrine, as esferas ganham a sombra de contato.
 - **Custo e memória** (fase 9): o tempo por luz não foi medido; o teto de 64 páginas (277 MB com quatro vistas) é
