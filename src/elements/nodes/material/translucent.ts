@@ -324,7 +324,7 @@ export const skinDetailed = Subgraph.point(
  * Os vincos e as linhas são arcos: verticais na linha entre os lábios e fechando para o meio ao se afastar dela,
  * como parênteses de cada lado (`centre`, o meio da boca na coordenada dos padrões; `fan`, a curvatura: 0 dá retas
  * paralelas, o padrão — numa cabeça de 1,4 unidade, 140).
- * Parâmetros: `color`, `line_color`, `centre`, `fan`, `line_height`, `fold_height`, `dome_height` (0,12 mm: o abaulado de cada gomo, que
+ * Parâmetros: `color`, `line_color`, `centre`, `fan`, `line_height`, `fold_height`, `upper_gain`, `dome_height` (0,12 mm: o abaulado de cada gomo, que
  * dá a cada um o seu realce), `gloss`, `roughness`, `wet_roughness`, `ior`, `radius`, `scale`,
  * `pattern_scale`.
  */
@@ -353,10 +353,17 @@ export const lips = Subgraph.point(
             // Os sulcos: muitos, finos e rasos, de cima a baixo, irregulares e que se juntam (um grão maciço alongado na
             // vertical, recortado por um limiar estreito: 1 fora, 0 no fundo do sulco). Por cima, o grão fino (`lines`),
             // quase sem direção: os riscos miúdos que cruzam os sulcos.
-            folds: pattern.grain3.with({ scale: [120, 4.5, 36], octaves: 2, gain: 0.45, seed: 83 }),
+            // A frequência em z é baixa como a em y: o lábio superior recua enquanto sobe, e uma frequência alta em z
+            // picava os sulcos em pedaços inclinados ali.
+            folds: pattern.grain3.with({ scale: [120, 4.5, 4.5], octaves: 2, gain: 0.45, seed: 83 }),
             gomo: pattern.threshold3.with({ low: -0.42, high: -0.06 }),
             crease: map.range.with({ in_min: 0.6, in_max: 0, out_min: 0, out_max: 0.22 }),
             deep: math.max,
+            // O lábio superior fica de costas para a luz de cima e quase não pega realce: os sulcos dele são mais fundos
+            // e mais marcados (`upper_gain`, o fator acima da linha da boca; 1 iguala os dois lábios).
+            upper: map.range.with({ in_min: -0.004, in_max: 0.004, out_min: 1, out_max: 2.4 }),
+            crease_gain: math.mul,
+            fold_gain: math.scale3,
             fold_relief: surface.solidRelief.with({ height: 0.28, level: 1 }),
             // O gomo é abaulado (a almofada sobe do vinco ao meio): cada um pega o seu próprio realce da luz.
             dome_relief: surface.solidRelief.with({ height: 0.12 }),
@@ -418,7 +425,10 @@ export const lips = Subgraph.point(
             ['folds.gradient', 'gomo.gradient'],
             ['gomo.value', 'crease.x'],
             ['groove.value', 'deep.a'],
-            ['crease.value', 'deep.b'],
+            ['axes.y', 'upper.x'],
+            ['crease.value', 'crease_gain.a'],
+            ['upper.value', 'crease_gain.b'],
+            ['crease_gain.value', 'deep.b'],
             ['deep.value', 'lined.t'],
             ['mottle.value', 'uneven.x'],
             ['lined.value', 'toned.v'],
@@ -448,7 +458,9 @@ export const lips = Subgraph.point(
             ['folds.gradient', 'dome_relief.gradient'],
             ['solid.du', 'dome_relief.du'],
             ['solid.dv', 'dome_relief.dv'],
-            ['fold_relief.value', 'dome_height.a'],
+            ['fold_relief.value', 'fold_gain.v'],
+            ['upper.value', 'fold_gain.s'],
+            ['fold_gain.value', 'dome_height.a'],
             ['dome_relief.value', 'dome_height.b'],
             ['relief.value', 'height.a'],
             ['dome_height.value', 'height.b'],
@@ -470,6 +482,7 @@ export const lips = Subgraph.point(
             ['fan.value', 'fan'],
             ['relief.height', 'line_height'],
             ['fold_relief.height', 'fold_height'],
+            ['upper.out_max', 'upper_gain'],
             ['dome_relief.height', 'dome_height'],
             ['gloss.value', 'gloss'],
             ['dry.roughness', 'roughness'],
