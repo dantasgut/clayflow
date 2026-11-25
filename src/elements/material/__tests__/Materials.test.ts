@@ -40,6 +40,7 @@ const NAMES = [
     'milk',
     'carPaintSilver',
     'gold',
+    'goldLeaf',
     'copper',
     'brass',
     'chrome',
@@ -89,6 +90,48 @@ const NAMES = [
     'ivory',
     'motherOfPearl',
     'snow',
+    'asphaltFine',
+    'asphaltCoarse',
+    'asphaltCracked',
+    'pavementPortuguese',
+    'grassPaver',
+    'paverHerringbone',
+    'concreteBlock',
+    'concreteSlab',
+    'stoneSetts',
+    'stoneWall',
+    'stackedSlate',
+    'flagstone',
+    'cobblestone',
+    'bamboo',
+    'gravel',
+    'silver',
+    'goldMatte',
+    'silverMatte',
+    'glassGreen',
+    'glassBlue',
+    'glassAmber',
+    'glassFrosted',
+    'crystal',
+    'quartz',
+    'amethyst',
+    'citrine',
+    'roseQuartz',
+    'diamond',
+    'ruby',
+    'sapphire',
+    'emerald',
+    'aquamarine',
+    'topaz',
+    'garnet',
+    'peridot',
+    'amber',
+    'obsidian',
+    'turquoise',
+    'lapisLazuli',
+    'malachite',
+    'opal',
+    'onyx',
 ] as const satisfies readonly MaterialName[];
 
 /** Os nós de dentro do material pronto: identificador → nome da definição. */
@@ -100,7 +143,7 @@ function inner(name: MaterialName): Record<string, string> {
 }
 
 describe('Materials (spec 011, US5)', () => {
-    it('a biblioteca tem os 77 materiais, cada um um nó registrado sem ligação obrigatória', () => {
+    it('a biblioteca tem os 120 materiais, cada um um nó registrado sem ligação obrigatória', () => {
         expect(Object.keys(Materials).sort()).toEqual([...NAMES].sort());
         for (const name of NAMES) {
             const def = nodes.material[name];
@@ -310,13 +353,20 @@ describe('Materials (spec 011, US5)', () => {
     it('valores físicos dentro das faixas publicadas', () => {
         const value = (name: MaterialName, p: string): number =>
             nodes.material[name].params[p]!.default as number;
-        // IOR dos dielétricos: 1,3 a 1,7 (polímeros, celulose, vidros, tecidos moles).
+        // IOR dos dielétricos: 1,3 a 1,7 (polímeros, celulose, vidros, tecidos moles); as gemas densas passam disso —
+        // o coríndon (1,77), a granada (1,79) e o diamante (2,417), os valores tabelados de cada mineral.
+        const dense: Readonly<Partial<Record<MaterialName, number>>> = {
+            ruby: 1.77,
+            sapphire: 1.77,
+            garnet: 1.79,
+            diamond: 2.417,
+        };
         for (const name of NAMES) {
             const params = nodes.material[name].params;
             for (const p of ['ior', 'coat_ior'])
                 if (p in params) {
                     expect(value(name, p)).toBeGreaterThanOrEqual(1.3);
-                    expect(value(name, p)).toBeLessThanOrEqual(1.7);
+                    expect(value(name, p)).toBeLessThanOrEqual(dense[name] ?? 1.7);
                 }
             for (const [p, { type, default: v }] of Object.entries(params))
                 if (type === 'f32' && p.endsWith('roughness')) {
@@ -520,9 +570,13 @@ describe('Materials (spec 011, US5)', () => {
             Object.values(inner(name)).includes(node);
         const rgb = (name: MaterialName, p: string): number[] =>
             nodes.material[name].params[p]!.default as number[];
-        // Os metais puros: um condutor só, com o F0 por canal (o ouro, o cobre e o latão quentes; o cromo neutro).
-        for (const name of ['gold', 'copper', 'brass', 'chrome'] as const)
+        // Os metais puros: um condutor só, com o F0 por canal (o cobre e o latão quentes; o cromo neutro). O ouro é o
+        // condutor com o polimento desigual, e a folha de ouro, o mesmo em placas sobre o bolo.
+        for (const name of ['copper', 'brass', 'chrome'] as const)
             expect(inner(name)).toEqual({ out: 'bsdf.conductor' });
+        for (const name of ['gold', 'goldLeaf'] as const)
+            expect(has(name, 'bsdf.conductor')).toBe(true);
+        expect(has('goldLeaf', 'pattern.bricks') && has('goldLeaf', 'bsdf.diffuse')).toBe(true);
         for (const name of ['gold', 'copper', 'brass'] as const) {
             const [r, g, b] = rgb(name, 'color');
             expect(r).toBeGreaterThan(g!);
@@ -530,7 +584,7 @@ describe('Materials (spec 011, US5)', () => {
         }
         const chrome = rgb('chrome', 'color');
         expect(Math.max(...chrome) - Math.min(...chrome)).toBeLessThan(0.02);
-        expect(rgb('gold', 'color')).toEqual([0.944, 0.776, 0.373]);
+        expect(rgb('gold', 'color')).toEqual([1, 0.7, 0.22]);
         expect(rgb('copper', 'color')).toEqual([0.955, 0.638, 0.538]);
         for (const name of [
             'aluminiumAnodized',
@@ -579,6 +633,21 @@ describe('Materials (spec 011, US5)', () => {
             motherOfPearl: 'closure.thinFilm',
             paper: 'bsdf.translucent',
             snow: 'pattern.glints',
+            asphaltFine: 'pattern.areoles',
+            asphaltCoarse: 'pattern.areoles',
+            asphaltCracked: 'pattern.areoles',
+            pavementPortuguese: 'pattern.cells',
+            grassPaver: 'pattern.bricks',
+            paverHerringbone: 'pattern.planks',
+            concreteBlock: 'pattern.bricks',
+            concreteSlab: 'pattern.bricks',
+            stoneSetts: 'pattern.bricks',
+            stoneWall: 'pattern.ashlar',
+            stackedSlate: 'pattern.ashlar',
+            flagstone: 'pattern.cells',
+            cobblestone: 'pattern.areoles',
+            bamboo: 'pattern.planks',
+            gravel: 'pattern.areoles',
         };
         for (const [name, node] of Object.entries(promised) as [MaterialName, string][])
             expect(has(name, node), name).toBe(true);
@@ -598,6 +667,16 @@ describe('Materials (spec 011, US5)', () => {
             'woodAsh',
             'woodAshBrushed',
             'woodPineFine',
+            'paverHerringbone',
+            'concreteBlock',
+            'concreteSlab',
+            'stoneSetts',
+            'stoneWall',
+            'stackedSlate',
+            'flagstone',
+            'cobblestone',
+            'gravel',
+            'bamboo',
         ] as const) {
             expect(has(name, 'surface.reliefNormal'), name).toBe(true);
             expect(nodes.material[name].params.scale).toEqual({ type: 'f32', default: 1 });

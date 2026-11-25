@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    patternAshlar,
     patternBricks,
     patternCells,
     patternDents,
@@ -493,6 +494,57 @@ describe('padrões com relevo (spec 011)', () => {
         expect(Math.hypot(far.gradient[0]!, far.gradient[1]!)).toBe(0);
         expect(far.brick).toBe(0.5);
         expect(far.height + far.mortar).toBeCloseTo(1, 6);
+    });
+
+    it('cantaria: blocos de tamanhos variados, junta entre eles, gradiente = derivada, fecha no período', () => {
+        // Sem cortes é o tijolo: uma peça por vão, a junta na borda dele.
+        expect(
+            patternAshlar([0.5, 0.25], 0, [0, 0], [1, 2], 0.5, 0, 0, 0, 0.1, 0.1, 0).height,
+        ).toBe(1);
+        expect(patternAshlar([0.5, 0.5], 0, [0, 0], [1, 2], 0.5, 0, 0, 0, 0.1, 0.1, 0).mortar).toBe(
+            1,
+        );
+        // Com cortes: mais peças que vãos, de áreas diferentes, a altura em [0, 1].
+        const tones = new Map<number, number>();
+        for (let i = 0; i < 4000; i++) {
+            const p = [(i % 80) / 20 + 0.006, Math.floor(i / 80) / 25 + 0.006];
+            const o = patternAshlar(p, 0, [0, 0], [1, 2], 0.5, 3, 0.3, 0, 0.05, 0.1, 2);
+            expect(o.height).toBeGreaterThanOrEqual(0);
+            expect(o.height).toBeLessThanOrEqual(1);
+            if (o.mortar === 0) tones.set(o.block, (tones.get(o.block) ?? 0) + 1);
+        }
+        expect(tones.size).toBeGreaterThan(24);
+        const areas = [...tones.values()];
+        expect(Math.max(...areas)).toBeGreaterThan(3 * Math.min(...areas));
+        checkGradient(
+            (p) => {
+                const o = patternAshlar(p, 0, [0, 0], [1, 2], 0.5, 3, 0.2, 0, 0.2, 0.3, 1);
+                return { h: o.height, g: o.gradient };
+            },
+            1,
+            25,
+        );
+        const here = patternAshlar([0.37, 0.61], 0, [2, 4], [2, 4], 0.5, 3, 0.2, 0, 0.1, 0.2, 1);
+        const round = patternAshlar([2.37, 4.61], 0, [2, 4], [2, 4], 0.5, 3, 0.2, 0, 0.1, 0.2, 1);
+        expect(round.height).toBeCloseTo(here.height, 4);
+        expect(round.block).toBe(here.block);
+        const far = patternAshlar([0.37, 0.61], 1, [0, 0], [2, 4], 0.5, 3, 0.2, 0, 0.1, 0.2, 1);
+        expect(Math.hypot(far.gradient[0]!, far.gradient[1]!)).toBe(0);
+        expect(far.block).toBe(0.5);
+    });
+
+    it('células: o ponto da célula é o mesmo em toda ela', () => {
+        const seen = new Map<number, number[]>();
+        for (const p of POINTS) {
+            const o = patternCells(p, 0, [0, 0], 3, 0.8, 0.1, 4);
+            const first = seen.get(o.cell);
+            if (first === undefined) seen.set(o.cell, o.point);
+            else {
+                expect(o.point[0]).toBeCloseTo(first[0]!, 5);
+                expect(o.point[1]).toBeCloseTo(first[1]!, 5);
+            }
+            expect(Math.hypot(o.point[0]! - p[0]!, o.point[1]! - p[1]!)).toBeLessThan(0.5);
+        }
     });
 
     it('mossas: o fundo no ponto da célula, a altura em [0, 1], gradiente = derivada, fecha no período', () => {

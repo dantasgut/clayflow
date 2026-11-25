@@ -61,12 +61,13 @@ const grain = defineNode({
 /**
  * Células (Voronoi 2D): `scale` células por unidade de `p`, o ponto de cada uma deslocado por `jitter` (0 = grade).
  * `height` = smoothstep(0, `crease`, distância à borda) — 0 no sulco entre as células, 1 no platô (o grão do couro) —
- * com o `gradient`; `cell` o valor em [0, 1] da célula; `random` dois valores em [-1, 1] dela (a inclinação de um floco).
+ * com o `gradient`; `cell` o valor em [0, 1] da célula; `random` dois valores em [-1, 1] dela (a inclinação de um floco);
+ * `point` o ponto da célula em `p` (o mesmo na célula inteira: a cor de cada pedra de um mosaico pelo lugar dela).
  */
 const cells = defineNode({
     name: 'pattern.cells',
     inputs: RELIEF_INPUTS,
-    outputs: { height: 'f32', gradient: 'vec2f', cell: 'f32', random: 'vec2f' },
+    outputs: { height: 'f32', gradient: 'vec2f', cell: 'f32', random: 'vec2f', point: 'vec2f' },
     params: {
         ...RELIEF_VALUES,
         scale: { type: 'f32', default: 1 },
@@ -205,6 +206,20 @@ const threshold = defineNode({
 });
 
 /**
+ * Limiar suave de um padrão maciço: `pattern.threshold` com o gradiente em 3D (∂/∂p, de `pattern.grain3` e dos demais
+ * padrões maciços) — a entrada de `surface.solidRelief`: o vinco estreito entre os gomos de um lábio, a fresta de uma
+ * rocha. `low` > `high` inverte.
+ */
+const threshold3 = defineNode({
+    name: 'pattern.threshold3',
+    inputs: { value: 'f32', gradient: 'vec3f' },
+    outputs: { value: 'f32', gradient: 'vec3f' },
+    params: { low: { type: 'f32', default: 0 }, high: { type: 'f32', default: 1 } },
+    code: nodePattern,
+    fn: 'node_pattern_threshold3',
+});
+
+/**
  * Tijolos: fiadas de peças retangulares com junta — `scale` (peças por unidade de `p.x`, fiadas por unidade de `p.y`),
  * cada fiada deslocada `shift` peça (0,5: a amarração do tijolo; 0: a grade do azulejo); `gap` a largura da junta e
  * `bevel` a da aresta arredondada, em frações da altura da fiada. Saídas: `height` em [0, 1] (0 na junta, 1 na face) e
@@ -227,17 +242,50 @@ const bricks = defineNode({
 });
 
 /**
+ * Cantaria: o muro de blocos de tamanhos variados — fiadas de `scale.y` por unidade de `p.y`, com `scale.x` vãos por
+ * unidade de `p.x`, cada fiada deslocada `shift` vão; cada vão é cortado até `levels` vezes (0 a 4), sempre o lado mais
+ * comprido, entre 30 % e 70 % dele (`even` 1: no meio), e a cada corte depois do primeiro a peça fica inteira com a
+ * chance `keep`. `gap` a largura da junta e `bevel` a da aresta arredondada, em frações da altura da fiada. Saídas:
+ * `height` em [0, 1] (0 na junta, 1 na face) e o `gradient`; `block` o valor em [0, 1] da peça; `mortar` 1 na junta.
+ */
+const ashlar = defineNode({
+    name: 'pattern.ashlar',
+    inputs: RELIEF_INPUTS,
+    outputs: { height: 'f32', gradient: 'vec2f', block: 'f32', mortar: 'f32' },
+    params: {
+        ...RELIEF_VALUES,
+        scale: { type: 'vec2f', default: [2, 4] },
+        shift: { type: 'f32', default: 0.5 },
+        levels: { type: 'u32', default: 2 },
+        keep: { type: 'f32', default: 0.25 },
+        even: { type: 'f32', default: 0 },
+        gap: { type: 'f32', default: 0.1 },
+        bevel: { type: 'f32', default: 0.08 },
+        seed: { type: 'u32', default: 0 },
+    },
+    code: nodePattern,
+    fn: 'node_pattern_ashlar',
+});
+
+/**
  * Tábuas (o assoalho): peças de 1 largura por `length` larguras (inteiro), `scale` larguras por unidade de `p`.
  * `arrangement` 0: réguas em fileiras ao longo de `p.x`, cada fileira deslocada ao acaso; 1: espinha de peixe. Saídas: `p` a
  * coordenada dentro da peça (o comprimento ao longo de x, com um deslocamento próprio de cada peça) — a entrada dos
  * padrões do veio: cada tábua com os seus anéis, na sua direção —; `height` em [0, 1] (0 na junta de largura `gap`, 1
  * na face, a aresta arredondada em `bevel`, em larguras) e o `gradient`; `plank` o valor em [0, 1] da peça; `joint` 1
- * na junta.
+ * na junta; `local` a posição dentro da peça (o comprimento em [0, `length`], a largura em [0, 1]).
  */
 const planks = defineNode({
     name: 'pattern.planks',
     inputs: RELIEF_INPUTS,
-    outputs: { p: 'vec2f', height: 'f32', gradient: 'vec2f', plank: 'f32', joint: 'f32' },
+    outputs: {
+        p: 'vec2f',
+        height: 'f32',
+        gradient: 'vec2f',
+        plank: 'f32',
+        joint: 'f32',
+        local: 'vec2f',
+    },
     params: {
         ...RELIEF_VALUES,
         scale: { type: 'f32', default: 4 },
@@ -456,6 +504,30 @@ const grain3 = defineNode({
 });
 
 /**
+ * Sulcos maciços: uma família de sulcos finos e paralelos, irregulares, que se juntam — o grão maciço de duas oitavas
+ * (`scale` por eixo: (190, 16, 16) dá sulcos ao longo de `p.y`; `gain` a amplitude da segunda), girado de `turn`
+ * radianos em torno de `p.z` e recortado pelo limiar [`low`, `high`]. Duas famílias de `turn` opostos cruzam-se em
+ * losangos: a trama da pele do lábio. Saídas: `value` em [0, 1] (0 no fundo do sulco, 1 fora) e o `gradient` (∂/∂p).
+ */
+const creases3 = defineNode({
+    name: 'pattern.creases3',
+    // `scale` e `turn` são entradas com valor: duas famílias cruzadas partilham a escala e têm giros opostos.
+    inputs: { p: 'vec3f', width: 'f32', scale: 'vec3f', turn: 'f32' },
+    outputs: { value: 'f32', gradient: 'vec3f' },
+    params: {
+        width: { type: 'f32', default: 0 },
+        scale: { type: 'vec3f', default: [190, 16, 16] },
+        seed: { type: 'u32', default: 0 },
+        turn: { type: 'f32', default: 0 },
+        gain: { type: 'f32', default: 0.45 },
+        low: { type: 'f32', default: -0.5 },
+        high: { type: 'f32', default: -0.15 },
+    },
+    code: nodePattern,
+    fn: 'node_pattern_creases3',
+});
+
+/**
  * Tronco: os anéis de crescimento no volume — um tronco de eixo ao longo de `p.y`, `scale` anéis por unidade de raio,
  * a medula serpenteando (`wander`, `wander_scale`), os anéis ondulados (`waviness`, `waviness_scale`) e de largura
  * irregular (`irregularity` em [0, 1]), o perfil de `pattern.rings` (`fall`: a fração do anel em que o lenho tardio cai
@@ -534,6 +606,7 @@ export const pattern = {
     weave,
     knit,
     bricks,
+    ashlar,
     planks,
     fissures,
     dents,
@@ -542,4 +615,6 @@ export const pattern = {
     areoles,
     glints,
     threshold,
+    threshold3,
+    creases3,
 } as const;

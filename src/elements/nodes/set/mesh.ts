@@ -4,11 +4,13 @@ import { defineSetNode, setPointInput, type FusedPoint } from '../../../scene/gr
 import { bindPoints, type BindablePoint } from '../../../scene/shaders/bindPoints';
 import type { WgslModule } from '../../../scene/shaders/WgslModule';
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
+import { MeshVertexSchema } from '../../geometry/MeshVertexSchema';
 import {
     MESH,
     MeshTriangleSchema,
     DisplaceParamsSchema,
     GridParamsSchema,
+    MeshSourceParamsSchema,
     NormalsParamsSchema,
 } from './schemas';
 import {
@@ -90,6 +92,55 @@ export const grid = defineSetNode({
         };
     },
 });
+
+/** A malha dada a `set.mesh`: os vértices intercalados (posição, normal, uv: 8 `f32`) e os índices dos triângulos. */
+export interface MeshSourceData {
+    readonly vertices: Float32Array;
+    readonly indices: ArrayLike<number>;
+}
+
+/**
+ * `set.mesh`: a fonte de uma malha de triângulos dada (o modelo de uma `MeshGeometry`: `geometry.data`) — os vértices e
+ * os triângulos entram no grafo como estão, para os nós de malha (`set.displace`: o relevo de um grafo de ponto como
+ * geometria num modelo feito fora do motor). Os dados sobem uma vez, na criação do nó, e cada gravação os copia para a
+ * saída. Contagem da CPU (= capacidade).
+ *
+ * Saída `mesh`: os vértices e os triângulos da malha.
+ * @throws RangeError se a malha não tem vértices inteiros (8 `f32`) ou triângulos inteiros (3 índices).
+ */
+export function mesh(source: MeshSourceData) {
+    const vertexCount = source.vertices.length / 8;
+    const triangleCount = source.indices.length / 3;
+    if (!Number.isInteger(vertexCount) || vertexCount < 1)
+        throw new RangeError(`set.mesh: ${source.vertices.length} valores não são vértices de 8 f32.`);
+    if (!Number.isInteger(triangleCount) || triangleCount < 1)
+        throw new RangeError(`set.mesh: ${source.indices.length} índices não são triângulos.`);
+    const triangles = Uint32Array.from(source.indices);
+    return defineSetNode({
+        name: 'set.mesh',
+        outputs: { mesh: MESH },
+        capacity: () => ({ 'mesh.vertices': vertexCount, 'mesh.triangles': triangleCount }),
+        create: (c) => {
+            const k = new SetNodeKernels(c, MeshSourceParamsSchema);
+            const vin = k.constant('vertices', source.vertices);
+            const tin = k.constant('triangles', triangles);
+            const vout = c.output('mesh', 'vertices');
+            const tout = c.output('mesh', 'triangles');
+            return {
+                update: () => {
+                    k.write({ vertices: vertexCount, triangles: triangleCount });
+                },
+                record: (frame) => {
+                    frame.copy(vin, vout.buffer, vertexCount * MeshVertexSchema.stride);
+                    frame.copy(tin, tout.buffer, triangleCount * MeshTriangleSchema.stride);
+                },
+                dispose: () => {
+                    k.dispose();
+                },
+            };
+        },
+    });
+}
 
 /** Capacidades e contagens das saídas de malha iguais às da entrada `mesh` (nós que transformam vértice a vértice). */
 const sameMesh = {

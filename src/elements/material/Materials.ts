@@ -39,6 +39,7 @@ export type MaterialName =
     | 'jade'
     | 'milk'
     | 'gold'
+    | 'goldLeaf'
     | 'copper'
     | 'brass'
     | 'chrome'
@@ -83,7 +84,49 @@ export type MaterialName =
     | 'soap'
     | 'ivory'
     | 'motherOfPearl'
-    | 'snow';
+    | 'snow'
+    | 'asphaltFine'
+    | 'asphaltCoarse'
+    | 'asphaltCracked'
+    | 'pavementPortuguese'
+    | 'grassPaver'
+    | 'paverHerringbone'
+    | 'concreteBlock'
+    | 'concreteSlab'
+    | 'stoneSetts'
+    | 'stoneWall'
+    | 'stackedSlate'
+    | 'flagstone'
+    | 'cobblestone'
+    | 'bamboo'
+    | 'gravel'
+    | 'silver'
+    | 'goldMatte'
+    | 'silverMatte'
+    | 'glassGreen'
+    | 'glassBlue'
+    | 'glassAmber'
+    | 'glassFrosted'
+    | 'crystal'
+    | 'quartz'
+    | 'amethyst'
+    | 'citrine'
+    | 'roseQuartz'
+    | 'diamond'
+    | 'ruby'
+    | 'sapphire'
+    | 'emerald'
+    | 'aquamarine'
+    | 'topaz'
+    | 'garnet'
+    | 'peridot'
+    | 'amber'
+    | 'obsidian'
+    | 'turquoise'
+    | 'lapisLazuli'
+    | 'malachite'
+    | 'opal'
+    | 'onyx';
 
 /**
  * Fábrica de um material pronto: os valores dos parâmetros expostos do nó (os que faltam ficam no padrão documentado)
@@ -116,9 +159,15 @@ function factory(definition: NodeDefinition): MaterialFactory {
  * `woodPine`, `woodMahogany`, `woodOakVarnished`, `woodAsh` (clara, fosca, com subsuperfície), `woodAshBrushed` (a mesma, escovada a fundo: sulcos de 1 mm), `woodPineFine` (pinho claro de veio fino, com nós, subsuperfície e relevo), `woodSolid` (madeira maciça: os anéis no volume, a peça talhada de um bloco, com subsuperfície e relevo em degraus), os assoalhos `woodFloorPlanks` e `woodFloorHerringbone`, as cascas `bark`, `barkPine` e `barkBirch` e a cortiça
  * `cork` (aglomerada) e `corkStopper` (a rolha). Folhas: `leaf`, `leafMatte`, `leafDry`. Telhados: `roofTile`, `roofSlate`. Tecidos: `cotton`, `wool`, `velvet`, `silk`, `denim`,
  * `sheerFabric`. Dielétricos opacos: `leather`, `rubber`, `ceramic`, `porcelain`, `plasticMatte`, `plasticGloss`,
- * `paper`. Metais: `metalPolished`, `gold`, `copper`, `brass`, `chrome`, `metalBrushed`, `metalHammered`,
+ * `paper`. Metais: `metalPolished`, `gold`, `goldLeaf`, `copper`, `brass`, `chrome`, `metalBrushed`, `metalHammered`,
  * `aluminiumAnodized`, `castIron`, `bronzePatina`, `metalOxidized`, `carPaint`, `carPaintSilver`, `carPaintFlake`, `carbonFiber`. Pedra, construção e
  * terra: `concrete`, `granite`, `sandstone`, `brick`, `plaster`, `asphalt`, `tile`, `terracotta`, `driedMud`, `sand`.
+ * Pavimentos e alvenaria de peças: `asphaltFine`, `asphaltCoarse`, `asphaltCracked`, `pavementPortuguese`, `grassPaver`,
+ * `paverHerringbone`, `concreteBlock`, `concreteSlab`, `stoneSetts`, `stoneWall`, `stackedSlate`, `flagstone`,
+ * `cobblestone`, `bamboo`, `gravel`.
+ * Vidros, cristais e gemas: `glassGreen`, `glassBlue`, `glassAmber`, `glassFrosted`, `crystal`, `quartz`, `amethyst`,
+ * `citrine`, `roseQuartz`, `diamond`, `ruby`, `sapphire`, `emerald`, `aquamarine`, `topaz`, `garnet`, `peridot`, `amber`,
+ * `obsidian`, `turquoise`, `lapisLazuli`, `malachite`, `opal`, `onyx`; a prata, `silver`; e os foscos `goldMatte` e `silverMatte`.
  * Transparentes e translúcidos: `glass`, `ice`, `skin`, `wax`, `marble`, `jade`, `milk`, `soap`, `ivory`, `snow`. Iridescente:
  * `motherOfPearl`. Os valores físicos e as fontes estão na documentação de cada nó.
  *
@@ -172,6 +221,7 @@ export const Materials: Readonly<Record<MaterialName, MaterialFactory>> = Object
     jade: factory(material.jade),
     milk: factory(material.milk),
     gold: factory(material.gold),
+    goldLeaf: factory(material.goldLeaf),
     copper: factory(material.copper),
     brass: factory(material.brass),
     chrome: factory(material.chrome),
@@ -217,4 +267,46 @@ export const Materials: Readonly<Record<MaterialName, MaterialFactory>> = Object
     ivory: factory(material.ivory),
     motherOfPearl: factory(material.motherOfPearl),
     snow: factory(material.snow),
+    asphaltFine: factory(material.asphaltFine),
+    asphaltCoarse: factory(material.asphaltCoarse),
+    asphaltCracked: factory(material.asphaltCracked),
+    pavementPortuguese: factory(material.pavementPortuguese),
+    grassPaver: factory(material.grassPaver),
+    paverHerringbone: factory(material.paverHerringbone),
+    concreteBlock: factory(material.concreteBlock),
+    concreteSlab: factory(material.concreteSlab),
+    stoneSetts: factory(material.stoneSetts),
+    stoneWall: factory(material.stoneWall),
+    stackedSlate: factory(material.stackedSlate),
+    flagstone: factory(material.flagstone),
+    cobblestone: factory(material.cobblestone),
+    bamboo: factory(material.bamboo),
+    gravel: factory(material.gravel),
+    silver: factory(material.silver),
+    goldMatte: factory(material.goldMatte),
+    silverMatte: factory(material.silverMatte),
+    glassGreen: factory(material.glassGreen),
+    glassBlue: factory(material.glassBlue),
+    glassAmber: factory(material.glassAmber),
+    glassFrosted: factory(material.glassFrosted),
+    crystal: factory(material.crystal),
+    quartz: factory(material.quartz),
+    amethyst: factory(material.amethyst),
+    citrine: factory(material.citrine),
+    roseQuartz: factory(material.roseQuartz),
+    diamond: factory(material.diamond),
+    ruby: factory(material.ruby),
+    sapphire: factory(material.sapphire),
+    emerald: factory(material.emerald),
+    aquamarine: factory(material.aquamarine),
+    topaz: factory(material.topaz),
+    garnet: factory(material.garnet),
+    peridot: factory(material.peridot),
+    amber: factory(material.amber),
+    obsidian: factory(material.obsidian),
+    turquoise: factory(material.turquoise),
+    lapisLazuli: factory(material.lapisLazuli),
+    malachite: factory(material.malachite),
+    opal: factory(material.opal),
+    onyx: factory(material.onyx),
 });

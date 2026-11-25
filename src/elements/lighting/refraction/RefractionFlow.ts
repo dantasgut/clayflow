@@ -71,6 +71,15 @@ export interface RefractionSlots extends SlotMap {
 }
 
 /** Resource de trabalho do `RefractionFlow` (spec 039). */
+/** As palavras (`vec4u`) do retrato das luzes no fim de `refraction_stamps`: 1 + 3 × 32 (as de `refraction_chain.wgsl`). */
+const REFRACTION_LIGHT_WORDS = 97;
+/** Os fins de caminho guardados (`refraction_ends.wgsl`): o cabeçalho, o lado do ladrilho e as palavras de uma página. */
+const ENDS_HEADER = 4;
+const ENDS_TILE = 8;
+const ENDS_PAGE_WORDS = 1536;
+/** As páginas crescem em passos destes. */
+const ENDS_PAGE_STEP = 256;
+
 class RefractionWork extends FlowWork {
     static readonly schema = new StructSchema('RefractionWork', {});
 }
@@ -202,6 +211,9 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     /** Blocos e pixels com que o registro dos blocos e os carimbos foram alocados (0 = nenhum). */
     private blocksAllocated = 0;
     private pixelsAllocated = 0;
+    /** Ladrilhos e páginas com que os fins de caminho foram alocados (0 = nenhum). */
+    private endTiles = 0;
+    private endPages = 0;
     /** Há o que traçar neste quadro (estrutura de raios, câmera, ligada). */
     private tracing = false;
     /** Revisão das funções `material` dos kernels de material da onda. */
@@ -478,9 +490,20 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
                     upload: 'never',
                     count: this.blocksAllocated,
                 },
+                // O carimbo de cada pixel e, no fim, o retrato das luzes (`REFRACTION_LIGHT_WORDS` em
+                // `refraction_chain.wgsl`: o quadro da última mudança e 3 palavras por luz acompanhada).
                 wordBuffer(
                     'refraction_stamps',
-                    this.pixelsAllocated * 4 * Uint32Array.BYTES_PER_ELEMENT,
+                    (this.pixelsAllocated + REFRACTION_LIGHT_WORDS) * 4 * Uint32Array.BYTES_PER_ELEMENT,
+                ),
+            );
+        // Os fins de caminho: o cabeçalho, a entrada de cada ladrilho e as páginas.
+        if (this.endTiles > 0)
+            out.push(
+                wordBuffer(
+                    'refraction_ends',
+                    (ENDS_HEADER + this.endTiles + this.endPages * ENDS_PAGE_WORDS)
+                        * Uint32Array.BYTES_PER_ELEMENT,
                 ),
             );
         return out;
@@ -544,6 +567,8 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             return;
         }
         const R = refractionResources;
+        const request = this.resources.textureOf(refraction, 'request')!;
+        this.syncEnds(c, request.width, request.height);
         // O gradiente temporal só quando um consumidor o alocou.
         const measures = this.resources.textureOf(refraction, 'gradient') !== undefined;
         // As texturas e onde cada uma é ligada (o gradiente lê as marcas de movimento no alfa do albedo).
@@ -681,6 +706,40 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             new Map<WgslResource, BindingSource>([
                 [refractionResources.blocks, this.blockRecords!],
                 [refractionResources.stamps, this.stamps!],
+            ]),
+        );
+    }
+
+    /**
+     * Os fins de caminho guardados (`refraction_ends.wgsl`): a entrada de cada ladrilho de 8 × 8 pixels da tela e as
+     * páginas — as dos ladrilhos com pixel traçado, medidas pela fila (um representante por bloco 2 × 2: um ladrilho
+     * cheio tem 16; o dobro dos ladrilhos cheios que a maior contagem lida ocupa, com folga de um quarto, em passos de
+     * `ENDS_PAGE_STEP`), no máximo uma por ladrilho e o que uma ligação de storage do adaptador comporta. Só cresce; a
+     * tela de outro tamanho recomeça. O buffer novo vem zerado: nenhum ladrilho com página.
+     */
+    private syncEnds(c: Ctx, width: number, height: number): void {
+        const tiles = Math.ceil(width / ENDS_TILE) * Math.ceil(height / ENDS_TILE);
+        const seen = Math.max(0, ...this.queueSeen);
+        const binding = this.core.capabilities().limits.maxStorageBufferBindingSize;
+        const fits =
+            binding === undefined
+                ? tiles
+                : Math.max(
+                      0,
+                      Math.floor(
+                          (binding / Uint32Array.BYTES_PER_ELEMENT - ENDS_HEADER - tiles)
+                              / ENDS_PAGE_WORDS,
+                      ),
+                  );
+        const wanted = Math.ceil((2 * 1.25 * seen) / 16 / ENDS_PAGE_STEP) * ENDS_PAGE_STEP;
+        const pages = Math.min(tiles, fits, Math.max(ENDS_PAGE_STEP, wanted));
+        if (this.endTiles === tiles && this.endPages >= pages) return;
+        this.endPages = pages;
+        this.endTiles = tiles;
+        this.work.work.refresh();
+        c.bind(
+            new Map<WgslResource, BindingSource>([
+                [refractionResources.ends, this.own('refraction_ends')],
             ]),
         );
     }

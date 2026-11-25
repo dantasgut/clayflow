@@ -16,7 +16,7 @@
 // Requer: WORKGROUP_SIZE, NONE, REFRACTION_FRAME_COUNT, refraction, refraction_path, refraction_queue_in,
 // refraction_frame, refraction_request, REFRACTION_REQUEST_VALID, REFRACTION_REQUEST_REFLECT, refraction_block, ray_volume_begin, ray_wave, RefractionChainState, refraction_paths, refraction_path_queue, refraction_round_count, refraction_radiance_out,
 // refraction_hit_out, refraction_hit_previous, refraction_albedo_out, refraction_noise_out, refraction_blocks,
-// refraction_stamps, refraction_splits.
+// refraction_stamps, refraction_splits, refraction_ends, cameras.
 
 /** Vagas por pixel. */
 const REFRACTION_CHAIN_SLOTS: u32 = 5u;
@@ -35,6 +35,8 @@ const REFRACTION_CHAIN_SPLIT: u32 = 4u;
  * escolhida entre muitas): só a luz dele tem ruído a filtrar.
  */
 const REFRACTION_CHAIN_SAMPLED: u32 = 16u;
+/** O caminho terminou escapando da cena (sem acerto): o fim dele se guarda (`refraction_ends.wgsl`). */
+const REFRACTION_CHAIN_ESCAPED: u32 = 32u;
 /**
  * A probabilidade mínima de cada lobo na roleta de Fresnel quando os dois levam luz (T075): pela probabilidade de Fresnel,
  * a reflexão de ~4 % ia numa amostra em 25 com o peso 25 — onde ela vê algo claro (o teto 10× mais claro visto pela
@@ -575,6 +577,7 @@ fn refraction_chain_follow_one(j: u32) {
         p.truncated += p.weight * n.truncated;
         // A luz que a sombra de quem se moveu tapa conta como mudança, além da que sobra no ponto.
         p.moving += p.weight * n.blocked;
+        if (p.hit_instance == NONE) { p.flags |= REFRACTION_CHAIN_ESCAPED; }
         refraction_paths[s] = refraction_chain_end(p, p.weight * n.radiance, n.end, n.albedo, false);
         return;
     }
@@ -835,6 +838,10 @@ fn refraction_chain_resolve_main(@builtin(global_invocation_id) gid: vec3u, @bui
         // A largura do cone do pixel no fim de maior luz.
         var width = 0.0;
         var pixel = NONE;
+        // Os fins que escapam (como ficam guardados) e a luz deles: o registro do pixel (`refraction_ends.wgsl`).
+        var escapes: array<RefractionEscape, REFRACTION_CHAIN_SLOTS>;
+        var escaped = vec3f(0.0);
+        let anchor = cameras[refraction.camera_slot].position.xyz;
         for (var k = 0u; k < REFRACTION_CHAIN_SLOTS; k++) {
             let p = refraction_paths[REFRACTION_CHAIN_SLOTS * i + k];
             if (p.pixel == NONE) { continue; }
@@ -852,6 +859,11 @@ fn refraction_chain_resolve_main(@builtin(global_invocation_id) gid: vec3u, @bui
             moving += p.moving;
             if ((p.flags & REFRACTION_CHAIN_SAMPLED) != 0u) { sampled += luminance(p.radiance); }
             if (p.alive != 0u) { continue; }
+            if ((p.flags & REFRACTION_CHAIN_ESCAPED) != 0u) {
+                let e = refraction_ends_stored(RefractionEscape(p.origin - anchor, p.dir, p.weight));
+                escapes[k] = e;
+                escaped += e.weight * refraction_escape_light(anchor + e.offset, e.dir);
+            }
             let l = luminance(p.radiance);
             albedo += l * p.albedo;
             light += l;
@@ -871,6 +883,14 @@ fn refraction_chain_resolve_main(@builtin(global_invocation_id) gid: vec3u, @bui
         // O representante do bloco 2×2 (meia resolução): o resultado vai ao registro do bloco; a reconstrução
         // (`refraction_chain_upsample_main`) o leva aos pixels pedidos.
         let request = textureLoad(refraction_request, px, 0);
+        // O registro dos fins do pixel traçado, com a luz do caminho menos a deles (a que não se recalcula): a soma das
+        // duas, com as luzes do traçado, é a radiância dele.
+        let entry = refraction_ends_entry(px, size);
+        if (entry != 0u) {
+            let at = refraction_ends_at(entry, px, size);
+            for (var k = 0u; k < REFRACTION_CHAIN_SLOTS; k++) { refraction_ends_put(at, k, escapes[k]); }
+            refraction_ends_close(at, radiance - escaped);
+        }
         refraction_blocks[refraction_blocks_index(px, size)] = RefractionBlock(vec4f(radiance, truncated), end,
             vec4f(a, moved), vec4u(refraction.frame, px.x | (px.y << 16u), request.x, request.y), noisy, width, 0.0);
     }
@@ -918,6 +938,82 @@ fn refraction_pixel_depth_step(q: vec2u, size: vec2u, flags: u32, d: f32) -> f32
         if (k < 2u) { axis.x = max(axis.x, diff); } else { axis.y = max(axis.y, diff); }
     }
     return axis.x + axis.y;
+}
+
+/** A luz que o caminho que escapa por (o, d) encontra: o ambiente e as luzes de área vistas de frente. */
+fn refraction_escape_light(o: vec3f, d: vec3f) -> vec3f {
+    return scene_environment(d) + refraction_lights_seen(o, d, REFRACTION_FAR);
+}
+
+/** A radiância do registro em `at` com as luzes de agora: a luz que fica mais a de cada fim que escapa. */
+fn refraction_ends_light(at: u32) -> vec3f {
+    let anchor = cameras[refraction.camera_slot].position.xyz;
+    var sum = refraction_ends_rest(at);
+    for (var k = 0u; k < REFRACTION_CHAIN_SLOTS; k++) {
+        let e = refraction_ends_get(at, k);
+        if (all(e.weight <= vec3f(0.0))) { continue; }
+        sum += e.weight * refraction_escape_light(anchor + e.offset, e.dir);
+    }
+    return max(sum, vec3f(0.0));
+}
+
+/** Luzes do pool acompanhadas pelo retrato (as primeiras) e as palavras dele no fim de `refraction_stamps`. */
+const REFRACTION_LIGHT_MEMORY: u32 = 32u;
+const REFRACTION_LIGHT_WORDS: u32 = 97u;
+/**
+ * Quadros depois da última mudança das luzes em que nenhum valor antigo fica: a volta do representante pelo bloco (6
+ * quadros; em xadrez, 11) — até lá todo pixel foi traçado com a luz nova.
+ */
+const REFRACTION_LIGHT_FRAMES: u32 = 12u;
+
+/** Onde começa o retrato das luzes em `refraction_stamps` (depois do carimbo de cada pixel). */
+fn refraction_light_base() -> u32 {
+    return arrayLength(&refraction_stamps) - REFRACTION_LIGHT_WORDS;
+}
+
+/**
+ * Compara as luzes do quadro com o retrato guardado (a posição a mais de 1 mm, a direção a mais de 0,02°, a radiância
+ * a mais de 0,5 %, o tipo ou a contagem) e, se alguma mudou, guarda o retrato novo e o quadro. O retrato só troca na
+ * mudança: a luz que anda devagar, abaixo das folgas a cada quadro, muda quando se afasta da guardada. Uma invocação
+ * por quadro (a 0 do passe da mudança dos blocos), antes da reconstrução, que lê o resultado.
+ */
+fn refraction_lights_track() {
+    let base = refraction_light_base();
+    let count = min(min(refraction.light_count, arrayLength(&lights)), REFRACTION_LIGHT_MEMORY);
+    var changed = refraction_stamps[base].y != count;
+    for (var k = 0u; k < REFRACTION_LIGHT_MEMORY; k++) {
+        if (k >= count) { break; }
+        let light = lights[k];
+        let at = base + 1u + 3u * k;
+        let a = refraction_stamps[at];
+        let b = refraction_stamps[at + 1u];
+        let c = refraction_stamps[at + 2u];
+        let radiance = light.color.rgb * light.intensity;
+        let kept = bitcast<vec3f>(c.xyz);
+        changed = changed || a.w != light.kind
+            || distance(bitcast<vec3f>(a.xyz), light.position.xyz) > 1e-3
+            || distance(bitcast<vec3f>(b.xyz), light.direction.xyz) > 3.5e-4
+            || any(abs(kept - radiance) > 0.005 * max(kept, radiance) + vec3f(1e-6));
+    }
+    if (!changed) { return; }
+    refraction_stamps[base] = vec4u(refraction.frame, count, 0u, 0u);
+    for (var k = 0u; k < REFRACTION_LIGHT_MEMORY; k++) {
+        if (k >= count) { break; }
+        let light = lights[k];
+        let at = base + 1u + 3u * k;
+        refraction_stamps[at] = vec4u(bitcast<vec3u>(light.position.xyz), light.kind);
+        refraction_stamps[at + 1u] = vec4u(bitcast<vec3u>(light.direction.xyz), 0u);
+        refraction_stamps[at + 2u] = vec4u(bitcast<vec3u>(light.color.rgb * light.intensity), 0u);
+    }
+}
+
+/**
+ * As luzes mudaram há pouco (`REFRACTION_LIGHT_FRAMES`)? Então o que cada pixel mostra mudou mesmo com a câmera e a
+ * cena paradas, e o valor exato guardado de quadros atrás não fica — cada pixel do bloco 2 × 2 ficava com a luz de um
+ * quadro diferente: a grade de pontos nas gemas com as luzes do estúdio girando e a câmera parada.
+ */
+fn refraction_lights_changed() -> bool {
+    return refraction.frame - refraction_stamps[refraction_light_base()].x < REFRACTION_LIGHT_FRAMES;
 }
 
 /** A câmera da refração não se moveu desde o quadro anterior (a vista-projeção sem o deslocamento da amostra igual)? */
@@ -1055,6 +1151,7 @@ fn refraction_chain_change_main(@builtin(global_invocation_id) gid3: vec3u, @bui
     let blocks = vec2i((size + vec2u(1u)) / 2u);
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i >= u32(blocks.x * blocks.y)) { return; }
+    if (i == 0u) { refraction_lights_track(); }
     let block = refraction_blocks[i];
     if (block.tag.x != refraction.frame || !refraction_camera_still()) { return; }
     let rep = vec2u(block.tag.y & 0xFFFFu, block.tag.y >> 16u);
@@ -1138,7 +1235,13 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     }
     // A luz da mesma superfície em volta veio por algo que se moveu (a água atrás do vidro, a película nele)? Então o
     // que o pixel mostra mudou mesmo com a primeira superfície parada: o valor exato antigo não fica.
-    var moving = changed;
+    // Com as luzes mudando, o valor exato de quadros atrás traz a luz de antes: fica só o pixel com os fins de caminho
+    // guardados (a página do ladrilho dele, `refraction_ends.wgsl`), que recalcula a luz deles com as de agora — e com a
+    // câmera parada, a condição do valor que fica; senão, como onde algo se moveu.
+    let lit = refraction_lights_changed();
+    let entry = refraction_ends_entry(q, size);
+    let still = refraction_camera_still();
+    var moving = changed || (lit && (entry == 0u || !still));
     // A faixa da luminância dos representantes de agora da mesma superfície (`REFRACTION_KEEP_RANGE`).
     var low = 3.0e38;
     var high = 0.0;
@@ -1202,9 +1305,13 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     if (own_traced && !moving) {
         textureStore(refraction_radiance_out, q, own_block.radiance);
         textureStore(refraction_hit_out, q, own_block.end);
-        textureStore(refraction_albedo_out, q, own_block.albedo);
+        // Com as luzes mudando, a marca de movimento cheia: o filtro do sinal traçado (`refraction_change`) encurta o
+        // histórico do pixel — senão acumulava a luz de quadros diferentes.
+        textureStore(refraction_albedo_out, q, vec4f(own_block.albedo.rgb, select(own_block.albedo.a, 1.0, lit)));
         textureStore(refraction_noise_out, q, vec4f(own_block.noise));
-        refraction_stamps[i] = vec4u(refraction.frame + 1u, own.x, bitcast<u32>(luminance(own_block.radiance.rgb)), 0u);
+        // O carimbo: o quadro, a distância do pedido, a luminância e a energia truncada do valor exato.
+        refraction_stamps[i] = vec4u(refraction.frame + 1u, own.x, bitcast<u32>(luminance(own_block.radiance.rgb)),
+            bitcast<u32>(own_block.radiance.a));
         return;
     }
     // A mesma superfície de quando foi traçado (na volta corrente, a distância do pedido não mudou): o valor exato fica.
@@ -1222,16 +1329,25 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     // Com a câmera em movimento, nenhum valor fica: a tolerância da distância é a variação dela entre vizinhos, e vendo o
     // vidro ou a água quase de lado ela é grande — a câmera girava e 3 de cada 4 pixels mostravam por até 4 quadros a
     // imagem refratada antiga (a refração com retardo).
-    let still = refraction_camera_still();
     let kept_lum = bitcast<f32>(stamp.z);
     let margin = REFRACTION_KEEP_RANGE * high;
     // A faixa só onde a vizinhança é lisa (a trama aparecia no plano liso; na borda e no detalhe o valor exato fora da
     // faixa dos representantes é a resolução cheia).
     let flat = high - low <= REFRACTION_KEEP_FLAT * high;
     let in_range = (kept_lum >= low - margin && kept_lum <= high + margin) || noisy > REFRACTION_KEEP_NOISY || !flat;
+    // Com as luzes mudando, o registro dos fins do traçado guardado (o do carimbo): sem ele, a reconstrução.
+    var at = 0u;
+    if (lit && entry != 0u) { at = refraction_ends_at(entry, q, size); }
+    let relit = lit && entry != 0u && refraction_ends_tag(at) == stamp.x;
     if (still && !moving && in_range && stamp.x != 0u && refraction.frame + 1u - stamp.x < stamp_frames
-        && abs(ds - d) <= tolerance) {
+        && abs(ds - d) <= tolerance && (!lit || relit)) {
         textureStore(refraction_hit_out, q, kept);
+        if (relit) {
+            // O caminho do último traçado do pixel com as luzes de agora.
+            let radiance = refraction_ends_light(at);
+            textureStore(refraction_radiance_out, q, vec4f(radiance, bitcast<f32>(stamp.w)));
+            refraction_stamps[i] = vec4u(stamp.x, stamp.y, bitcast<u32>(luminance(radiance)), stamp.w);
+        }
         return;
     }
     refraction_stamps[i] = vec4u(0u);
@@ -1247,6 +1363,9 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     }
     textureStore(refraction_radiance_out, q, sum / weight);
     textureStore(refraction_hit_out, q, end);
-    textureStore(refraction_albedo_out, q, albedo / weight);
+    // Com as luzes mudando, a marca de movimento do pixel fica cheia: o filtro do sinal traçado (`refraction_change`)
+    // encurta o histórico dele como onde algo se moveu — senão acumulava em cada pixel a luz de quadros diferentes.
+    let mixed = albedo / weight;
+    textureStore(refraction_albedo_out, q, vec4f(mixed.rgb, select(mixed.a, 1.0, refraction_lights_changed())));
     textureStore(refraction_noise_out, q, vec4f(noise / weight));
 }

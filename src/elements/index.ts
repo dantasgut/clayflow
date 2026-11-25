@@ -43,6 +43,8 @@ export {
     defaultNodeRegistry,
     compareOps,
     SetNodeKernels,
+    meshSource,
+    type MeshSourceData,
     type CameraArgument,
     type ParticleArgument,
 } from './nodes/index';

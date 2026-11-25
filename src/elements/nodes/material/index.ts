@@ -7,13 +7,60 @@ import {
     chrome,
     copper,
     gold,
+    goldLeaf,
     metalBrushed,
     metalOxidized,
     metalPolished,
+    goldMatte,
+    silver,
+    silverMatte,
 } from './metal';
+import {
+    amber,
+    amethyst,
+    aquamarine,
+    citrine,
+    crystal,
+    diamond,
+    emerald,
+    garnet,
+    glassAmber,
+    glassBlue,
+    glassFrosted,
+    glassGreen,
+    lapisLazuli,
+    malachite,
+    obsidian,
+    onyx,
+    opal,
+    peridot,
+    quartz,
+    roseQuartz,
+    ruby,
+    sapphire,
+    topaz,
+    turquoise,
+} from './gems';
 import { aluminiumAnodized, bronzePatina, castIron, metalHammered } from './metalFinish';
 import { carbonFiber, ice, ivory, motherOfPearl, paper, snow, soap } from './organic';
 import { openpbr } from './openpbr';
+import {
+    asphaltCoarse,
+    asphaltCracked,
+    asphaltFine,
+    bamboo,
+    cobblestone,
+    concreteBlock,
+    concreteSlab,
+    flagstone,
+    grassPaver,
+    gravel,
+    pavementPortuguese,
+    paverHerringbone,
+    stackedSlate,
+    stoneSetts,
+    stoneWall,
+} from './paving';
 import { bark, barkPine, corkStopper, leaf, leafDry, leafMatte } from './plant';
 import { roofSlate, roofTile } from './roof';
 import {
@@ -42,6 +89,7 @@ import {
     glass,
     jade,
     lips,
+    lipsHeight,
     marble,
     milk,
     porcelain,
@@ -67,7 +115,7 @@ import {
 } from './woodSpecies';
 
 /**
- * Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de 71 materiais prontos — cada um um nó
+ * Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de 120 materiais prontos — cada um um nó
  * sem ligações obrigatórias que devolve o fechamento, com os parâmetros expostos (valor por uso, sem recompilar) também
  * como entradas (ligáveis a outros nós). Usados inteiros (`Materials.x()`), abertos e religados, ou como nó de um grafo
  * maior.
@@ -106,6 +154,7 @@ export const material = {
     jade,
     milk,
     gold,
+    goldLeaf,
     copper,
     brass,
     chrome,
@@ -151,6 +200,51 @@ export const material = {
     ivory,
     motherOfPearl,
     snow,
+    asphaltFine,
+    asphaltCoarse,
+    asphaltCracked,
+    pavementPortuguese,
+    grassPaver,
+    paverHerringbone,
+    concreteBlock,
+    concreteSlab,
+    stoneSetts,
+    stoneWall,
+    stackedSlate,
+    flagstone,
+    cobblestone,
+    bamboo,
+    gravel,
+    silver,
+    goldMatte,
+    silverMatte,
+    glassGreen,
+    glassBlue,
+    glassAmber,
+    glassFrosted,
+    crystal,
+    quartz,
+    amethyst,
+    citrine,
+    roseQuartz,
+    diamond,
+    ruby,
+    sapphire,
+    emerald,
+    aquamarine,
+    topaz,
+    garnet,
+    peridot,
+    amber,
+    obsidian,
+    turquoise,
+    lapisLazuli,
+    malachite,
+    opal,
+    onyx,
 } as const;
 
 export { relief } from './relief';
+
+/** Alturas por posição (a entrada `height` de `set.displace`): o relevo de um material pronto como geometria. */
+export const height = { lips: lipsHeight } as const;

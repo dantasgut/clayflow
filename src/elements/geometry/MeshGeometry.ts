@@ -129,6 +129,107 @@ export class MeshGeometry extends Geometry<MeshGeometryData> {
     }
 
     /** As normais por vértice: a soma das normais dos triângulos do vértice, pesada pela área, normalizada. */
+    /**
+     * A malha com os triângulos de uma região divididos `levels` vezes (cada nível: o meio de cada aresta dos
+     * triângulos cujo centro passa em `inside`; quatro triângulos por triângulo) — a resolução para um relevo fino como
+     * geometria (`set.displace`) só onde ele existe: os lábios de um rosto, sem multiplicar a cabeça toda. Os vizinhos
+     * da região dividem só as arestas partilhadas (em dois ou três triângulos): a malha segue fechada, sem vértice no
+     * meio de aresta alheia — também na costura do uv, onde as arestas se reconhecem pela posição. O vértice novo é o
+     * meio da aresta (posição e uv) com a normal média: a forma não muda.
+     * @throws RangeError se `levels` não é inteiro em [0, 8].
+     */
+    refined(levels: number, inside: (x: number, y: number, z: number) => boolean): MeshGeometry {
+        if (!Number.isInteger(levels) || levels < 0 || levels > 8)
+            throw new RangeError(`MeshGeometry.refined: levels ${levels} inválido (inteiro em [0, 8]).`);
+        let vertices: number[] = Array.from(this.data.vertices);
+        let indices: number[] = Array.from(this.data.indices);
+        for (let level = 0; level < levels; level++) {
+            const n = vertices.length / 8;
+            // A posição dona de cada vértice: os repetidos na costura do uv marcam a mesma aresta.
+            const owners = new Map<string, number>();
+            const owner = new Uint32Array(n);
+            for (let i = 0; i < n; i++) {
+                const key = `${vertices[i * 8]},${vertices[i * 8 + 1]},${vertices[i * 8 + 2]}`;
+                let o = owners.get(key);
+                if (o === undefined) {
+                    o = i;
+                    owners.set(key, o);
+                }
+                owner[i] = o;
+            }
+            const edge = (a: number, b: number): number => {
+                const [oa, ob] = [owner[a]!, owner[b]!];
+                return oa < ob ? oa * n + ob : ob * n + oa;
+            };
+            const marked = new Set<number>();
+            for (let t = 0; t < indices.length; t += 3) {
+                const [a, b, c] = [indices[t]!, indices[t + 1]!, indices[t + 2]!];
+                const centre = [0, 1, 2].map(
+                    (k) => (vertices[a * 8 + k]! + vertices[b * 8 + k]! + vertices[c * 8 + k]!) / 3,
+                );
+                if (!inside(centre[0]!, centre[1]!, centre[2]!)) continue;
+                marked.add(edge(a, b)).add(edge(b, c)).add(edge(c, a));
+            }
+            if (marked.size === 0) break;
+            const middles = new Map<number, number>();
+            const middle = (a: number, b: number): number => {
+                const key = a < b ? a * n + b : b * n + a;
+                let m = middles.get(key);
+                if (m !== undefined) return m;
+                m = vertices.length / 8;
+                middles.set(key, m);
+                const [lo, hi] = a < b ? [a, b] : [b, a];
+                const v = Array.from(
+                    { length: 8 },
+                    (_, k) => (vertices[lo * 8 + k]! + vertices[hi * 8 + k]!) / 2,
+                );
+                const l = Math.hypot(v[3]!, v[4]!, v[5]!);
+                if (l > 0) for (let k = 3; k < 6; k++) v[k] = v[k]! / l;
+                vertices.push(...v);
+                return m;
+            };
+            const next: number[] = [];
+            for (let t = 0; t < indices.length; t += 3) {
+                const tri = [indices[t]!, indices[t + 1]!, indices[t + 2]!];
+                const split = [0, 1, 2].map((k) => marked.has(edge(tri[k]!, tri[(k + 1) % 3]!)));
+                const count = split.filter(Boolean).length;
+                if (count === 0) {
+                    next.push(...tri);
+                    continue;
+                }
+                // Roda o triângulo: com uma aresta dividida, ela é a primeira; com duas, a inteira é a última.
+                const first = count === 2 ? (split.indexOf(false) + 1) % 3 : split.indexOf(true);
+                const [a, b, c] = [tri[first]!, tri[(first + 1) % 3]!, tri[(first + 2) % 3]!];
+                const ab = middle(a, b);
+                if (count === 1) {
+                    next.push(a, ab, c, ab, b, c);
+                    continue;
+                }
+                const bc = middle(b, c);
+                if (count === 2) {
+                    next.push(ab, b, bc, a, ab, bc, a, bc, c);
+                    continue;
+                }
+                const ca = middle(c, a);
+                next.push(a, ab, ca, ab, b, bc, ca, bc, c, ab, bc, ca);
+            }
+            indices = next;
+        }
+        const count = vertices.length / 8;
+        const pick = (from: number, size: number): number[] => {
+            const out: number[] = [];
+            for (let i = 0; i < count; i++)
+                for (let k = 0; k < size; k++) out.push(vertices[i * 8 + from + k]!);
+            return out;
+        };
+        return new MeshGeometry({
+            positions: pick(0, 3),
+            indices,
+            normals: pick(3, 3),
+            uvs: pick(6, 2),
+        });
+    }
+
     private static smoothNormals(
         positions: ArrayLike<number>,
         indices: ArrayLike<number>,

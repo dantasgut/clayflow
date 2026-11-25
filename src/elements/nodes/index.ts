@@ -9,7 +9,7 @@ import { bsdf } from './bsdf';
 import { closure } from './closure';
 import { geometry } from './geometry';
 import { image } from './image';
-import { material, relief } from './material';
+import { height, material, relief } from './material';
 import { math } from './math';
 import { noise } from './noise';
 import { pattern } from './pattern';
@@ -33,6 +33,8 @@ import { surface } from './surface';
 
 export { compareOps } from './condition';
 export { SetNodeKernels } from './set/SetNodeKernels';
+/** `meshSource(geometry.data)`: o nó de conjunto fonte de uma malha dada (`set.mesh`). */
+export { mesh as meshSource, type MeshSourceData } from './set';
 export type { CameraArgument, ParticleArgument } from './input';
 
 /** Nós de conjunto (spec 031, US3): malha, pontos, as primitivas paralelas sobre conjuntos u32 (FR-027) e as saídas. */
@@ -77,6 +79,7 @@ export const nodes = {
     output,
     material,
     relief,
+    height,
     image,
     set,
 } as const;
@@ -106,5 +109,6 @@ export const defaultNodeRegistry = new NodeRegistry([
     ...Object.values(set),
     ...Object.values(material),
     ...Object.values(relief),
+    ...Object.values(height),
     ...Object.values(image),
 ]);

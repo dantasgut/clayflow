@@ -1,3 +1,4 @@
+import { pavingRelief } from './paving';
 import { NodeGraph } from '../../../scene/graph/NodeGraph';
 import { Subgraph } from '../../../scene/graph/Subgraph';
 import { input } from '../input';
@@ -1173,4 +1174,5 @@ export const relief = {
     woodAshBrushed,
     woodPineFine,
     woodSolid,
+    ...pavingRelief,
 } as const;
