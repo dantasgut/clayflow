@@ -194,6 +194,32 @@ fn refraction_fog_inscatter(m: RefractionMedium, o: vec3f, d: vec3f, t: f32, sta
 const REFRACTION_FOG_REACH: f32 = 1.0e3;
 
 /**
+ * A luminância das luzes de área (os painéis retangulares, cd/m²) que o raio de origem `o` e direção `d` encontra de
+ * frente antes de `tmax`: a fonte vista diretamente pelo caminho que escapa — depois de qualquer número de reflexões
+ * e refrações, é a imagem dela através da peça (a faísca numa faceta da gema lapidada, o reflexo do painel no vidro).
+ * As luzes não são geometria da cena: sem isto o caminho que sai na direção de um painel só via o ambiente. As
+ * direcionais com disco (o sol) seguem pelo `refraction_glint`; as sem área não têm imagem.
+ */
+fn refraction_lights_seen(o: vec3f, d: vec3f, tmax: f32) -> vec3f {
+    var sum = vec3f(0.0);
+    let count = min(min(refraction.light_count, arrayLength(&lights)), LIGHT_LIMIT);
+    for (var i = 0u; i < count; i++) {
+        let light = lights[i];
+        if (light.kind != 3u) { continue; }
+        let nl = normalize(light.direction.xyz);
+        let facing = dot(d, nl);
+        if (facing >= -1e-4) { continue; }
+        let t = dot(light.position.xyz - o, nl) / facing;
+        if (t <= 1e-4 || t >= tmax) { continue; }
+        let q = o + d * t - light.position.xyz;
+        let ax = normalize(light.axis.xyz - nl * dot(nl, light.axis.xyz));
+        if (abs(dot(q, ax)) > light.cones.x || abs(dot(q, cross(nl, ax))) > light.cones.y) { continue; }
+        sum += light.color.rgb * light.intensity;
+    }
+    return sum;
+}
+
+/**
  * O brilho das luzes de disco (as direcionais com raio angular, `cones.z`: o sol) refletido por uma interface dielétrica
  * (a água, o vidro) para quem vê de `v`, no ponto `p` de normal de face `nf` (rgb; no w, a luminância do brilho tapado
  * por instâncias que se moveram): o lobo refletido da interface — o GGX na normal do fechamento `c` (a ondulação, o
@@ -618,7 +644,7 @@ fn refraction_node_at(o: vec3f, d: vec3f, hit: RayHit, c: Closure, other: RayHit
     refraction_wet_trapped = false;
     n.through = refraction_absorb(vec3f(1.0), refraction_current(stack), min(hit.t, REFRACTION_FAR));
     if (hit.instance == NONE) {
-        n.radiance = scene_environment(d);
+        n.radiance = scene_environment(d) + refraction_lights_seen(o, d, REFRACTION_FAR);
         n.end = refraction_end(o + d * REFRACTION_FAR, NONE);
         return n;
     }
