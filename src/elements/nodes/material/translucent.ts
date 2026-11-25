@@ -321,7 +321,9 @@ export const skinDetailed = Subgraph.point(
  * pele ((1,8; 0,75; 0,5) mm, estimado: a camada de cima é fina e o vermelho atravessa mais), com `scale` unidades do
  * mundo por metro. Os padrões são maciços (a posição no objeto, `pattern_scale` por unidade; as linhas correm ao longo
  * do eixo y do objeto: o lábio de uma cabeça em pé). Num rosto, mistura-se à pele por uma máscara (`closure.mix`).
- * Parâmetros: `color`, `line_color`, `line_height`, `fold_height`, `dome_height` (0,8 mm: o abaulado de cada gomo, que
+ * Os vincos e as linhas abrem em leque e curvam para fora a partir do meio da boca (`centre`, na coordenada dos
+ * padrões; `fan`, a curvatura: 0 dá retas paralelas, o padrão — numa cabeça de 1,4 unidade, 140).
+ * Parâmetros: `color`, `line_color`, `centre`, `fan`, `line_height`, `fold_height`, `dome_height` (0,8 mm: o abaulado de cada gomo, que
  * dá a cada um o seu realce), `gloss`, `roughness`, `wet_roughness`, `ior`, `radius`, `scale`,
  * `pattern_scale`.
  */
@@ -332,6 +334,19 @@ export const lips = Subgraph.point(
             solid: surface.solidSpace,
             tile: math.value.with({ value: 1 }),
             world: math.value.with({ value: 1 }),
+            // Os vincos de um lábio não são retas paralelas: abrem-se em leque e curvam para fora ao se afastar da linha da
+            // boca. A coordenada dos padrões é a posição relativa ao meio da boca (`centre`) com o x dividido por
+            // 1 + `fan` · y²: as linhas de fase constante são parábolas que se afastam do meio (`fan` 0: retas).
+            centre: math.value3.with({ value: [0, 0, 0] }),
+            fan: math.value.with({ value: 0 }),
+            rel: math.sub3,
+            axes: math.split3,
+            y2: math.mul,
+            spread: math.mul,
+            one: math.value.with({ value: 1 }),
+            den: math.add,
+            qx: math.div,
+            bent: math.combine3,
             // Os sulcos: variam depressa na horizontal e devagar na vertical (correm de cima a baixo).
             lines: pattern.grain3.with({ scale: [90, 6, 30], octaves: 2, gain: 0.6, seed: 81 }),
             // Os gomos: o lábio dividido de cima a baixo em almofadas largas por vincos estreitos, irregulares e que se
@@ -375,14 +390,28 @@ export const lips = Subgraph.point(
             ['s.duvdy', 'solid.duvdy'],
             ['s.footprint', 'solid.footprint'],
             ['tile.value', 'solid.scale'],
-            ['solid.p', 'lines.p'],
+            ['solid.p', 'rel.a'],
+            ['centre.value', 'rel.b'],
+            ['rel.value', 'axes.v'],
+            ['axes.y', 'y2.a'],
+            ['axes.y', 'y2.b'],
+            ['fan.value', 'spread.a'],
+            ['y2.value', 'spread.b'],
+            ['one.value', 'den.a'],
+            ['spread.value', 'den.b'],
+            ['axes.x', 'qx.a'],
+            ['den.value', 'qx.b'],
+            ['qx.value', 'bent.x'],
+            ['axes.y', 'bent.y'],
+            ['axes.z', 'bent.z'],
+            ['bent.value', 'lines.p'],
             ['solid.width', 'lines.width'],
             ['solid.p', 'mottle.p'],
             ['solid.width', 'mottle.width'],
             ['lines.value', 'groove.x'],
             ['base.value', 'lined.a'],
             ['dark.value', 'lined.b'],
-            ['solid.p', 'folds.p'],
+            ['bent.value', 'folds.p'],
             ['solid.width', 'folds.width'],
             ['folds.value', 'gomo.value'],
             ['folds.gradient', 'gomo.gradient'],
@@ -436,6 +465,8 @@ export const lips = Subgraph.point(
         expose: [
             ['base.value', 'color'],
             ['dark.value', 'line_color'],
+            ['centre.value', 'centre'],
+            ['fan.value', 'fan'],
             ['relief.height', 'line_height'],
             ['fold_relief.height', 'fold_height'],
             ['dome_relief.height', 'dome_height'],
