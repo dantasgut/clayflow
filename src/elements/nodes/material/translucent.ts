@@ -314,14 +314,15 @@ export const skinDetailed = Subgraph.point(
  * `material.lips` — os lábios: a pele fina e sem pigmento do vermelhão, por onde se vê o sangue. Rosa escuro
  * (`color`), manchado de leve, com as linhas finas que cruzam o lábio de cima a baixo (os sulcos verticais: um grão
  * maciço alongado na vertical, `line_height` 0,06 mm de fundo, mais escuros no fundo), os gomos — as almofadas largas
- * separadas por vincos estreitos de cima a baixo, que se juntam como as nervuras de uma folha (`fold_height`, 0,5 mm
+ * separadas por vincos estreitos de cima a baixo, que se juntam como as nervuras de uma folha (`fold_height`, 0,9 mm
  * de fundo) — e o brilho de uma superfície
- * úmida — dois lobos da interface (IOR 1,4): o seco (`roughness`, 0,5) e o molhado (`wet_roughness`, 0,18),
+ * úmida — dois lobos da interface (IOR 1,4): o seco (`roughness`, 0,5) e o molhado (`wet_roughness`, 0,1),
  * misturados por `gloss` em [0, 1], que some dentro dos sulcos. O corpo é subsuperfície, de raio mais longo que o da
- * pele ((3; 1,2; 0,8) mm, estimado: a camada de cima é fina e o vermelho atravessa mais), com `scale` unidades do
+ * pele ((1,8; 0,75; 0,5) mm, estimado: a camada de cima é fina e o vermelho atravessa mais), com `scale` unidades do
  * mundo por metro. Os padrões são maciços (a posição no objeto, `pattern_scale` por unidade; as linhas correm ao longo
  * do eixo y do objeto: o lábio de uma cabeça em pé). Num rosto, mistura-se à pele por uma máscara (`closure.mix`).
- * Parâmetros: `color`, `line_color`, `line_height`, `fold_height`, `gloss`, `roughness`, `wet_roughness`, `ior`, `radius`, `scale`,
+ * Parâmetros: `color`, `line_color`, `line_height`, `fold_height`, `dome_height` (0,8 mm: o abaulado de cada gomo, que
+ * dá a cada um o seu realce), `gloss`, `roughness`, `wet_roughness`, `ior`, `radius`, `scale`,
  * `pattern_scale`.
  */
 export const lips = Subgraph.point(
@@ -338,9 +339,12 @@ export const lips = Subgraph.point(
             // por um limiar: 1 no gomo, 0 no fundo do vinco).
             folds: pattern.grain3.with({ scale: [46, 2.2, 14], octaves: 2, gain: 0.3, seed: 83 }),
             gomo: pattern.threshold3.with({ low: -0.62, high: 0.3 }),
-            crease: map.range.with({ in_min: 0.6, in_max: 0, out_min: 0, out_max: 0.3 }),
+            crease: map.range.with({ in_min: 0.6, in_max: 0, out_min: 0, out_max: 0.42 }),
             deep: math.max,
-            fold_relief: surface.solidRelief.with({ height: 0.5, level: 1 }),
+            fold_relief: surface.solidRelief.with({ height: 0.9, level: 1 }),
+            // O gomo é abaulado (a almofada sobe do vinco ao meio): cada um pega o seu próprio realce da luz.
+            dome_relief: surface.solidRelief.with({ height: 0.8 }),
+            dome_height: math.add3,
             height: math.add3,
             dull: math.mul,
             mottle: skinGrain(22, 2, 82),
@@ -351,10 +355,10 @@ export const lips = Subgraph.point(
             lined: math.mix3,
             uneven: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.88, out_max: 1.12 }),
             toned: math.scale3,
-            body: bsdf.subsurface.with({ radius: [3, 1.2, 0.8] }),
+            body: bsdf.subsurface.with({ radius: [1.8, 0.75, 0.5] }),
             dry: bsdf.dielectric.with({ ior: 1.4, roughness: 0.5 }),
-            wet: bsdf.dielectric.with({ ior: 1.4, roughness: 0.18 }),
-            gloss: math.value.with({ value: 0.5 }),
+            wet: bsdf.dielectric.with({ ior: 1.4, roughness: 0.1 }),
+            gloss: math.value.with({ value: 0.7 }),
             open: map.range.with({ in_min: 0.05, in_max: -0.45, out_min: 1, out_max: 0.1 }),
             shine: math.mul,
             specular: closure.mix,
@@ -410,8 +414,14 @@ export const lips = Subgraph.point(
             ['gomo.gradient', 'fold_relief.gradient'],
             ['solid.du', 'fold_relief.du'],
             ['solid.dv', 'fold_relief.dv'],
+            ['folds.value', 'dome_relief.value'],
+            ['folds.gradient', 'dome_relief.gradient'],
+            ['solid.du', 'dome_relief.du'],
+            ['solid.dv', 'dome_relief.dv'],
+            ['fold_relief.value', 'dome_height.a'],
+            ['dome_relief.value', 'dome_height.b'],
             ['relief.value', 'height.a'],
-            ['fold_relief.value', 'height.b'],
+            ['dome_height.value', 'height.b'],
             ['height.value', 'normal.relief'],
             ['world.value', 'normal.scale'],
             ['sum.value', 'out.c'],
@@ -428,6 +438,7 @@ export const lips = Subgraph.point(
             ['dark.value', 'line_color'],
             ['relief.height', 'line_height'],
             ['fold_relief.height', 'fold_height'],
+            ['dome_relief.height', 'dome_height'],
             ['gloss.value', 'gloss'],
             ['dry.roughness', 'roughness'],
             ['wet.roughness', 'wet_roughness'],
@@ -460,7 +471,7 @@ export const eye = Subgraph.point(
             s: input.surfaceSample(),
             solid: surface.solidSpace.with({ axis: [0, 0, 1] }),
             world: math.value.with({ value: 1 }),
-            parts: pattern.iris.with({ iris: 0.46, pupil: 0.36, fibers: 64, soften: 0.06 }),
+            parts: pattern.iris.with({ iris: 0.43, pupil: 0.36, fibers: 64, soften: 0.11 }),
             // A íris: a cor do centro à borda, as fibras (± 45 %) e o limbo escuro.
             hue: color.ramp.with({
                 color_a: [0.13, 0.062, 0.022],
@@ -481,13 +492,13 @@ export const eye = Subgraph.point(
             shade: math.mul,
             stroma: math.scale3,
             // A esclera e os vasos.
-            white: math.value3.with({ value: [0.5, 0.47, 0.45] }),
+            white: math.value3.with({ value: [0.46, 0.42, 0.39] }),
             vessel: math.value3.with({ value: [0.55, 0.12, 0.1] }),
-            veins: math.value.with({ value: 0.9 }),
+            veins: math.value.with({ value: 0.55 }),
             vein_amount: math.mul,
             sclera: math.mix3,
             // A esclera escurece e fica rosada dos cantos para trás (a conjuntiva, mais vascular longe da íris).
-            corner: math.value3.with({ value: [0.7, 0.5, 0.48] }),
+            corner: math.value3.with({ value: [0.62, 0.36, 0.33] }),
             cornered: math.mul3,
             shaded: math.mix3,
             corner_amount: map.range.with({ out_min: 0, out_max: 0.9 }),
