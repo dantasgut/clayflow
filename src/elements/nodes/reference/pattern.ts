@@ -1366,6 +1366,32 @@ export function patternThreshold(
     return { value: smooth(t), gradient: gradient.map((g) => s * g) };
 }
 
+/** `pattern.creases3`: o grão maciço de duas oitavas girado de `turn` em torno de z, recortado pelo limiar. */
+export function patternCreases3(
+    p: readonly number[],
+    width: number,
+    scale: readonly number[],
+    seed: number,
+    turn: number,
+    gain: number,
+    low: number,
+    high: number,
+): { value: number; gradient: number[] } {
+    const c = f32(Math.cos(turn));
+    const s = f32(Math.sin(turn));
+    const g = patternGrain3(
+        [f32(c * p[0]! + s * p[1]!), f32(c * p[1]! - s * p[0]!), p[2]!],
+        width,
+        scale,
+        seed,
+        2,
+        2,
+        gain,
+    );
+    const [gx, gy, gz] = g.gradient as [number, number, number];
+    return patternThreshold(g.value, [c * gx - s * gy, s * gx + c * gy, gz], low, high);
+}
+
 /**
  * Amostra comum dos padrões com relevo: `p` em [-4, 4]; a largura (um terço sem filtro); o período — um quarto das
  * amostras com período 2 ou 4 por eixo (frequência = células inteiras / período, exata em f32).
@@ -1900,5 +1926,34 @@ export const patternCases: readonly NodeCase[] = [
             };
         },
         reference: (x) => patternThreshold(num(x.value), vec(x.gradient), num(x.low), num(x.high)),
+    },
+    {
+        node: 'pattern.creases3',
+        tolerance: 5e-3,
+        sample: (r, k) => ({
+            p: vector(r, 3, -4, 4),
+            width: k % 3 === 0 ? 0 : uniform(r, 0.005, 0.2),
+            scale: [
+                [1, 1, 1],
+                [8, 0.5, 0.5],
+                [2, 4, 1],
+            ][k % 3]!,
+            seed: k % 5,
+            turn: uniform(r, -1.5, 1.5),
+            gain: uniform(r, 0.3, 0.7),
+            low: -0.4,
+            high: uniform(r, -0.2, 0.4),
+        }),
+        reference: (x) =>
+            patternCreases3(
+                vec(x.p),
+                num(x.width),
+                vec(x.scale),
+                num(x.seed),
+                num(x.turn),
+                num(x.gain),
+                num(x.low),
+                num(x.high),
+            ),
     },
 ];

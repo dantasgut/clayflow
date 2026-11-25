@@ -470,6 +470,30 @@ const grain3 = defineNode({
 });
 
 /**
+ * Sulcos maciços: uma família de sulcos finos e paralelos, irregulares, que se juntam — o grão maciço de duas oitavas
+ * (`scale` por eixo: (190, 16, 16) dá sulcos ao longo de `p.y`; `gain` a amplitude da segunda), girado de `turn`
+ * radianos em torno de `p.z` e recortado pelo limiar [`low`, `high`]. Duas famílias de `turn` opostos cruzam-se em
+ * losangos: a trama da pele do lábio. Saídas: `value` em [0, 1] (0 no fundo do sulco, 1 fora) e o `gradient` (∂/∂p).
+ */
+const creases3 = defineNode({
+    name: 'pattern.creases3',
+    // `scale` e `turn` são entradas com valor: duas famílias cruzadas partilham a escala e têm giros opostos.
+    inputs: { p: 'vec3f', width: 'f32', scale: 'vec3f', turn: 'f32' },
+    outputs: { value: 'f32', gradient: 'vec3f' },
+    params: {
+        width: { type: 'f32', default: 0 },
+        scale: { type: 'vec3f', default: [190, 16, 16] },
+        seed: { type: 'u32', default: 0 },
+        turn: { type: 'f32', default: 0 },
+        gain: { type: 'f32', default: 0.45 },
+        low: { type: 'f32', default: -0.5 },
+        high: { type: 'f32', default: -0.15 },
+    },
+    code: nodePattern,
+    fn: 'node_pattern_creases3',
+});
+
+/**
  * Tronco: os anéis de crescimento no volume — um tronco de eixo ao longo de `p.y`, `scale` anéis por unidade de raio,
  * a medula serpenteando (`wander`, `wander_scale`), os anéis ondulados (`waviness`, `waviness_scale`) e de largura
  * irregular (`irregularity` em [0, 1]), o perfil de `pattern.rings` (`fall`: a fração do anel em que o lenho tardio cai
@@ -557,4 +581,5 @@ export const pattern = {
     glints,
     threshold,
     threshold3,
+    creases3,
 } as const;

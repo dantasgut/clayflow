@@ -1234,6 +1234,21 @@ fn node_pattern_grain3(p: vec3f, width: f32, scale: vec3f, seed: u32, octaves: u
 }
 
 /**
+ * Sulcos maciços (spec 011): uma família de sulcos finos e paralelos, irregulares, que se juntam — o grão maciço de
+ * duas oitavas (`scale` por eixo: (190, 16, 16) dá sulcos ao longo de `p.y`), girado de `turn` radianos em torno de
+ * `p.z` (a família inclinada que cruza as outras: a trama da pele do lábio) e recortado pelo limiar [`low`, `high`].
+ * Saídas: o valor em [0, 1] (0 no fundo do sulco, 1 fora) e o gradiente ∂/∂p (o giro desfeito).
+ */
+fn node_pattern_creases3(p: vec3f, width: f32, scale: vec3f, turn: f32, seed: u32, gain: f32, low: f32, high: f32)
+    -> NodePatternThreshold3 {
+    let c = cos(turn);
+    let s = sin(turn);
+    let g = node_pattern_grain3(vec3f(c * p.x + s * p.y, c * p.y - s * p.x, p.z), width, scale, seed, 2u, 2.0, gain);
+    let back = vec3f(c * g.gradient.x - s * g.gradient.y, s * g.gradient.x + c * g.gradient.y, g.gradient.z);
+    return node_pattern_threshold3(g.value, back, low, high);
+}
+
+/**
  * Tronco (spec 011): os anéis de crescimento no volume — um tronco de eixo ao longo de `p.y` (a direção da fibra), com
  * a medula em `p.xz` = `wander` · ruído(`p.y` · `wander_scale`) (a medula serpenteia ao longo do tronco). O raio r =
  * |p.xz − medula| + `waviness` · ruído3(p · `waviness_scale`) (os anéis não são círculos) + os nós; `scale` anéis por
