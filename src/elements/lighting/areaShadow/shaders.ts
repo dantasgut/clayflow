@@ -20,7 +20,7 @@ import { AREA_SHADOW_FORMAT, AREA_SHADOW_POINT_FORMAT, AreaShadowSchema } from '
 
 /**
  * Parâmetros do `AreaShadowFlow` (uniform): a câmera, as luzes de área com sombra (quantas e o slot de cada uma no pool
- * `Light`, na ordem dos canais), o quadro (a posição da sequência do sorteio) e os quadros da média temporal.
+ * `Light`, na ordem dos canais), o quadro (a posição da sequência do sorteio) e os quadros da média temporal de cada luz.
  */
 export const AreaShadowParamsSchema = new StructSchema(
     'AreaShadowParams',
@@ -28,8 +28,9 @@ export const AreaShadowParamsSchema = new StructSchema(
         cameraSlot: FieldType.u32,
         count: FieldType.u32,
         frame: FieldType.u32,
-        historyMax: FieldType.f32,
+        _pad0: FieldType.u32,
         lights: FieldType.vec4u,
+        history: FieldType.vec4f,
     },
     { addressSpace: 'uniform' },
 );

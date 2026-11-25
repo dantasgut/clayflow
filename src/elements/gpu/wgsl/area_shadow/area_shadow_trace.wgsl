@@ -1,7 +1,10 @@
 // O traçado da sombra das luzes de área (spec 013, R5): por texel da meia resolução, um pixel do bloco 2 × 2 (o da vez no
-// quadro), o ponto de mundo dele pela profundidade da cena e, para cada luz de área com sombra, um raio a um ponto
-// sorteado no retângulo dela — 1 se chega, 0 se algo tapa. O ponto fica em `as_point_out` (w = 1; sem superfície, −1).
+// quadro), o ponto de mundo dele pela profundidade da cena e, para cada luz de área com sombra, `AS_RAYS` raios a pontos
+// sorteados no retângulo dela — a fração dos que chegam. O ponto fica em `as_point_out` (w = 1; sem superfície, −1).
 // Requer: view_space, random, cameras, lights, ray_scene, asp (parâmetros), area_shadow_depth (a profundidade da cena).
+
+/** Raios por texel e por luz a cada quadro. */
+const AS_RAYS: u32 = 4u;
 
 /** O pixel do bloco 2 × 2 traçado no quadro `frame`: os quatro em quatro quadros. */
 fn as_block_pixel(frame: u32) -> vec2i {
@@ -64,15 +67,21 @@ fn area_shadow_trace_main(@builtin(global_invocation_id) gid: vec3u) {
         // O ponto do retângulo: o sorteio do pixel avançado a cada quadro pela sequência R2 (as amostras de quadros
         // seguidos cobrem o retângulo por igual).
         var state = random_seed(RANDOM_STREAM_USER + 13u + c, index, 0u);
-        let u = fract(vec2f(random_unit(random_next(&state)), random_unit(random_next(&state)))
+        let turn = fract(vec2f(random_unit(random_next(&state)), random_unit(random_next(&state)))
             + f32(asp.frame & 1023u) * vec2f(0.7548776662, 0.5698402910));
-        let aim = centre + ax * ((2.0 * u.x - 1.0) * light.cones.x) + up * ((2.0 * u.y - 1.0) * light.cones.y);
-        let d = aim - origin;
-        let reach = length(d);
-        // O ponto do retângulo abaixo do horizonte da superfície não a ilumina (a integral da luz já o exclui): não
-        // conta como tapado.
-        if (reach <= 0.0 || dot(n, d) <= 0.0) { continue; }
-        if (ray_scene_occluded(origin, d / reach, reach * 0.999)) { visible[c] = 0.0; }
+        // `AS_RAYS` raios, um por célula de uma grade 2 × 2 do retângulo (o mesmo deslocamento em todas).
+        var blocked = 0.0;
+        for (var r = 0u; r < AS_RAYS; r++) {
+            let u = (vec2f(f32(r & 1u), f32(r >> 1u)) + turn) * 0.5;
+            let aim = centre + ax * ((2.0 * u.x - 1.0) * light.cones.x) + up * ((2.0 * u.y - 1.0) * light.cones.y);
+            let d = aim - origin;
+            let reach = length(d);
+            // O ponto do retângulo abaixo do horizonte da superfície não a ilumina (a integral da luz já o exclui): não
+            // conta como tapado.
+            if (reach <= 0.0 || dot(n, d) <= 0.0) { continue; }
+            if (ray_scene_occluded(origin, d / reach, reach * 0.999)) { blocked += 1.0; }
+        }
+        visible[c] = 1.0 - blocked / f32(AS_RAYS);
     }
     textureStore(as_traced_out, q, visible);
     textureStore(as_point_out, q, vec4f(p, 1.0));

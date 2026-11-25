@@ -65,11 +65,14 @@ fn area_shadow_temporal_main(@builtin(global_invocation_id) gid: vec3u) {
     if (weight > 1.0e-3) {
         past /= weight;
         frames /= weight;
-        let band = 2.0 * sigma / sqrt(max(count, 1.0)) + vec4f(0.1);
+        let band = 2.0 * sigma / sqrt(max(count, 1.0)) + vec4f(0.03);
         let kept = clamp(past, mean - band, mean + band);
-        let alpha = max(1.0 / (frames + 1.0), 1.0 / max(asp.historyMax, 1.0));
+        // Os quadros da média por luz: a que mudou de lugar ou de tamanho há pouco fica com poucos (o histórico dela
+        // não vale mais em lugar nenhum).
+        let most = max(asp.history, vec4f(1.0));
+        let alpha = max(vec4f(1.0 / (frames + 1.0)), vec4f(1.0) / most);
         value = mix(kept, traced, alpha);
-        age = min(frames + 1.0, max(asp.historyMax, 1.0));
+        age = min(frames + 1.0, max(max(most.x, most.y), max(most.z, most.w)));
     }
     textureStore(as_accumulated_out, q, value);
     textureStore(as_history_out, q, vec4f(p, age));

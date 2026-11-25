@@ -71,6 +71,9 @@ class AreaShadowWork extends FlowWork {
 type Ctx = TransitionContext<AreaShadowSlots>;
 
 const R = areaShadowResources;
+/** Quadros da média temporal da sombra de uma luz que está mudando, e por quantos quadros depois da última mudança. */
+const MOVING_HISTORY = 2;
+const MOVING_FRAMES = 4;
 const TEMPORAL = 'area_shadow:temporal';
 const ATROUS_A = 'area_shadow:atrous_a';
 const ATROUS_B = 'area_shadow:atrous_b';
@@ -103,6 +106,9 @@ export class AreaShadowFlow extends Flow<AreaShadowSlots, 'idle'> {
     private height = 0;
     /** Quadros traçados (a posição da sequência do sorteio). */
     private frame = 0;
+    /** A forma de cada luz no último quadro e os quadros que faltam com a média curta (a luz mudou há pouco). */
+    private shapes: (string | undefined)[] = [];
+    private fresh: number[] = [];
 
     constructor(ctx: FlowContext) {
         super();
@@ -185,6 +191,16 @@ export class AreaShadowFlow extends Flow<AreaShadowSlots, 'idle'> {
             lightSlots.push(at);
         }
         if (lightSlots.length === 0) return false;
+        // A luz que mudou (lugar, direção, tamanho): o histórico da sombra dela não vale; a média fica curta enquanto
+        // ela muda e por alguns quadros depois.
+        shadow.lights.forEach((light, k) => {
+            const d = light.data;
+            const key = `${d.position.join()}|${d.direction.join()}|${d.axis.join()}|${d.cones[0]},${d.cones[1]}`;
+            if (this.shapes[k] !== undefined && this.shapes[k] !== key)
+                this.fresh[k] = MOVING_FRAMES;
+            else this.fresh[k] = Math.max(0, (this.fresh[k] ?? 0) - 1);
+            this.shapes[k] = key;
+        });
         for (const id of [...AREA_SHADOW_TARGETS, ...AREA_SHADOW_CHANNELS])
             this.resources.ensureAllocated(shadow, id);
         if (shadow.data.camera !== cameraSlot) shadow.data.camera = cameraSlot;
@@ -214,8 +230,11 @@ export class AreaShadowFlow extends Flow<AreaShadowSlots, 'idle'> {
                 cameraSlot,
                 count: lightSlots.length,
                 frame: this.frame,
-                historyMax: shadow.data.history_max,
+                _pad0: 0,
                 lights: [0, 1, 2, 3].map((k) => lightSlots[k] ?? 0),
+                history: [0, 1, 2, 3].map((k) =>
+                    (this.fresh[k] ?? 0) > 0 ? MOVING_HISTORY : shadow.data.history_max,
+                ),
             }),
         );
         const multisampled = (depth.texture.sampleCount ?? 1) > 1;
