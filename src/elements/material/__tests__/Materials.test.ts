@@ -665,6 +665,16 @@ describe('Materials (spec 011, US5)', () => {
             'woodAsh',
             'woodAshBrushed',
             'woodPineFine',
+            'paverHerringbone',
+            'concreteBlock',
+            'concreteSlab',
+            'stoneSetts',
+            'stoneWall',
+            'stackedSlate',
+            'flagstone',
+            'cobblestone',
+            'gravel',
+            'bamboo',
         ] as const) {
             expect(has(name, 'surface.reliefNormal'), name).toBe(true);
             expect(nodes.material[name].params.scale).toEqual({ type: 'f32', default: 1 });

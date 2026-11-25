@@ -1,3 +1,4 @@
+import type { NodeDefinition } from '../../../scene/graph/NodeDefinition';
 import { NodeGraph, type GraphNode } from '../../../scene/graph/NodeGraph';
 import { Subgraph } from '../../../scene/graph/Subgraph';
 import { bsdf } from '../bsdf';
@@ -69,7 +70,7 @@ interface AsphaltValues {
  * a "pele de jacaré") e, só nas manchas mais gastas, as trincas finas dentro delas — escuras e fundas, com o traçado
  * entortado por um grão largo (a coordenada das trincas é a do padrão deslocada 4 % de uma unidade).
  */
-function asphaltOf(name: string, a: AsphaltValues): ReturnType<typeof Subgraph.point> {
+function asphaltOf(name: string, a: AsphaltValues): NodeDefinition {
     const cracked = a.cracks !== undefined;
     const crackNodes: Record<string, GraphNode> = cracked
         ? {
@@ -506,75 +507,195 @@ interface PieceValues {
     readonly seed: number;
 }
 
-/**
- * Sub-grafo de um material de peças com junta: cada peça escolhe a cor entre `color` e `alt_color` e o tom na faixa
- * `lot`, com as manchas largas e a areia por cima; a junta (`joint_color`) fica onde a altura do padrão desce a zero.
- * Três relevos somados na normal: o da peça sobre a junta (`relief`), o da face — só sobre a peça (`face_relief`) — e
- * o da areia. Parâmetros: `color`, `alt_color`, `joint_color`, `roughness`, `relief`, `face_relief`, `pattern_scale`.
- */
-function piecesOf(name: string, v: PieceValues): ReturnType<typeof Subgraph.point> {
-    const turned = v.turned === true;
-    const height = v.inverted !== undefined ? 'rise.value' : 'bond.height';
+/** As ligações de um padrão (valor e gradiente) ao relevo `to` (`surface.relief`). */
+function reliefLinks(to: string, value: string, gradient: string): Link[] {
+    return [
+        [value, `${to}.value`],
+        [gradient, `${to}.gradient`],
+        ['uv.wrap', `${to}.wrap`],
+    ];
+}
+
+/** Os padrões das peças, partilhados pela cor e pelo relevo: o das peças (com os eixos trocados ou não), a face, a areia. */
+function pieceNodes(v: PieceValues): Record<string, GraphNode> {
     const marked = v.marks !== undefined;
-    // Com os eixos trocados: a coordenada e o período entram trocados no padrão, e o gradiente dele volta trocado.
-    const turnNodes: Record<string, GraphNode> = turned
-        ? {
-              p_parts: math.split2,
-              p_turned: math.combine2,
-              wrap_parts: math.split2,
-              wrap_turned: math.combine2,
-              slope_parts: math.split2,
-              slope: math.combine2,
-              ...(marked ? { mark_parts: math.split2, mark_slope: math.combine2 } : {}),
-          }
-        : {};
-    const turnLinks: Link[] = turned
-        ? [
-              ['uv.p', 'p_parts.v'],
-              ['p_parts.y', 'p_turned.x'],
-              ['p_parts.x', 'p_turned.y'],
-              ['uv.wrap', 'wrap_parts.v'],
-              ['wrap_parts.y', 'wrap_turned.x'],
-              ['wrap_parts.x', 'wrap_turned.y'],
-              ['p_turned.value', 'bond.p'],
-              ['uv.width', 'bond.width'],
-              ['wrap_turned.value', 'bond.wrap'],
-              ['bond.gradient', 'slope_parts.v'],
-              ['slope_parts.y', 'slope.x'],
-              ['slope_parts.x', 'slope.y'],
-              ...(marked
-                  ? ([
-                        ['p_turned.value', 'marks.p'],
-                        ['uv.width', 'marks.width'],
-                        ['wrap_turned.value', 'marks.wrap'],
-                        ['marks.gradient', 'mark_parts.v'],
-                        ['mark_parts.y', 'mark_slope.x'],
-                        ['mark_parts.x', 'mark_slope.y'],
-                    ] as Link[])
-                  : []),
-          ]
-        : patternLinks('bond', ...(marked ? ['marks'] : []));
+    return {
+        ...patternSpace(),
+        bond: v.bond,
+        ...(v.turned === true
+            ? {
+                  p_parts: math.split2,
+                  p_turned: math.combine2,
+                  wrap_parts: math.split2,
+                  wrap_turned: math.combine2,
+                  slope_parts: math.split2,
+                  slope: math.combine2,
+                  ...(marked ? { mark_parts: math.split2, mark_slope: math.combine2 } : {}),
+              }
+            : {}),
+        ...(v.inverted !== undefined
+            ? {
+                  rise: map.range.with({
+                      in_min: v.inverted[0],
+                      in_max: v.inverted[1],
+                      out_min: 1,
+                      out_max: 0,
+                  }),
+              }
+            : {}),
+        ...(v.marks !== undefined ? { marks: v.marks.node } : {}),
+        face: pattern.grain.with({
+            scale: [...v.face.scale],
+            octaves: v.face.octaves,
+            gain: 0.55,
+            seed: v.seed + 2,
+        }),
+        grit: pattern.grain.with({
+            scale: [v.grit.scale, v.grit.scale],
+            octaves: 2,
+            seed: v.seed + 3,
+        }),
+    };
+}
+
+/** As ligações dos padrões das peças. Com os eixos trocados, a coordenada e o período entram trocados e o gradiente volta. */
+function pieceLinks(v: PieceValues): Link[] {
+    const marked = v.marks !== undefined;
+    const turned: Link[] =
+        v.turned === true
+            ? [
+                  ['uv.p', 'p_parts.v'],
+                  ['p_parts.y', 'p_turned.x'],
+                  ['p_parts.x', 'p_turned.y'],
+                  ['uv.wrap', 'wrap_parts.v'],
+                  ['wrap_parts.y', 'wrap_turned.x'],
+                  ['wrap_parts.x', 'wrap_turned.y'],
+                  ['p_turned.value', 'bond.p'],
+                  ['uv.width', 'bond.width'],
+                  ['wrap_turned.value', 'bond.wrap'],
+                  ['bond.gradient', 'slope_parts.v'],
+                  ['slope_parts.y', 'slope.x'],
+                  ['slope_parts.x', 'slope.y'],
+                  ...(marked
+                      ? ([
+                            ['p_turned.value', 'marks.p'],
+                            ['uv.width', 'marks.width'],
+                            ['wrap_turned.value', 'marks.wrap'],
+                            ['marks.gradient', 'mark_parts.v'],
+                            ['mark_parts.y', 'mark_slope.x'],
+                            ['mark_parts.x', 'mark_slope.y'],
+                        ] as Link[])
+                      : []),
+              ]
+            : patternLinks('bond', ...(marked ? ['marks'] : []));
+    return [
+        ...SPACE_LINKS,
+        ...turned,
+        ...patternLinks('face', 'grit'),
+        ...(v.inverted !== undefined ? ([['bond.height', 'rise.x']] as Link[]) : []),
+    ];
+}
+
+/**
+ * O relevo em milímetros de um material de peças (`relief.<nome>`): a peça sobre a junta (`joint_depth`: a junta
+ * recuada, com a aresta arredondada do padrão; nas pedras abauladas, a calota inteira), a face — só sobre a peça
+ * (`face_height`) —, a areia e, quando há, as marcas. A mesma função inclina a normal do material e move os vértices
+ * (`Displacements.<nome>`): a sombra dentro da junta é da geometria. Parâmetros: `joint_depth`, `face_height`,
+ * `pattern_scale`.
+ */
+function pieceRelief(id: string, v: PieceValues): NodeDefinition {
+    const turned = v.turned === true;
+    const dome = v.inverted !== undefined;
+    const marked = v.marks !== undefined;
     return Subgraph.point(
         new NodeGraph({
             nodes: {
-                ...patternSpace(),
-                bond: v.bond,
-                ...turnNodes,
+                ...pieceNodes(v),
+                joint_relief: surface.relief.with(
+                    dome
+                        ? { height: -1000 * v.relief, level: 0 }
+                        : { height: 1000 * v.relief, level: 1 },
+                ),
+                face_height: math.value.with({ value: 1000 * v.face.height }),
+                face_on: math.mul,
+                face_relief: surface.relief,
+                grit_relief: surface.relief.with({ height: 1000 * v.grit.height }),
+                ...(marked
+                    ? {
+                          marks_relief: surface.relief.with({
+                              height: 1000 * v.marks!.relief,
+                              level: 1,
+                          }),
+                      }
+                    : {}),
+                sum: math.add3,
+                more: math.add3,
+                out: math.add3,
+            },
+            links: [
+                ...pieceLinks(v),
+                ...reliefLinks(
+                    'joint_relief',
+                    'bond.height',
+                    turned ? 'slope.value' : 'bond.gradient',
+                ),
+                [dome ? 'rise.value' : 'bond.height', 'face_on.a'],
+                ['face_height.value', 'face_on.b'],
+                ...reliefLinks('face_relief', 'face.value', 'face.gradient'),
+                ['face_on.value', 'face_relief.height'],
+                ...reliefLinks('grit_relief', 'grit.value', 'grit.gradient'),
+                ...(marked
+                    ? reliefLinks(
+                          'marks_relief',
+                          'marks.height',
+                          turned ? 'mark_slope.value' : 'marks.gradient',
+                      )
+                    : []),
+                ['joint_relief.value', 'sum.a'],
+                ['face_relief.value', 'sum.b'],
+                ['sum.value', 'more.a'],
+                ['grit_relief.value', 'more.b'],
+                ['more.value', 'out.a'],
+                ...(marked ? ([['marks_relief.value', 'out.b']] as Link[]) : []),
+            ],
+            output: 'out.value',
+        }),
+        {
+            name: `relief.${id}`,
+            ...SAMPLE_INPUT,
+            expose: [
+                ['joint_relief.height', 'joint_depth'],
+                ['face_height.value', 'face_height'],
+                PATTERN_SCALE,
+            ],
+        },
+    );
+}
+
+/** Os relevos dos materiais de peças, pelo nome do material (a entrada de `relief` e de `Displacements`). */
+const reliefs: Record<string, NodeDefinition> = {};
+
+/**
+ * Sub-grafo de um material de peças com junta: cada peça escolhe a cor entre `color` e `alt_color` e o tom na faixa
+ * `lot`, com as manchas largas e a areia por cima; a junta (`joint_color`) fica onde a altura do padrão desce a zero.
+ * O relevo é o de `pieceRelief`, em milímetros (`relief`: a peça sobre a junta; `face_relief`: a face), na normal e —
+ * com `Displacements.<nome>` — na geometria; `scale`: unidades do mundo por metro. Parâmetros: `color`, `alt_color`,
+ * `joint_color`, `roughness`, `relief`, `face_relief`, `scale`, `pattern_scale`.
+ */
+function piecesOf(name: string, v: PieceValues): NodeDefinition {
+    const id = name.slice('material.'.length);
+    const height = pieceRelief(id, v);
+    reliefs[id] = height;
+    const level = v.inverted !== undefined ? 'rise.value' : 'bond.height';
+    const marked = v.marks !== undefined;
+    return Subgraph.point(
+        new NodeGraph({
+            nodes: {
+                ...pieceNodes(v),
                 stain: pattern.grain.with({
                     scale: [...v.stain.scale],
                     octaves: v.stain.octaves,
                     seed: v.seed + 1,
-                }),
-                face: pattern.grain.with({
-                    scale: [...v.face.scale],
-                    octaves: v.face.octaves,
-                    gain: 0.55,
-                    seed: v.seed + 2,
-                }),
-                grit: pattern.grain.with({
-                    scale: [v.grit.scale, v.grit.scale],
-                    octaves: 2,
-                    seed: v.seed + 3,
                 }),
                 first: math.value3.with({ value: [...v.color] }),
                 second: math.value3.with({ value: [...v.alt] }),
@@ -587,48 +708,27 @@ function piecesOf(name: string, v: PieceValues): ReturnType<typeof Subgraph.poin
                     out_min: v.stain.range[0],
                     out_max: v.stain.range[1],
                 }),
-                gritty: map.range.with({
-                    in_min: -0.6,
-                    in_max: 0.6,
-                    out_min: 0.88,
-                    out_max: 1.1,
-                }),
+                gritty: map.range.with({ in_min: -0.6, in_max: 0.6, out_min: 0.88, out_max: 1.1 }),
                 tone_lot: math.mul,
                 tone: math.mul,
+                ...(marked
+                    ? {
+                          ringed: map.range.with({ out_min: 0.35, out_max: 1 }),
+                          tone_marks: math.mul,
+                      }
+                    : {}),
                 lit: math.scale3,
                 mortar_lit: math.scale3,
                 wall: math.mix3,
-                relief: surface.bump.with({
-                    strength: v.inverted !== undefined ? -v.relief : v.relief,
-                }),
-                ...(v.inverted !== undefined
-                    ? {
-                          rise: map.range.with({
-                              in_min: v.inverted[0],
-                              in_max: v.inverted[1],
-                              out_min: 1,
-                              out_max: 0,
-                          }),
-                      }
-                    : {}),
-                ...(v.marks !== undefined
-                    ? {
-                          marks: v.marks.node,
-                          ringed: map.range.with({ out_min: 0.35, out_max: 1 }),
-                          tone_marks: math.mul,
-                          marks_relief: surface.bump.with({ strength: v.marks.relief }),
-                      }
-                    : {}),
-                face_height: math.value.with({ value: v.face.height }),
-                face_on: math.mul,
-                face_relief: surface.bump,
-                grit_relief: surface.bump.with({ strength: v.grit.height }),
+                tile: math.value2.with({ value: [1, 1] }),
+                height,
+                normal: surface.reliefNormal,
                 ...mineral(v.roughness),
             },
             links: [
-                ...SPACE_LINKS,
-                ...turnLinks,
-                ...patternLinks('stain', 'face', 'grit'),
+                ...pieceLinks(v),
+                ...patternLinks('stain'),
+                ['tile.value', 'uv.scale'],
                 ['first.value', 'pick.a'],
                 ['second.value', 'pick.b'],
                 [`bond.${v.piece}`, 'pick.t'],
@@ -646,30 +746,17 @@ function piecesOf(name: string, v: PieceValues): ReturnType<typeof Subgraph.poin
                           ['tone.value', 'tone_marks.a'],
                           ['ringed.value', 'tone_marks.b'],
                           ['tone_marks.value', 'lit.s'],
-                          ...bumpLinks(
-                              'marks_relief',
-                              turned ? 'mark_slope.value' : 'marks.gradient',
-                              'relief.value',
-                          ),
                       ] as Link[])
                     : ([['tone.value', 'lit.s']] as Link[])),
-                ...(v.inverted !== undefined ? ([['bond.height', 'rise.x']] as Link[]) : []),
                 ['mortar.value', 'mortar_lit.v'],
                 ['gritty.value', 'mortar_lit.s'],
                 ['mortar_lit.value', 'wall.a'],
                 ['lit.value', 'wall.b'],
-                [height, 'wall.t'],
-                ...bumpLinks('relief', turned ? 'slope.value' : 'bond.gradient'),
-                [height, 'face_on.a'],
-                ['face_height.value', 'face_on.b'],
-                ...bumpLinks(
-                    'face_relief',
-                    'face.gradient',
-                    marked ? 'marks_relief.value' : 'relief.value',
-                ),
-                ['face_on.value', 'face_relief.strength'],
-                ...bumpLinks('grit_relief', 'grit.gradient', 'face_relief.value'),
-                ...mineralLinks('wall.value', 'grit_relief.value'),
+                [level, 'wall.t'],
+                ['s.value', 'height.s'],
+                ['tile.value', 'height.pattern_scale'],
+                ['height.value', 'normal.relief'],
+                ...mineralLinks('wall.value', 'normal.value'),
             ],
             output: 'out.value',
         }),
@@ -681,9 +768,10 @@ function piecesOf(name: string, v: PieceValues): ReturnType<typeof Subgraph.poin
                 ['second.value', 'alt_color'],
                 ['mortar.value', 'joint_color'],
                 ['specular.roughness', 'roughness'],
-                ['relief.strength', 'relief'],
-                ['face_height.value', 'face_relief'],
-                PATTERN_SCALE,
+                ['height.joint_depth', 'relief'],
+                ['height.face_height', 'face_relief'],
+                ['normal.scale', 'scale'],
+                ['tile.value', 'pattern_scale'],
             ],
         },
     );
@@ -933,3 +1021,17 @@ export const bamboo = piecesOf('material.bamboo', {
     roughness: 0.35,
     seed: 431,
 });
+
+/** Os relevos em milímetros dos materiais de peças (`relief.<nome>`, `Displacements.<nome>`). */
+export const pavingRelief = {
+    paverHerringbone: reliefs.paverHerringbone!,
+    concreteBlock: reliefs.concreteBlock!,
+    concreteSlab: reliefs.concreteSlab!,
+    stoneSetts: reliefs.stoneSetts!,
+    stoneWall: reliefs.stoneWall!,
+    stackedSlate: reliefs.stackedSlate!,
+    flagstone: reliefs.flagstone!,
+    cobblestone: reliefs.cobblestone!,
+    gravel: reliefs.gravel!,
+    bamboo: reliefs.bamboo!,
+} as const;
