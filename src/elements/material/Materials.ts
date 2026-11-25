@@ -39,6 +39,7 @@ export type MaterialName =
     | 'jade'
     | 'milk'
     | 'gold'
+    | 'goldLeaf'
     | 'copper'
     | 'brass'
     | 'chrome'
@@ -116,7 +117,7 @@ function factory(definition: NodeDefinition): MaterialFactory {
  * `woodPine`, `woodMahogany`, `woodOakVarnished`, `woodAsh` (clara, fosca, com subsuperfície), `woodAshBrushed` (a mesma, escovada a fundo: sulcos de 1 mm), `woodPineFine` (pinho claro de veio fino, com nós, subsuperfície e relevo), `woodSolid` (madeira maciça: os anéis no volume, a peça talhada de um bloco, com subsuperfície e relevo em degraus), os assoalhos `woodFloorPlanks` e `woodFloorHerringbone`, as cascas `bark`, `barkPine` e `barkBirch` e a cortiça
  * `cork` (aglomerada) e `corkStopper` (a rolha). Folhas: `leaf`, `leafMatte`, `leafDry`. Telhados: `roofTile`, `roofSlate`. Tecidos: `cotton`, `wool`, `velvet`, `silk`, `denim`,
  * `sheerFabric`. Dielétricos opacos: `leather`, `rubber`, `ceramic`, `porcelain`, `plasticMatte`, `plasticGloss`,
- * `paper`. Metais: `metalPolished`, `gold`, `copper`, `brass`, `chrome`, `metalBrushed`, `metalHammered`,
+ * `paper`. Metais: `metalPolished`, `gold`, `goldLeaf`, `copper`, `brass`, `chrome`, `metalBrushed`, `metalHammered`,
  * `aluminiumAnodized`, `castIron`, `bronzePatina`, `metalOxidized`, `carPaint`, `carPaintSilver`, `carPaintFlake`, `carbonFiber`. Pedra, construção e
  * terra: `concrete`, `granite`, `sandstone`, `brick`, `plaster`, `asphalt`, `tile`, `terracotta`, `driedMud`, `sand`.
  * Transparentes e translúcidos: `glass`, `ice`, `skin`, `wax`, `marble`, `jade`, `milk`, `soap`, `ivory`, `snow`. Iridescente:
@@ -172,6 +173,7 @@ export const Materials: Readonly<Record<MaterialName, MaterialFactory>> = Object
     jade: factory(material.jade),
     milk: factory(material.milk),
     gold: factory(material.gold),
+    goldLeaf: factory(material.goldLeaf),
     copper: factory(material.copper),
     brass: factory(material.brass),
     chrome: factory(material.chrome),

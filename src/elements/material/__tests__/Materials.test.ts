@@ -40,6 +40,7 @@ const NAMES = [
     'milk',
     'carPaintSilver',
     'gold',
+    'goldLeaf',
     'copper',
     'brass',
     'chrome',
@@ -100,7 +101,7 @@ function inner(name: MaterialName): Record<string, string> {
 }
 
 describe('Materials (spec 011, US5)', () => {
-    it('a biblioteca tem os 77 materiais, cada um um nó registrado sem ligação obrigatória', () => {
+    it('a biblioteca tem os 78 materiais, cada um um nó registrado sem ligação obrigatória', () => {
         expect(Object.keys(Materials).sort()).toEqual([...NAMES].sort());
         for (const name of NAMES) {
             const def = nodes.material[name];
@@ -520,9 +521,13 @@ describe('Materials (spec 011, US5)', () => {
             Object.values(inner(name)).includes(node);
         const rgb = (name: MaterialName, p: string): number[] =>
             nodes.material[name].params[p]!.default as number[];
-        // Os metais puros: um condutor só, com o F0 por canal (o ouro, o cobre e o latão quentes; o cromo neutro).
-        for (const name of ['gold', 'copper', 'brass', 'chrome'] as const)
+        // Os metais puros: um condutor só, com o F0 por canal (o cobre e o latão quentes; o cromo neutro). O ouro é o
+        // condutor com o polimento desigual, e a folha de ouro, o mesmo em placas sobre o bolo.
+        for (const name of ['copper', 'brass', 'chrome'] as const)
             expect(inner(name)).toEqual({ out: 'bsdf.conductor' });
+        for (const name of ['gold', 'goldLeaf'] as const)
+            expect(has(name, 'bsdf.conductor')).toBe(true);
+        expect(has('goldLeaf', 'pattern.bricks') && has('goldLeaf', 'bsdf.diffuse')).toBe(true);
         for (const name of ['gold', 'copper', 'brass'] as const) {
             const [r, g, b] = rgb(name, 'color');
             expect(r).toBeGreaterThan(g!);
@@ -530,7 +535,7 @@ describe('Materials (spec 011, US5)', () => {
         }
         const chrome = rgb('chrome', 'color');
         expect(Math.max(...chrome) - Math.min(...chrome)).toBeLessThan(0.02);
-        expect(rgb('gold', 'color')).toEqual([0.944, 0.776, 0.373]);
+        expect(rgb('gold', 'color')).toEqual([1, 0.71, 0.29]);
         expect(rgb('copper', 'color')).toEqual([0.955, 0.638, 0.538]);
         for (const name of [
             'aluminiumAnodized',

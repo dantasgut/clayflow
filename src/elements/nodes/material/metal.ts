@@ -77,10 +77,129 @@ export const metalPolished = metal('material.metalPolished', 0.05, 0);
 // cromo) dividido pelo Schlick do F0; a do latão é estimada (liga sem medida tabelada), entre a do cobre e a do ouro.
 
 /**
- * `material.gold` — ouro polido: F0 (0,944, 0,776, 0,373), tinta da borda (0,998, 0,981, 0,751); rugosidade 0,05 —
- * espelho amarelo: o reflexo do ambiente tingido, mais branco na borda. Parâmetros: os de `metalPolished`.
+ * `material.gold` — ouro (a joia polida à mão, não o espelho): F0 (1,0, 0,71, 0,29) — o do ouro puro em sRGB linear,
+ * mais alaranjado que o da tabela usada nos outros metais, que no estúdio cinza lia como um espelho esverdeado —, tinta
+ * da borda (1,0, 0,92, 0,66). O polimento não é o de um espelho: a rugosidade varia de `roughness` (0,06) a
+ * `worn_roughness` (0,15) pelas passadas do pano (um grão largo) e pelos riscos miúdos (um grão fino, também em relevo,
+ * `relief` em unidades do padrão) — o realce das luzes sai largo, quente e desigual, e a cor satura onde o lobo é mais
+ * áspero. Parâmetros: `color`, `edge_tint`, `roughness`, `worn_roughness`, `relief`, `pattern_scale`.
  */
-export const gold = metal('material.gold', 0.05, 0, [0.944, 0.776, 0.373], [0.998, 0.981, 0.751]);
+export const gold = Subgraph.point(
+    new NodeGraph({
+        nodes: {
+            ...patternSpace(),
+            polish: pattern.grain.with({ scale: [160, 160], octaves: 3, gain: 0.6, seed: 31 }),
+            swirl: pattern.grain.with({ scale: [5, 5], octaves: 2, seed: 32 }),
+            both: math.add,
+            rough: map.range.with({ in_min: -1.5, in_max: 1.5, out_min: 0.06, out_max: 0.15 }),
+            relief: surface.bump.with({ strength: 0.0004 }),
+            metal: bsdf.conductor.with({ color: [1, 0.71, 0.29], edge_tint: [1, 0.92, 0.66] }),
+            out: closure.normal,
+        },
+        links: [
+            ...SPACE_LINKS,
+            ...patternLinks('polish', 'swirl'),
+            ['polish.value', 'both.a'],
+            ['swirl.value', 'both.b'],
+            ['both.value', 'rough.x'],
+            ['rough.value', 'metal.roughness'],
+            ...bumpLinks('relief', 'polish.gradient'),
+            ['metal.value', 'out.c'],
+            ['relief.value', 'out.normal'],
+        ],
+        output: 'out.value',
+    }),
+    {
+        name: 'material.gold',
+        ...SAMPLE_INPUT,
+        expose: [
+            ['metal.color', 'color'],
+            ['metal.edge_tint', 'edge_tint'],
+            ['rough.out_min', 'roughness'],
+            ['rough.out_max', 'worn_roughness'],
+            ['relief.strength', 'relief'],
+            PATTERN_SCALE,
+        ],
+    },
+);
+
+/**
+ * `material.goldLeaf` — folha de ouro: as folhas quadradas assentadas uma a uma (`pattern.bricks` em grade, 6 × 6 por
+ * unidade do padrão), cada uma de um tom (± 12 %), amassada (um grão de quatro oitavas em relevo, `relief` em unidades
+ * do padrão: o realce quebra em facetas miúdas) e com a borda levantada; nas emendas e onde a folha gastou (as manchas
+ * em que o grão do desgaste passa de um nível, `wear` em [0, 1]) aparece o bolo — a base de argila vermelho-escura
+ * (`bole_color`), fosca. O ouro é o do `gold` (F0 (1,0, 0,71, 0,29)), mais áspero onde está amassado. Parâmetros:
+ * `color`, `edge_tint`, `bole_color`, `roughness`, `wear`, `relief`, `pattern_scale`.
+ */
+export const goldLeaf = Subgraph.point(
+    new NodeGraph({
+        nodes: {
+            ...patternSpace(),
+            sheet: pattern.bricks.with({
+                scale: [6, 6],
+                shift: 0,
+                gap: 0.02,
+                bevel: 0.08,
+                seed: 41,
+            }),
+            crumple: pattern.grain.with({ scale: [34, 34], octaves: 4, gain: 0.55, seed: 42 }),
+            worn: pattern.grain.with({ scale: [11, 11], octaves: 4, gain: 0.6, seed: 43 }),
+            tone: map.range.with({ out_min: 0.88, out_max: 1.12 }),
+            pure: math.value3.with({ value: [1, 0.71, 0.29] }),
+            toned: math.scale3,
+            rough: map.range.with({ in_min: -1, in_max: 1, out_min: 0.16, out_max: 0.34 }),
+            edge: surface.bump.with({ strength: 0.006 }),
+            fold: surface.bump.with({ strength: 0.0022 }),
+            leaf: bsdf.conductor.with({ edge_tint: [1, 0.92, 0.66] }),
+            leaf_surface: closure.normal,
+            bole: bsdf.diffuse.with({ color: [0.2, 0.05, 0.035], roughness: 0.9 }),
+            wear: math.value.with({ value: 0.25 }),
+            // O desgaste: 1 onde o grão passa do nível (mais desgaste, nível mais baixo).
+            level: map.range.with({ in_min: 0, in_max: 1, out_min: 1.2, out_max: 0.1 }),
+            above: math.sub,
+            bare: map.range.with({ in_min: 0, in_max: 0.08, out_min: 0, out_max: 1 }),
+            shown: math.max,
+            out: closure.mix,
+        },
+        links: [
+            ...SPACE_LINKS,
+            ...patternLinks('sheet', 'crumple', 'worn'),
+            ['sheet.brick', 'tone.x'],
+            ['pure.value', 'toned.v'],
+            ['tone.value', 'toned.s'],
+            ['toned.value', 'leaf.color'],
+            ['crumple.value', 'rough.x'],
+            ['rough.value', 'leaf.roughness'],
+            ...bumpLinks('edge', 'sheet.gradient'),
+            ...bumpLinks('fold', 'crumple.gradient', 'edge.value'),
+            ['leaf.value', 'leaf_surface.c'],
+            ['fold.value', 'leaf_surface.normal'],
+            ['wear.value', 'level.x'],
+            ['worn.value', 'above.a'],
+            ['level.value', 'above.b'],
+            ['above.value', 'bare.x'],
+            ['sheet.mortar', 'shown.a'],
+            ['bare.value', 'shown.b'],
+            ['leaf_surface.value', 'out.a'],
+            ['bole.value', 'out.b'],
+            ['shown.value', 'out.t'],
+        ],
+        output: 'out.value',
+    }),
+    {
+        name: 'material.goldLeaf',
+        ...SAMPLE_INPUT,
+        expose: [
+            ['pure.value', 'color'],
+            ['leaf.edge_tint', 'edge_tint'],
+            ['bole.color', 'bole_color'],
+            ['rough.out_min', 'roughness'],
+            ['wear.value', 'wear'],
+            ['fold.strength', 'relief'],
+            PATTERN_SCALE,
+        ],
+    },
+);
 
 /**
  * `material.copper` — cobre polido: F0 (0,955, 0,638, 0,538), tinta da borda (0,98, 0,96, 0,95); rugosidade 0,06 —
