@@ -99,7 +99,32 @@ export type MaterialName =
     | 'flagstone'
     | 'cobblestone'
     | 'bamboo'
-    | 'gravel';
+    | 'gravel'
+    | 'silver'
+    | 'glassGreen'
+    | 'glassBlue'
+    | 'glassAmber'
+    | 'glassFrosted'
+    | 'crystal'
+    | 'quartz'
+    | 'amethyst'
+    | 'citrine'
+    | 'roseQuartz'
+    | 'diamond'
+    | 'ruby'
+    | 'sapphire'
+    | 'emerald'
+    | 'aquamarine'
+    | 'topaz'
+    | 'garnet'
+    | 'peridot'
+    | 'amber'
+    | 'obsidian'
+    | 'turquoise'
+    | 'lapisLazuli'
+    | 'malachite'
+    | 'opal'
+    | 'onyx';
 
 /**
  * Fábrica de um material pronto: os valores dos parâmetros expostos do nó (os que faltam ficam no padrão documentado)
@@ -138,6 +163,9 @@ function factory(definition: NodeDefinition): MaterialFactory {
  * Pavimentos e alvenaria de peças: `asphaltFine`, `asphaltCoarse`, `asphaltCracked`, `pavementPortuguese`, `grassPaver`,
  * `paverHerringbone`, `concreteBlock`, `concreteSlab`, `stoneSetts`, `stoneWall`, `stackedSlate`, `flagstone`,
  * `cobblestone`, `bamboo`, `gravel`.
+ * Vidros, cristais e gemas: `glassGreen`, `glassBlue`, `glassAmber`, `glassFrosted`, `crystal`, `quartz`, `amethyst`,
+ * `citrine`, `roseQuartz`, `diamond`, `ruby`, `sapphire`, `emerald`, `aquamarine`, `topaz`, `garnet`, `peridot`, `amber`,
+ * `obsidian`, `turquoise`, `lapisLazuli`, `malachite`, `opal`, `onyx`; e a prata, `silver`.
  * Transparentes e translúcidos: `glass`, `ice`, `skin`, `wax`, `marble`, `jade`, `milk`, `soap`, `ivory`, `snow`. Iridescente:
  * `motherOfPearl`. Os valores físicos e as fontes estão na documentação de cada nó.
  *
@@ -252,4 +280,29 @@ export const Materials: Readonly<Record<MaterialName, MaterialFactory>> = Object
     cobblestone: factory(material.cobblestone),
     bamboo: factory(material.bamboo),
     gravel: factory(material.gravel),
+    silver: factory(material.silver),
+    glassGreen: factory(material.glassGreen),
+    glassBlue: factory(material.glassBlue),
+    glassAmber: factory(material.glassAmber),
+    glassFrosted: factory(material.glassFrosted),
+    crystal: factory(material.crystal),
+    quartz: factory(material.quartz),
+    amethyst: factory(material.amethyst),
+    citrine: factory(material.citrine),
+    roseQuartz: factory(material.roseQuartz),
+    diamond: factory(material.diamond),
+    ruby: factory(material.ruby),
+    sapphire: factory(material.sapphire),
+    emerald: factory(material.emerald),
+    aquamarine: factory(material.aquamarine),
+    topaz: factory(material.topaz),
+    garnet: factory(material.garnet),
+    peridot: factory(material.peridot),
+    amber: factory(material.amber),
+    obsidian: factory(material.obsidian),
+    turquoise: factory(material.turquoise),
+    lapisLazuli: factory(material.lapisLazuli),
+    malachite: factory(material.malachite),
+    opal: factory(material.opal),
+    onyx: factory(material.onyx),
 });

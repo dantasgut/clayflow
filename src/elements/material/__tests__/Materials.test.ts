@@ -105,6 +105,31 @@ const NAMES = [
     'cobblestone',
     'bamboo',
     'gravel',
+    'silver',
+    'glassGreen',
+    'glassBlue',
+    'glassAmber',
+    'glassFrosted',
+    'crystal',
+    'quartz',
+    'amethyst',
+    'citrine',
+    'roseQuartz',
+    'diamond',
+    'ruby',
+    'sapphire',
+    'emerald',
+    'aquamarine',
+    'topaz',
+    'garnet',
+    'peridot',
+    'amber',
+    'obsidian',
+    'turquoise',
+    'lapisLazuli',
+    'malachite',
+    'opal',
+    'onyx',
 ] as const satisfies readonly MaterialName[];
 
 /** Os nós de dentro do material pronto: identificador → nome da definição. */
@@ -116,7 +141,7 @@ function inner(name: MaterialName): Record<string, string> {
 }
 
 describe('Materials (spec 011, US5)', () => {
-    it('a biblioteca tem os 93 materiais, cada um um nó registrado sem ligação obrigatória', () => {
+    it('a biblioteca tem os 118 materiais, cada um um nó registrado sem ligação obrigatória', () => {
         expect(Object.keys(Materials).sort()).toEqual([...NAMES].sort());
         for (const name of NAMES) {
             const def = nodes.material[name];
@@ -326,13 +351,20 @@ describe('Materials (spec 011, US5)', () => {
     it('valores físicos dentro das faixas publicadas', () => {
         const value = (name: MaterialName, p: string): number =>
             nodes.material[name].params[p]!.default as number;
-        // IOR dos dielétricos: 1,3 a 1,7 (polímeros, celulose, vidros, tecidos moles).
+        // IOR dos dielétricos: 1,3 a 1,7 (polímeros, celulose, vidros, tecidos moles); as gemas densas passam disso —
+        // o coríndon (1,77), a granada (1,79) e o diamante (2,417), os valores tabelados de cada mineral.
+        const dense: Readonly<Partial<Record<MaterialName, number>>> = {
+            ruby: 1.77,
+            sapphire: 1.77,
+            garnet: 1.79,
+            diamond: 2.417,
+        };
         for (const name of NAMES) {
             const params = nodes.material[name].params;
             for (const p of ['ior', 'coat_ior'])
                 if (p in params) {
                     expect(value(name, p)).toBeGreaterThanOrEqual(1.3);
-                    expect(value(name, p)).toBeLessThanOrEqual(1.7);
+                    expect(value(name, p)).toBeLessThanOrEqual(dense[name] ?? 1.7);
                 }
             for (const [p, { type, default: v }] of Object.entries(params))
                 if (type === 'f32' && p.endsWith('roughness')) {
@@ -550,7 +582,7 @@ describe('Materials (spec 011, US5)', () => {
         }
         const chrome = rgb('chrome', 'color');
         expect(Math.max(...chrome) - Math.min(...chrome)).toBeLessThan(0.02);
-        expect(rgb('gold', 'color')).toEqual([1, 0.71, 0.29]);
+        expect(rgb('gold', 'color')).toEqual([1, 0.77, 0.34]);
         expect(rgb('copper', 'color')).toEqual([0.955, 0.638, 0.538]);
         for (const name of [
             'aluminiumAnodized',

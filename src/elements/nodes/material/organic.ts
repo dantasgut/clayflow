@@ -147,64 +147,71 @@ export const carbonFiber = Subgraph.point(
 );
 
 /**
- * `material.ice` — gelo (o bloco de gelo trincado): transparente — a luz atravessa com refração traçada (IOR 1,31) e é
+ * `material.ice` — gelo (o bloco de gelo claro): transparente — a luz atravessa com refração traçada (IOR 1,31) e é
  * absorvida mais no vermelho: o tom azulado só aparece na espessura (`color`, a cor a `depth` unidades de percurso). A
- * interface é lisa e molhada (rugosidade 0,04: o reflexo nítido), ondulada pelo degelo (`pattern.grain` largo,
- * `relief` em unidades do padrão). O que espalha é branco e opaco (`flaw_color`), de borda viva: as trincas grandes
- * (as linhas em que um grão de quatro oitavas passa por zero) e as finas (outro grão, mais miúdo), as bolhas de ar
- * (`pattern.cells`: mais juntas nas nuvens de um grão largo) e os flocos de geada; as da face de trás aparecem
- * refratadas através da peça. Ficam na casca: trinca e bolha no meio do volume, com paralaxe, e o miolo leitoso pedem
- * um meio heterogêneo no traçado — o espalhamento do meio do fechamento (`scatter`, por unidade de percurso; 0 por
- * padrão) é uniforme, dá só a luz espalhada uma vez (sai fraca: escurece o miolo em vez de clareá-lo) e é sorteado
- * (granulado sem o filtro do antisserrilhado temporal). `depth` e `scatter` são em unidades do mundo: os padrões
- * servem a uma peça de cerca de uma unidade. Parâmetros: `color`, `depth`, `scatter`, `flaw_color`, `roughness`,
- * `ior`, `relief`, `pattern_scale`.
+ * superfície é molhada e lisa onde derrete (rugosidade `roughness`, 0,02) e fosca onde a geada pegou
+ * (`frost_roughness`, 0,45: as duas interfaces ásperas borram o que se vê através) — manchas largas de um grão de
+ * cinco oitavas, com o grão fino dos cristais de geada em relevo só nelas —, e ondulada pelo degelo (`relief`, em
+ * unidades do padrão). O miolo leitoso (o ar preso no congelamento) é uma nuvem suave: o branco translúcido
+ * (`flaw_color`) misturado até 60 % nas manchas de outro grão largo, com as bolhas maiores (`pattern.cells`, mais
+ * juntas dentro da nuvem) e raras trincas finas e fracas. A nuvem e as bolhas ficam na casca: no meio do volume, com
+ * paralaxe, pedem um meio heterogêneo no traçado — o espalhamento do meio (`scatter`, por unidade de percurso; 0 por
+ * padrão) é uniforme. `depth` e `scatter` são em unidades do mundo: os padrões servem a uma peça de cerca de uma
+ * unidade. Parâmetros: `color`, `depth`, `scatter`, `flaw_color`, `roughness`, `frost_roughness`, `ior`, `relief`,
+ * `pattern_scale`.
  */
 export const ice = Subgraph.point(
     new NodeGraph({
         nodes: {
             ...patternSpace(),
-            fracture: pattern.grain.with({ scale: [3.2, 3.2], octaves: 4, gain: 0.55, seed: 201 }),
-            hairline: pattern.grain.with({ scale: [9, 9], octaves: 3, gain: 0.5, seed: 205 }),
-            bubble: pattern.cells.with({ scale: 70, jitter: 1, crease: 0.6, seed: 202 }),
-            melt: pattern.grain.with({ scale: [6, 6], octaves: 2, seed: 203 }),
-            haze: pattern.grain.with({ scale: [1.7, 1.7], octaves: 4, gain: 0.55, seed: 204 }),
-            white: math.value3.with({ value: [0.9, 0.93, 0.95] }),
-            distance: math.abs,
-            crack: map.range.with({ in_min: 0.008, in_max: 0.016, out_min: 1, out_max: 0 }),
-            fine_distance: math.abs,
-            // As trincas finas só onde o grão das grandes está perto de zero (em volta delas).
-            fine_crack: map.range.with({ in_min: 0.01, in_max: 0.02, out_min: 1, out_max: 0 }),
-            near: map.range.with({ in_min: 0.1, in_max: 0.14, out_min: 1, out_max: 0 }),
-            branch: math.mul,
+            melt: pattern.grain.with({ scale: [4.5, 4.5], octaves: 3, gain: 0.5, seed: 203 }),
+            rime: pattern.grain.with({ scale: [2.1, 2.1], octaves: 5, gain: 0.6, seed: 206 }),
+            needle: pattern.grain.with({ scale: [170, 170], octaves: 2, seed: 207 }),
+            haze: pattern.grain.with({ scale: [1.5, 1.5], octaves: 4, gain: 0.55, seed: 204 }),
+            bubble: pattern.cells.with({ scale: 55, jitter: 1, crease: 0.6, seed: 202 }),
+            fracture: pattern.grain.with({ scale: [1.8, 1.8], octaves: 3, gain: 0.5, seed: 201 }),
+            // A geada: as manchas em que o grão largo passa de um nível, de borda larga.
+            frosted: map.range.with({ in_min: 0.05, in_max: 0.45 }),
+            rough: map.range.with({ out_min: 0.02, out_max: 0.45 }),
+            needle_height: math.value.with({ value: 0.0007 }),
+            needle_on: math.mul,
+            // A nuvem do miolo: até 60 % de branco, de borda suave.
+            cloud: map.range.with({ in_min: -0.05, in_max: 0.55, out_min: 0, out_max: 0.6 }),
             // As bolhas: o miolo das células cujo valor, somado à nuvem, passa de um nível.
             cloudy: map.range.with({ in_min: -0.6, in_max: 0.6, out_min: -0.3, out_max: 0.3 }),
             level: math.add,
-            some: map.range.with({ in_min: 0.68, in_max: 0.69 }),
-            core: map.range.with({ in_min: 0.55, in_max: 0.65 }),
+            some: map.range.with({ in_min: 0.72, in_max: 0.73 }),
+            core: map.range.with({ in_min: 0.5, in_max: 0.7, out_min: 0, out_max: 0.8 }),
             air: math.mul,
+            // As trincas: raras, finas e fracas (as linhas em que um grão largo passa por zero).
+            distance: math.abs,
+            crack: map.range.with({ in_min: 0.002, in_max: 0.006, out_min: 0.35, out_max: 0 }),
             flaw_a: math.max,
             flaw: math.max,
             ior: math.value.with({ value: 1.31 }),
-            refraction: bsdf.transmission.with({ color: [0.74, 0.92, 0.98], depth: 1 }),
+            refraction: bsdf.transmission.with({ color: [0.8, 0.94, 0.99], depth: 1 }),
             milky: closure.mediumScatter.with({ scatter: [0, 0, 0], anisotropy: 0.2 }),
+            white: math.value3.with({ value: [0.92, 0.95, 0.97] }),
             frost: bsdf.diffuse.with({ roughness: 0.3 }),
+            glow: bsdf.translucent,
+            snowy: closure.mix.with({ t: 0.5 }),
             inside: closure.mix,
-            wave: surface.bump.with({ strength: 0.004 }),
-            specular: bsdf.dielectric.with({ roughness: 0.04 }),
+            wave: surface.bump.with({ strength: 0.007 }),
+            needles: surface.bump,
+            specular: bsdf.dielectric,
             sum: closure.add,
             out: closure.normal,
         },
         links: [
             ...SPACE_LINKS,
-            ...patternLinks('fracture', 'hairline', 'bubble', 'melt', 'haze'),
-            ['fracture.value', 'distance.x'],
-            ['distance.value', 'crack.x'],
-            ['hairline.value', 'fine_distance.x'],
-            ['fine_distance.value', 'fine_crack.x'],
-            ['distance.value', 'near.x'],
-            ['fine_crack.value', 'branch.a'],
-            ['near.value', 'branch.b'],
+            ...patternLinks('melt', 'rime', 'needle', 'haze', 'bubble', 'fracture'),
+            ['rime.value', 'frosted.x'],
+            ['frosted.value', 'rough.x'],
+            ['rough.value', 'refraction.roughness'],
+            ['rough.value', 'specular.roughness'],
+            ['frosted.value', 'needle_on.a'],
+            ['needle_height.value', 'needle_on.b'],
+            ['haze.value', 'cloud.x'],
             ['haze.value', 'cloudy.x'],
             ['bubble.cell', 'level.a'],
             ['cloudy.value', 'level.b'],
@@ -212,22 +219,29 @@ export const ice = Subgraph.point(
             ['bubble.height', 'core.x'],
             ['some.value', 'air.a'],
             ['core.value', 'air.b'],
-            ['crack.value', 'flaw_a.a'],
-            ['branch.value', 'flaw_a.b'],
+            ['fracture.value', 'distance.x'],
+            ['distance.value', 'crack.x'],
+            ['cloud.value', 'flaw_a.a'],
+            ['air.value', 'flaw_a.b'],
             ['flaw_a.value', 'flaw.a'],
-            ['air.value', 'flaw.b'],
+            ['crack.value', 'flaw.b'],
             ['ior.value', 'refraction.ior'],
             ['ior.value', 'specular.ior'],
             ['refraction.value', 'milky.c'],
             ['white.value', 'frost.color'],
+            ['white.value', 'glow.color'],
+            ['frost.value', 'snowy.a'],
+            ['glow.value', 'snowy.b'],
             ['milky.value', 'inside.a'],
-            ['frost.value', 'inside.b'],
+            ['snowy.value', 'inside.b'],
             ['flaw.value', 'inside.t'],
             ...bumpLinks('wave', 'melt.gradient'),
+            ...bumpLinks('needles', 'needle.gradient', 'wave.value'),
+            ['needle_on.value', 'needles.strength'],
             ['specular.value', 'sum.a'],
             ['inside.value', 'sum.b'],
             ['sum.value', 'out.c'],
-            ['wave.value', 'out.normal'],
+            ['needles.value', 'out.normal'],
         ],
         output: 'out.value',
     }),
@@ -239,7 +253,8 @@ export const ice = Subgraph.point(
             ['refraction.depth', 'depth'],
             ['milky.scatter', 'scatter'],
             ['white.value', 'flaw_color'],
-            ['specular.roughness', 'roughness'],
+            ['rough.out_min', 'roughness'],
+            ['rough.out_max', 'frost_roughness'],
             ['ior.value', 'ior'],
             ['wave.strength', 'relief'],
             PATTERN_SCALE,

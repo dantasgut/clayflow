@@ -11,7 +11,34 @@ import {
     metalBrushed,
     metalOxidized,
     metalPolished,
+    silver,
 } from './metal';
+import {
+    amber,
+    amethyst,
+    aquamarine,
+    citrine,
+    crystal,
+    diamond,
+    emerald,
+    garnet,
+    glassAmber,
+    glassBlue,
+    glassFrosted,
+    glassGreen,
+    lapisLazuli,
+    malachite,
+    obsidian,
+    onyx,
+    opal,
+    peridot,
+    quartz,
+    roseQuartz,
+    ruby,
+    sapphire,
+    topaz,
+    turquoise,
+} from './gems';
 import { aluminiumAnodized, bronzePatina, castIron, metalHammered } from './metalFinish';
 import { carbonFiber, ice, ivory, motherOfPearl, paper, snow, soap } from './organic';
 import { openpbr } from './openpbr';
@@ -86,7 +113,7 @@ import {
 } from './woodSpecies';
 
 /**
- * Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de 93 materiais prontos — cada um um nó
+ * Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de 118 materiais prontos — cada um um nó
  * sem ligações obrigatórias que devolve o fechamento, com os parâmetros expostos (valor por uso, sem recompilar) também
  * como entradas (ligáveis a outros nós). Usados inteiros (`Materials.x()`), abertos e religados, ou como nó de um grafo
  * maior.
@@ -186,6 +213,31 @@ export const material = {
     cobblestone,
     bamboo,
     gravel,
+    silver,
+    glassGreen,
+    glassBlue,
+    glassAmber,
+    glassFrosted,
+    crystal,
+    quartz,
+    amethyst,
+    citrine,
+    roseQuartz,
+    diamond,
+    ruby,
+    sapphire,
+    emerald,
+    aquamarine,
+    topaz,
+    garnet,
+    peridot,
+    amber,
+    obsidian,
+    turquoise,
+    lapisLazuli,
+    malachite,
+    opal,
+    onyx,
 } as const;
 
 export { relief } from './relief';

@@ -76,52 +76,98 @@ export const metalPolished = metal('material.metalPolished', 0.05, 0);
 // 550 e 450 nm (valores aproximados de Johnson e Christy 1972 para o cobre e a prata, de Johnson e Christy 1974 para o
 // cromo) dividido pelo Schlick do F0; a do latão é estimada (liga sem medida tabelada), entre a do cobre e a do ouro.
 
+/** Os valores de um metal nobre acetinado. */
+interface NobleValues {
+    readonly f0: Rgb;
+    readonly f82: Rgb;
+    /** A rugosidade do polimento e a das passadas mais gastas. */
+    readonly roughness: readonly [number, number];
+    readonly seed: number;
+}
+
 /**
- * `material.gold` — ouro (a joia polida à mão, não o espelho): F0 (1,0, 0,71, 0,29) — o do ouro puro em sRGB linear,
- * mais alaranjado que o da tabela usada nos outros metais, que no estúdio cinza lia como um espelho esverdeado —, tinta
- * da borda (1,0, 0,92, 0,66). O polimento não é o de um espelho: a rugosidade varia de `roughness` (0,06) a
- * `worn_roughness` (0,15) pelas passadas do pano (um grão largo) e pelos riscos miúdos (um grão fino, também em relevo,
- * `relief` em unidades do padrão) — o realce das luzes sai largo, quente e desigual, e a cor satura onde o lobo é mais
- * áspero. Parâmetros: `color`, `edge_tint`, `roughness`, `worn_roughness`, `relief`, `pattern_scale`.
+ * Sub-grafo de um metal nobre com o polimento acetinado da joalheria: um condutor cuja rugosidade varia entre
+ * `roughness` e `worn_roughness` pelas passadas do pano (um grão largo) e pelos riscos miúdos (um grão fino alongado,
+ * também em relevo, `relief` em unidades do padrão) — o realce das luzes sai largo e desigual, com a cor do metal, em
+ * vez do reflexo de espelho do ambiente. Parâmetros: `color`, `edge_tint`, `roughness`, `worn_roughness`, `relief`,
+ * `pattern_scale`.
  */
-export const gold = Subgraph.point(
-    new NodeGraph({
-        nodes: {
-            ...patternSpace(),
-            polish: pattern.grain.with({ scale: [160, 160], octaves: 3, gain: 0.6, seed: 31 }),
-            swirl: pattern.grain.with({ scale: [5, 5], octaves: 2, seed: 32 }),
-            both: math.add,
-            rough: map.range.with({ in_min: -1.5, in_max: 1.5, out_min: 0.06, out_max: 0.15 }),
-            relief: surface.bump.with({ strength: 0.0004 }),
-            metal: bsdf.conductor.with({ color: [1, 0.71, 0.29], edge_tint: [1, 0.92, 0.66] }),
-            out: closure.normal,
+function noble(name: string, v: NobleValues): NodeDefinition {
+    return Subgraph.point(
+        new NodeGraph({
+            nodes: {
+                ...patternSpace(),
+                polish: pattern.grain.with({
+                    scale: [420, 90],
+                    octaves: 3,
+                    gain: 0.6,
+                    seed: v.seed,
+                }),
+                swirl: pattern.grain.with({ scale: [5, 5], octaves: 3, seed: v.seed + 1 }),
+                both: math.add,
+                rough: map.range.with({
+                    in_min: -1.5,
+                    in_max: 1.5,
+                    out_min: v.roughness[0],
+                    out_max: v.roughness[1],
+                }),
+                relief: surface.bump.with({ strength: 0.00025 }),
+                metal: bsdf.conductor.with({ color: [...v.f0], edge_tint: [...v.f82] }),
+                out: closure.normal,
+            },
+            links: [
+                ...SPACE_LINKS,
+                ...patternLinks('polish', 'swirl'),
+                ['polish.value', 'both.a'],
+                ['swirl.value', 'both.b'],
+                ['both.value', 'rough.x'],
+                ['rough.value', 'metal.roughness'],
+                ...bumpLinks('relief', 'polish.gradient'),
+                ['metal.value', 'out.c'],
+                ['relief.value', 'out.normal'],
+            ],
+            output: 'out.value',
+        }),
+        {
+            name,
+            ...SAMPLE_INPUT,
+            expose: [
+                ['metal.color', 'color'],
+                ['metal.edge_tint', 'edge_tint'],
+                ['rough.out_min', 'roughness'],
+                ['rough.out_max', 'worn_roughness'],
+                ['relief.strength', 'relief'],
+                PATTERN_SCALE,
+            ],
         },
-        links: [
-            ...SPACE_LINKS,
-            ...patternLinks('polish', 'swirl'),
-            ['polish.value', 'both.a'],
-            ['swirl.value', 'both.b'],
-            ['both.value', 'rough.x'],
-            ['rough.value', 'metal.roughness'],
-            ...bumpLinks('relief', 'polish.gradient'),
-            ['metal.value', 'out.c'],
-            ['relief.value', 'out.normal'],
-        ],
-        output: 'out.value',
-    }),
-    {
-        name: 'material.gold',
-        ...SAMPLE_INPUT,
-        expose: [
-            ['metal.color', 'color'],
-            ['metal.edge_tint', 'edge_tint'],
-            ['rough.out_min', 'roughness'],
-            ['rough.out_max', 'worn_roughness'],
-            ['relief.strength', 'relief'],
-            PATTERN_SCALE,
-        ],
-    },
-);
+    );
+}
+
+/**
+ * `material.gold` — ouro de joalheria (24 quilates, acetinado): F0 (1,0, 0,77, 0,34) — a refletância do ouro puro de
+ * frente (Johnson e Christy 1972, em sRGB linear: quase todo o vermelho, três quartos do verde, um terço do azul) —, a
+ * tinta da borda (1,0, 0,95, 0,75); rugosidade de 0,16 a 0,26: o amarelo quente e cheio vem do realce largo das luzes
+ * na cor do metal (num espelho, o ouro só tinge o que reflete: num ambiente cinza fica pardo). Parâmetros: os de
+ * `noble`.
+ */
+export const gold = noble('material.gold', {
+    f0: [1, 0.77, 0.34],
+    f82: [1, 0.95, 0.75],
+    roughness: [0.16, 0.26],
+    seed: 31,
+});
+
+/**
+ * `material.silver` — prata de lei acetinada: F0 (0,972, 0,960, 0,915) — o metal mais refletivo, de branco levemente
+ * quente (a tabela 9.2 de "Real-Time Rendering", 4ª ed.) —, a tinta da borda (1,0, 1,0, 0,99); rugosidade de 0,12 a
+ * 0,22. Parâmetros: os de `noble`.
+ */
+export const silver = noble('material.silver', {
+    f0: [0.972, 0.96, 0.915],
+    f82: [1, 1, 0.99],
+    roughness: [0.12, 0.22],
+    seed: 35,
+});
 
 /**
  * `material.goldLeaf` — folha de ouro: as folhas quadradas assentadas uma a uma (`pattern.bricks` em grade, 6 × 6 por
