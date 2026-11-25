@@ -314,7 +314,7 @@ export const skinDetailed = Subgraph.point(
  * `material.lips` — os lábios: a pele fina e sem pigmento do vermelhão, por onde se vê o sangue. Rosa escuro
  * (`color`), manchado de leve, com as linhas finas que cruzam o lábio de cima a baixo (os sulcos verticais: um grão
  * maciço alongado na vertical, `line_height` 0,06 mm de fundo, mais escuros no fundo), os gomos — as almofadas largas
- * separadas por vincos estreitos de cima a baixo, que se juntam como as nervuras de uma folha (`fold_height`, 0,9 mm
+ * separadas por vincos estreitos de cima a baixo, que se juntam como as nervuras de uma folha (`fold_height`, 0,28 mm
  * de fundo) — e o brilho de uma superfície
  * úmida — dois lobos da interface (IOR 1,4): o seco (`roughness`, 0,5) e o molhado (`wet_roughness`, 0,1),
  * misturados por `gloss` em [0, 1], que some dentro dos sulcos. O corpo é subsuperfície, de raio mais longo que o da
@@ -324,7 +324,7 @@ export const skinDetailed = Subgraph.point(
  * Os vincos e as linhas são arcos: verticais na linha entre os lábios e fechando para o meio ao se afastar dela,
  * como parênteses de cada lado (`centre`, o meio da boca na coordenada dos padrões; `fan`, a curvatura: 0 dá retas
  * paralelas, o padrão — numa cabeça de 1,4 unidade, 140).
- * Parâmetros: `color`, `line_color`, `centre`, `fan`, `line_height`, `fold_height`, `dome_height` (0,8 mm: o abaulado de cada gomo, que
+ * Parâmetros: `color`, `line_color`, `centre`, `fan`, `line_height`, `fold_height`, `dome_height` (0,12 mm: o abaulado de cada gomo, que
  * dá a cada um o seu realce), `gloss`, `roughness`, `wet_roughness`, `ior`, `radius`, `scale`,
  * `pattern_scale`.
  */
@@ -349,18 +349,17 @@ export const lips = Subgraph.point(
             den: math.add,
             qx: math.mul,
             bent: math.combine3,
-            // Os sulcos: variam depressa na horizontal e devagar na vertical (correm de cima a baixo).
-            lines: pattern.grain3.with({ scale: [90, 6, 30], octaves: 2, gain: 0.6, seed: 81 }),
-            // Os gomos: o lábio dividido de cima a baixo em almofadas largas por vincos estreitos, irregulares e que se
-            // juntam como as nervuras de uma folha (um grão maciço de baixa frequência, alongado na vertical, recortado
-            // por um limiar: 1 no gomo, 0 no fundo do vinco).
-            folds: pattern.grain3.with({ scale: [46, 2.2, 14], octaves: 2, gain: 0.3, seed: 83 }),
-            gomo: pattern.threshold3.with({ low: -0.62, high: 0.3 }),
-            crease: map.range.with({ in_min: 0.6, in_max: 0, out_min: 0, out_max: 0.42 }),
+            lines: pattern.grain3.with({ scale: [230, 50, 70], octaves: 2, gain: 0.6, seed: 81 }),
+            // Os sulcos: muitos, finos e rasos, de cima a baixo, irregulares e que se juntam (um grão maciço alongado na
+            // vertical, recortado por um limiar estreito: 1 fora, 0 no fundo do sulco). Por cima, o grão fino (`lines`),
+            // quase sem direção: os riscos miúdos que cruzam os sulcos.
+            folds: pattern.grain3.with({ scale: [120, 4.5, 36], octaves: 2, gain: 0.45, seed: 83 }),
+            gomo: pattern.threshold3.with({ low: -0.42, high: -0.06 }),
+            crease: map.range.with({ in_min: 0.6, in_max: 0, out_min: 0, out_max: 0.22 }),
             deep: math.max,
-            fold_relief: surface.solidRelief.with({ height: 0.9, level: 1 }),
+            fold_relief: surface.solidRelief.with({ height: 0.28, level: 1 }),
             // O gomo é abaulado (a almofada sobe do vinco ao meio): cada um pega o seu próprio realce da luz.
-            dome_relief: surface.solidRelief.with({ height: 0.8 }),
+            dome_relief: surface.solidRelief.with({ height: 0.12 }),
             dome_height: math.add3,
             height: math.add3,
             dull: math.mul,
@@ -380,7 +379,7 @@ export const lips = Subgraph.point(
             shine: math.mul,
             specular: closure.mix,
             sum: closure.add,
-            relief: surface.solidRelief.with({ height: 0.06 }),
+            relief: surface.solidRelief.with({ height: 0.04 }),
             normal: surface.reliefNormal,
             out: closure.normal,
         },
