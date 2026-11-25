@@ -142,6 +142,11 @@ struct NodePatternThreshold {
     gradient: vec2f,
 }
 
+struct NodePatternThreshold3 {
+    value: f32,
+    gradient: vec3f,
+}
+
 // Fator do detalhe pela largura do pixel em células (`w`): 1 abaixo de 0,2 célula por pixel, 0 acima de 0,5 (duas
 // amostras por célula, o limite de Nyquist: um padrão de bordas vivas que se repete faria moiré acima dele).
 fn node_pattern_band(w: f32) -> f32 {
@@ -543,6 +548,17 @@ fn node_pattern_threshold(value: f32, gradient: vec2f, low: f32, high: f32) -> N
     let d = select(span, select(-1e-6, 1e-6, span >= 0.0), abs(span) < 1e-6);
     let t = clamp((value - low) / d, 0.0, 1.0);
     return NodePatternThreshold(t * t * (3.0 - 2.0 * t), (6.0 * t * (1.0 - t) / d) * gradient);
+}
+
+/**
+ * O limiar suave de um padrão maciço (spec 011): como `node_pattern_threshold`, com o gradiente em 3D (∂/∂p) — a
+ * entrada de `surface.solidRelief` (o vinco estreito entre os gomos de um lábio, a fresta de uma rocha).
+ */
+fn node_pattern_threshold3(value: f32, gradient: vec3f, low: f32, high: f32) -> NodePatternThreshold3 {
+    let span = high - low;
+    let d = select(span, select(-1e-6, 1e-6, span >= 0.0), abs(span) < 1e-6);
+    let t = clamp((value - low) / d, 0.0, 1.0);
+    return NodePatternThreshold3(t * t * (3.0 - 2.0 * t), (6.0 * t * (1.0 - t) / d) * gradient);
 }
 
 /**

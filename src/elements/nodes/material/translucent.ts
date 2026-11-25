@@ -313,13 +313,15 @@ export const skinDetailed = Subgraph.point(
 /**
  * `material.lips` — os lábios: a pele fina e sem pigmento do vermelhão, por onde se vê o sangue. Rosa escuro
  * (`color`), manchado de leve, com as linhas finas que cruzam o lábio de cima a baixo (os sulcos verticais: um grão
- * maciço alongado na vertical, `line_height` 0,06 mm de fundo, mais escuros no fundo) e o brilho de uma superfície
+ * maciço alongado na vertical, `line_height` 0,06 mm de fundo, mais escuros no fundo), os gomos — as almofadas largas
+ * separadas por vincos estreitos de cima a baixo, que se juntam como as nervuras de uma folha (`fold_height`, 0,5 mm
+ * de fundo) — e o brilho de uma superfície
  * úmida — dois lobos da interface (IOR 1,4): o seco (`roughness`, 0,5) e o molhado (`wet_roughness`, 0,18),
  * misturados por `gloss` em [0, 1], que some dentro dos sulcos. O corpo é subsuperfície, de raio mais longo que o da
  * pele ((3; 1,2; 0,8) mm, estimado: a camada de cima é fina e o vermelho atravessa mais), com `scale` unidades do
  * mundo por metro. Os padrões são maciços (a posição no objeto, `pattern_scale` por unidade; as linhas correm ao longo
  * do eixo y do objeto: o lábio de uma cabeça em pé). Num rosto, mistura-se à pele por uma máscara (`closure.mix`).
- * Parâmetros: `color`, `line_color`, `line_height`, `gloss`, `roughness`, `wet_roughness`, `ior`, `radius`, `scale`,
+ * Parâmetros: `color`, `line_color`, `line_height`, `fold_height`, `gloss`, `roughness`, `wet_roughness`, `ior`, `radius`, `scale`,
  * `pattern_scale`.
  */
 export const lips = Subgraph.point(
@@ -331,6 +333,16 @@ export const lips = Subgraph.point(
             world: math.value.with({ value: 1 }),
             // Os sulcos: variam depressa na horizontal e devagar na vertical (correm de cima a baixo).
             lines: pattern.grain3.with({ scale: [90, 6, 30], octaves: 2, gain: 0.6, seed: 81 }),
+            // Os gomos: o lábio dividido de cima a baixo em almofadas largas por vincos estreitos, irregulares e que se
+            // juntam como as nervuras de uma folha (um grão maciço de baixa frequência, alongado na vertical, recortado
+            // por um limiar: 1 no gomo, 0 no fundo do vinco).
+            folds: pattern.grain3.with({ scale: [46, 2.2, 14], octaves: 2, gain: 0.3, seed: 83 }),
+            gomo: pattern.threshold3.with({ low: -0.62, high: 0.3 }),
+            crease: map.range.with({ in_min: 0.6, in_max: 0, out_min: 0, out_max: 0.3 }),
+            deep: math.max,
+            fold_relief: surface.solidRelief.with({ height: 0.5, level: 1 }),
+            height: math.add3,
+            dull: math.mul,
             mottle: skinGrain(22, 2, 82),
             base: math.value3.with({ value: [0.5, 0.22, 0.22] }),
             dark: math.value3.with({ value: [0.3, 0.1, 0.1] }),
@@ -366,7 +378,14 @@ export const lips = Subgraph.point(
             ['lines.value', 'groove.x'],
             ['base.value', 'lined.a'],
             ['dark.value', 'lined.b'],
-            ['groove.value', 'lined.t'],
+            ['solid.p', 'folds.p'],
+            ['solid.width', 'folds.width'],
+            ['folds.value', 'gomo.value'],
+            ['folds.gradient', 'gomo.gradient'],
+            ['gomo.value', 'crease.x'],
+            ['groove.value', 'deep.a'],
+            ['crease.value', 'deep.b'],
+            ['deep.value', 'lined.t'],
             ['mottle.value', 'uneven.x'],
             ['lined.value', 'toned.v'],
             ['uneven.value', 'toned.s'],
@@ -375,16 +394,25 @@ export const lips = Subgraph.point(
             ['lines.value', 'open.x'],
             ['gloss.value', 'shine.a'],
             ['open.value', 'shine.b'],
+            // O brilho molhado some também dentro dos vincos.
+            ['shine.value', 'dull.a'],
+            ['gomo.value', 'dull.b'],
             ['dry.value', 'specular.a'],
             ['wet.value', 'specular.b'],
-            ['shine.value', 'specular.t'],
+            ['dull.value', 'specular.t'],
             ['specular.value', 'sum.a'],
             ['body.value', 'sum.b'],
             ['lines.value', 'relief.value'],
             ['lines.gradient', 'relief.gradient'],
             ['solid.du', 'relief.du'],
             ['solid.dv', 'relief.dv'],
-            ['relief.value', 'normal.relief'],
+            ['gomo.value', 'fold_relief.value'],
+            ['gomo.gradient', 'fold_relief.gradient'],
+            ['solid.du', 'fold_relief.du'],
+            ['solid.dv', 'fold_relief.dv'],
+            ['relief.value', 'height.a'],
+            ['fold_relief.value', 'height.b'],
+            ['height.value', 'normal.relief'],
             ['world.value', 'normal.scale'],
             ['sum.value', 'out.c'],
             ['normal.value', 'out.normal'],
@@ -399,6 +427,7 @@ export const lips = Subgraph.point(
             ['base.value', 'color'],
             ['dark.value', 'line_color'],
             ['relief.height', 'line_height'],
+            ['fold_relief.height', 'fold_height'],
             ['gloss.value', 'gloss'],
             ['dry.roughness', 'roughness'],
             ['wet.roughness', 'wet_roughness'],
@@ -421,7 +450,9 @@ export const lips = Subgraph.point(
  * 0,35) mm, estimado; `scale` unidades do mundo por metro): a esclera não é opaca. O que falta à física do olho: a
  * córnea não tem a curvatura própria nem refrata a íris (a íris aparece na superfície do globo, sem a profundidade e
  * sem a cáustica dela). Parâmetros: `iris_color`, `iris_edge_color`, `sclera_color`, `vein_color`, `veins`,
- * `iris_size`, `pupil_size`, `fibers`, `roughness`, `ior`, `radius`, `scale`, `axis`.
+ * `iris_size`, `pupil_size`, `fibers`, `roughness` (o filme sobre a córnea), `wet_roughness` (0,07: a conjuntiva
+ * molhada sobre a esclera) e `film_height` (0,035 mm: a ondulação dela, que quebra o reflexo em manchas úmidas), `ior`,
+ * `radius`, `scale`, `axis`.
  */
 export const eye = Subgraph.point(
     new NodeGraph({
@@ -432,14 +463,19 @@ export const eye = Subgraph.point(
             parts: pattern.iris.with({ iris: 0.46, pupil: 0.36, fibers: 64, soften: 0.06 }),
             // A íris: a cor do centro à borda, as fibras (± 45 %) e o limbo escuro.
             hue: color.ramp.with({
-                color_a: [0.075, 0.036, 0.014],
-                color_b: [0.028, 0.013, 0.006],
+                color_a: [0.13, 0.062, 0.022],
+                color_b: [0.04, 0.018, 0.008],
                 low: 0,
                 high: 1,
             }),
             streak: map.range.with({ in_min: -0.6, in_max: 0.6, out_min: 0.35, out_max: 1.65 }),
             // O anel claro em volta da pupila (a colarete) e a queda para a borda.
-            lift: map.curve4.with({ p0: [0, 0.4], p1: [0.22, 1.5], p2: [0.6, 0.95], p3: [1, 0.6] }),
+            lift: map.curve4.with({
+                p0: [0, 0.35],
+                p1: [0.22, 1.7],
+                p2: [0.6, 0.95],
+                p3: [1, 0.5],
+            }),
             lifted: math.mul,
             ring: map.range.with({ out_min: 1, out_max: 0.12 }),
             shade: math.mul,
@@ -458,13 +494,25 @@ export const eye = Subgraph.point(
             fronted: math.mix3,
             black: math.value3.with({ value: [0.005, 0.005, 0.005] }),
             holed: math.mix3,
-            body: bsdf.subsurface.with({ radius: [0.6, 0.45, 0.35] }),
+            body: bsdf.subsurface.with({ radius: [1.3, 0.9, 0.7] }),
             // A íris atrás da córnea é um disco fundo: o corpo recebe a normal da tigela (`iris_depth`, em mm), não a
             // do globo — a luz de lado acende a borda oposta da íris, como no olho; a córnea reflete pela do globo.
-            bowl: surface.solidRelief.with({ height: -1.6 }),
+            bowl: surface.solidRelief.with({ height: -2.6 }),
             hollow: surface.reliefNormal,
             deep: closure.normal,
             cornea: bsdf.dielectric.with({ ior: 1.376, roughness: 0.012 }),
+            // O filme de lágrima: liso como vidro sobre a córnea e, sobre a esclera, a conjuntiva molhada — um pouco mais
+            // áspera (`wet_roughness`) e ondulada de leve (`film_height`, em mm), que quebra o reflexo em manchas úmidas
+            // em vez do brilho de bola de plástico.
+            smooth: math.value.with({ value: 0.012 }),
+            moist: math.value.with({ value: 0.07 }),
+            gloss: math.mix,
+            ripple: pattern.grain3.with({ scale: [26, 26, 26], octaves: 2, gain: 0.5, seed: 91 }),
+            film: surface.solidRelief.with({ height: 0.035 }),
+            off_iris: map.range.with({ in_min: 0, in_max: 1, out_min: 1, out_max: 0 }),
+            film_masked: math.scale3,
+            wavy: surface.reliefNormal,
+            wet: closure.normal,
             out: closure.add,
         },
         links: [
@@ -513,7 +561,24 @@ export const eye = Subgraph.point(
             ['world.value', 'hollow.scale'],
             ['body.value', 'deep.c'],
             ['hollow.value', 'deep.normal'],
-            ['cornea.value', 'out.a'],
+            ['moist.value', 'gloss.a'],
+            ['smooth.value', 'gloss.b'],
+            ['parts.iris', 'gloss.t'],
+            ['gloss.value', 'cornea.roughness'],
+            ['solid.p', 'ripple.p'],
+            ['solid.width', 'ripple.width'],
+            ['ripple.value', 'film.value'],
+            ['ripple.gradient', 'film.gradient'],
+            ['solid.du', 'film.du'],
+            ['solid.dv', 'film.dv'],
+            ['parts.iris', 'off_iris.x'],
+            ['film.value', 'film_masked.v'],
+            ['off_iris.value', 'film_masked.s'],
+            ['film_masked.value', 'wavy.relief'],
+            ['world.value', 'wavy.scale'],
+            ['cornea.value', 'wet.c'],
+            ['wavy.value', 'wet.normal'],
+            ['wet.value', 'out.a'],
             ['deep.value', 'out.b'],
         ],
         output: 'out.value',
@@ -532,7 +597,9 @@ export const eye = Subgraph.point(
             ['parts.pupil', 'pupil_size'],
             ['parts.fibers', 'fibers'],
             ['bowl.height', 'iris_depth'],
-            ['cornea.roughness', 'roughness'],
+            ['smooth.value', 'roughness'],
+            ['moist.value', 'wet_roughness'],
+            ['film.height', 'film_height'],
             ['cornea.ior', 'ior'],
             ['body.radius', 'radius'],
             ['world.value', 'scale'],

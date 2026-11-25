@@ -1352,7 +1352,7 @@ export function patternKnit(
     };
 }
 
-/** `pattern.threshold`: smoothstep(low; high; valor) com o gradiente pela regra da cadeia. */
+/** `pattern.threshold` e `pattern.threshold3`: smoothstep(low; high; valor) com o gradiente (2D ou 3D) pela regra da cadeia. */
 export function patternThreshold(
     value: number,
     gradient: readonly number[],
@@ -1363,7 +1363,7 @@ export function patternThreshold(
     const d = Math.abs(span) < 1e-6 ? (span >= 0 ? 1e-6 : -1e-6) : span;
     const t = clamp01((value - low) / d);
     const s = (6 * t * (1 - t)) / d;
-    return { value: smooth(t), gradient: [s * gradient[0]!, s * gradient[1]!] };
+    return { value: smooth(t), gradient: gradient.map((g) => s * g) };
 }
 
 /**
@@ -1881,6 +1881,20 @@ export const patternCases: readonly NodeCase[] = [
             return {
                 value: uniform(r, -1.5, 1.5),
                 gradient: vector(r, 2, -20, 20),
+                low,
+                high: k % 9 === 8 ? low : low + uniform(r, -1, 1),
+            };
+        },
+        reference: (x) => patternThreshold(num(x.value), vec(x.gradient), num(x.low), num(x.high)),
+    },
+    {
+        node: 'pattern.threshold3',
+        tolerance: 1e-4,
+        sample: (r, k) => {
+            const low = uniform(r, -1, 1);
+            return {
+                value: uniform(r, -1.5, 1.5),
+                gradient: vector(r, 3, -20, 20),
                 low,
                 high: k % 9 === 8 ? low : low + uniform(r, -1, 1),
             };

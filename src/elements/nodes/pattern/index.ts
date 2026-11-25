@@ -205,6 +205,20 @@ const threshold = defineNode({
 });
 
 /**
+ * Limiar suave de um padrão maciço: `pattern.threshold` com o gradiente em 3D (∂/∂p, de `pattern.grain3` e dos demais
+ * padrões maciços) — a entrada de `surface.solidRelief`: o vinco estreito entre os gomos de um lábio, a fresta de uma
+ * rocha. `low` > `high` inverte.
+ */
+const threshold3 = defineNode({
+    name: 'pattern.threshold3',
+    inputs: { value: 'f32', gradient: 'vec3f' },
+    outputs: { value: 'f32', gradient: 'vec3f' },
+    params: { low: { type: 'f32', default: 0 }, high: { type: 'f32', default: 1 } },
+    code: nodePattern,
+    fn: 'node_pattern_threshold3',
+});
+
+/**
  * Tijolos: fiadas de peças retangulares com junta — `scale` (peças por unidade de `p.x`, fiadas por unidade de `p.y`),
  * cada fiada deslocada `shift` peça (0,5: a amarração do tijolo; 0: a grade do azulejo); `gap` a largura da junta e
  * `bevel` a da aresta arredondada, em frações da altura da fiada. Saídas: `height` em [0, 1] (0 na junta, 1 na face) e
@@ -542,4 +556,5 @@ export const pattern = {
     areoles,
     glints,
     threshold,
+    threshold3,
 } as const;
