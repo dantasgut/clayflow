@@ -920,6 +920,65 @@ fn refraction_pixel_depth_step(q: vec2u, size: vec2u, flags: u32, d: f32) -> f32
     return axis.x + axis.y;
 }
 
+/** Luzes do pool acompanhadas pelo retrato (as primeiras) e as palavras dele no fim de `refraction_stamps`. */
+const REFRACTION_LIGHT_MEMORY: u32 = 32u;
+const REFRACTION_LIGHT_WORDS: u32 = 97u;
+/**
+ * Quadros depois da última mudança das luzes em que nenhum valor antigo fica: a volta do representante pelo bloco (6
+ * quadros; em xadrez, 11) — até lá todo pixel foi traçado com a luz nova.
+ */
+const REFRACTION_LIGHT_FRAMES: u32 = 12u;
+
+/** Onde começa o retrato das luzes em `refraction_stamps` (depois do carimbo de cada pixel). */
+fn refraction_light_base() -> u32 {
+    return arrayLength(&refraction_stamps) - REFRACTION_LIGHT_WORDS;
+}
+
+/**
+ * Compara as luzes do quadro com o retrato guardado (a posição a mais de 1 mm, a direção a mais de 0,02°, a radiância
+ * a mais de 0,5 %, o tipo ou a contagem) e, se alguma mudou, guarda o retrato novo e o quadro. O retrato só troca na
+ * mudança: a luz que anda devagar, abaixo das folgas a cada quadro, muda quando se afasta da guardada. Uma invocação
+ * por quadro (a 0 do passe da mudança dos blocos), antes da reconstrução, que lê o resultado.
+ */
+fn refraction_lights_track() {
+    let base = refraction_light_base();
+    let count = min(min(refraction.light_count, arrayLength(&lights)), REFRACTION_LIGHT_MEMORY);
+    var changed = refraction_stamps[base].y != count;
+    for (var k = 0u; k < REFRACTION_LIGHT_MEMORY; k++) {
+        if (k >= count) { break; }
+        let light = lights[k];
+        let at = base + 1u + 3u * k;
+        let a = refraction_stamps[at];
+        let b = refraction_stamps[at + 1u];
+        let c = refraction_stamps[at + 2u];
+        let radiance = light.color.rgb * light.intensity;
+        let kept = bitcast<vec3f>(c.xyz);
+        changed = changed || a.w != light.kind
+            || distance(bitcast<vec3f>(a.xyz), light.position.xyz) > 1e-3
+            || distance(bitcast<vec3f>(b.xyz), light.direction.xyz) > 3.5e-4
+            || any(abs(kept - radiance) > 0.005 * max(kept, radiance) + vec3f(1e-6));
+    }
+    if (!changed) { return; }
+    refraction_stamps[base] = vec4u(refraction.frame, count, 0u, 0u);
+    for (var k = 0u; k < REFRACTION_LIGHT_MEMORY; k++) {
+        if (k >= count) { break; }
+        let light = lights[k];
+        let at = base + 1u + 3u * k;
+        refraction_stamps[at] = vec4u(bitcast<vec3u>(light.position.xyz), light.kind);
+        refraction_stamps[at + 1u] = vec4u(bitcast<vec3u>(light.direction.xyz), 0u);
+        refraction_stamps[at + 2u] = vec4u(bitcast<vec3u>(light.color.rgb * light.intensity), 0u);
+    }
+}
+
+/**
+ * As luzes mudaram há pouco (`REFRACTION_LIGHT_FRAMES`)? Então o que cada pixel mostra mudou mesmo com a câmera e a
+ * cena paradas, e o valor exato guardado de quadros atrás não fica — cada pixel do bloco 2 × 2 ficava com a luz de um
+ * quadro diferente: a grade de pontos nas gemas com as luzes do estúdio girando e a câmera parada.
+ */
+fn refraction_lights_changed() -> bool {
+    return refraction.frame - refraction_stamps[refraction_light_base()].x < REFRACTION_LIGHT_FRAMES;
+}
+
 /** A câmera da refração não se moveu desde o quadro anterior (a vista-projeção sem o deslocamento da amostra igual)? */
 fn refraction_camera_still() -> bool {
     let cam = cameras[refraction.camera_slot];
@@ -1055,6 +1114,7 @@ fn refraction_chain_change_main(@builtin(global_invocation_id) gid3: vec3u, @bui
     let blocks = vec2i((size + vec2u(1u)) / 2u);
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i >= u32(blocks.x * blocks.y)) { return; }
+    if (i == 0u) { refraction_lights_track(); }
     let block = refraction_blocks[i];
     if (block.tag.x != refraction.frame || !refraction_camera_still()) { return; }
     let rep = vec2u(block.tag.y & 0xFFFFu, block.tag.y >> 16u);
@@ -1138,7 +1198,7 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     }
     // A luz da mesma superfície em volta veio por algo que se moveu (a água atrás do vidro, a película nele)? Então o
     // que o pixel mostra mudou mesmo com a primeira superfície parada: o valor exato antigo não fica.
-    var moving = changed;
+    var moving = changed || refraction_lights_changed();
     // A faixa da luminância dos representantes de agora da mesma superfície (`REFRACTION_KEEP_RANGE`).
     var low = 3.0e38;
     var high = 0.0;

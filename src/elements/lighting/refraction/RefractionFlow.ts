@@ -71,6 +71,9 @@ export interface RefractionSlots extends SlotMap {
 }
 
 /** Resource de trabalho do `RefractionFlow` (spec 039). */
+/** As palavras (`vec4u`) do retrato das luzes no fim de `refraction_stamps`: 1 + 3 × 32 (as de `refraction_chain.wgsl`). */
+const REFRACTION_LIGHT_WORDS = 97;
+
 class RefractionWork extends FlowWork {
     static readonly schema = new StructSchema('RefractionWork', {});
 }
@@ -478,9 +481,11 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
                     upload: 'never',
                     count: this.blocksAllocated,
                 },
+                // O carimbo de cada pixel e, no fim, o retrato das luzes (`REFRACTION_LIGHT_WORDS` em
+                // `refraction_chain.wgsl`: o quadro da última mudança e 3 palavras por luz acompanhada).
                 wordBuffer(
                     'refraction_stamps',
-                    this.pixelsAllocated * 4 * Uint32Array.BYTES_PER_ELEMENT,
+                    (this.pixelsAllocated + REFRACTION_LIGHT_WORDS) * 4 * Uint32Array.BYTES_PER_ELEMENT,
                 ),
             );
         return out;
