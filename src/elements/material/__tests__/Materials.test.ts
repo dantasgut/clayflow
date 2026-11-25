@@ -104,6 +104,7 @@ const NAMES = [
     'flagstone',
     'cobblestone',
     'bamboo',
+    'gravel',
 ] as const satisfies readonly MaterialName[];
 
 /** Os nós de dentro do material pronto: identificador → nome da definição. */
@@ -115,7 +116,7 @@ function inner(name: MaterialName): Record<string, string> {
 }
 
 describe('Materials (spec 011, US5)', () => {
-    it('a biblioteca tem os 92 materiais, cada um um nó registrado sem ligação obrigatória', () => {
+    it('a biblioteca tem os 93 materiais, cada um um nó registrado sem ligação obrigatória', () => {
         expect(Object.keys(Materials).sort()).toEqual([...NAMES].sort());
         for (const name of NAMES) {
             const def = nodes.material[name];
@@ -612,6 +613,7 @@ describe('Materials (spec 011, US5)', () => {
             flagstone: 'pattern.cells',
             cobblestone: 'pattern.dents',
             bamboo: 'pattern.planks',
+            gravel: 'pattern.dents',
         };
         for (const [name, node] of Object.entries(promised) as [MaterialName, string][])
             expect(has(name, node), name).toBe(true);

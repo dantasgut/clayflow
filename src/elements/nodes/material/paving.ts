@@ -874,6 +874,27 @@ export const cobblestone = piecesOf('material.cobblestone', {
 });
 
 /**
+ * `material.gravel` — brita solta (o cascalho de jardim): pedras de 4 cm (26 por unidade do padrão), cada uma uma
+ * calota com o vale vivo onde duas se encostam (`pattern.dents` lido ao contrário), o tom do cinza claro ao pardo de
+ * pedra para pedra, a sombra no fundo entre elas. Parâmetros: os de `piecesOf`.
+ */
+export const gravel = piecesOf('material.gravel', {
+    bond: pattern.dents.with({ scale: 26, jitter: 0.75, seed: 441 }),
+    piece: 'cell',
+    inverted: [0.36, 0.6],
+    color: [0.36, 0.35, 0.34],
+    alt: [0.3, 0.25, 0.2],
+    lot: [0.55, 1.3],
+    joint: [0.03, 0.028, 0.025],
+    stain: { scale: [6, 6], octaves: 3, range: [0.9, 1.1] },
+    face: { scale: [240, 240], octaves: 2, height: 0.0002 },
+    grit: { scale: 400, height: 0.0001 },
+    relief: 0.009,
+    roughness: 0.8,
+    seed: 441,
+});
+
+/**
  * `material.bamboo` — painel de bambu: colmos de 7 cm lado a lado, em pé (`pattern.planks` com os eixos trocados: 14
  * colmos por unidade do padrão), a seção redonda (a aresta arredondada até o meio do colmo), os nós — um anel fino
  * escuro e afundado a cada oito diâmetros, em alturas diferentes de colmo para colmo (um segundo `pattern.planks` de

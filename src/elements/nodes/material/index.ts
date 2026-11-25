@@ -25,6 +25,7 @@ import {
     concreteSlab,
     flagstone,
     grassPaver,
+    gravel,
     pavementPortuguese,
     paverHerringbone,
     stackedSlate,
@@ -85,7 +86,7 @@ import {
 } from './woodSpecies';
 
 /**
- * Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de 92 materiais prontos — cada um um nó
+ * Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de 93 materiais prontos — cada um um nó
  * sem ligações obrigatórias que devolve o fechamento, com os parâmetros expostos (valor por uso, sem recompilar) também
  * como entradas (ligáveis a outros nós). Usados inteiros (`Materials.x()`), abertos e religados, ou como nó de um grafo
  * maior.
@@ -184,6 +185,7 @@ export const material = {
     flagstone,
     cobblestone,
     bamboo,
+    gravel,
 } as const;
 
 export { relief } from './relief';

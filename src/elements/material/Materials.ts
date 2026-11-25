@@ -98,7 +98,8 @@ export type MaterialName =
     | 'stackedSlate'
     | 'flagstone'
     | 'cobblestone'
-    | 'bamboo';
+    | 'bamboo'
+    | 'gravel';
 
 /**
  * Fábrica de um material pronto: os valores dos parâmetros expostos do nó (os que faltam ficam no padrão documentado)
@@ -136,7 +137,7 @@ function factory(definition: NodeDefinition): MaterialFactory {
  * terra: `concrete`, `granite`, `sandstone`, `brick`, `plaster`, `asphalt`, `tile`, `terracotta`, `driedMud`, `sand`.
  * Pavimentos e alvenaria de peças: `asphaltFine`, `asphaltCoarse`, `asphaltCracked`, `pavementPortuguese`, `grassPaver`,
  * `paverHerringbone`, `concreteBlock`, `concreteSlab`, `stoneSetts`, `stoneWall`, `stackedSlate`, `flagstone`,
- * `cobblestone`, `bamboo`.
+ * `cobblestone`, `bamboo`, `gravel`.
  * Transparentes e translúcidos: `glass`, `ice`, `skin`, `wax`, `marble`, `jade`, `milk`, `soap`, `ivory`, `snow`. Iridescente:
  * `motherOfPearl`. Os valores físicos e as fontes estão na documentação de cada nó.
  *
@@ -250,4 +251,5 @@ export const Materials: Readonly<Record<MaterialName, MaterialFactory>> = Object
     flagstone: factory(material.flagstone),
     cobblestone: factory(material.cobblestone),
     bamboo: factory(material.bamboo),
+    gravel: factory(material.gravel),
 });
