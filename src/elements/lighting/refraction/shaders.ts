@@ -14,6 +14,7 @@ import refractionPathSource from '../../gpu/wgsl/refraction/refraction_path.wgsl
 import refractionSceneSource from '../../gpu/wgsl/refraction/refraction_scene.wgsl?raw';
 import refractionVolumeRequestSource from '../../gpu/wgsl/refraction/refraction_volume_request.wgsl?raw';
 import refractionVolumeMeshSource from '../../gpu/wgsl/refraction/refraction_volume_mesh.wgsl?raw';
+import refractionEndsSource from '../../gpu/wgsl/refraction/refraction_ends.wgsl?raw';
 import refractionBlockSource from '../../gpu/wgsl/refraction/refraction_block.wgsl?raw';
 import { transmissionResources } from '../../material/shaders';
 import refractionChainSource from '../../gpu/wgsl/refraction/refraction_chain.wgsl?raw';
@@ -218,6 +219,8 @@ export const refractionResources = Object.freeze({
     blocks: priv('refraction_blocks', 'read_write', { schema: RefractionBlockSchema, array: true }),
     /** Por pixel: o quadro (+ 1; 0 = nenhum), a distância do pedido e a luminância do último valor exato dele. */
     stamps: priv('refraction_stamps', 'read_write', { wgsl: 'vec4u', array: true }),
+    /** Os fins de caminho guardados por pixel, em páginas por ladrilho (`refraction_ends.wgsl`). */
+    ends: priv('refraction_ends', 'read_write', { wgsl: 'atomic<u32>', array: true }),
 });
 
 const R = refractionResources;
@@ -227,6 +230,16 @@ const refractionBlock = wgslModule({
     name: 'refraction_block',
     source: refractionBlockSource,
     requires: [REFRACTION_REQUEST_VALID.module, refractionParamsResource, R.request],
+});
+
+/**
+ * Os fins de caminho guardados por pixel (spec 011): as páginas por ladrilho, pedidas na fila, e o registro de cada
+ * pixel traçado — com as luzes mudando, a luz deles se recalcula sem traçar de novo.
+ */
+const refractionEnds = wgslModule({
+    name: 'refraction_end_pages',
+    source: refractionEndsSource,
+    requires: [refractionParamsResource, R.ends],
 });
 
 /** Kernels da fila compacta dos pixels com pedido e da contagem no estado do quadro. */
@@ -240,6 +253,7 @@ export const refractionQueue = wgslModule({
         REFRACTION_FRAME_COUNT.module,
         refractionParamsResource,
         refractionBlock,
+        refractionEnds,
         R.request,
         R.queueOut,
         R.queueCount,
@@ -342,6 +356,8 @@ export const refractionChain = wgslModule({
         REFRACTION_REQUEST_REFLECT.module,
         R.request,
         refractionBlock,
+        refractionEnds,
+        camerasResource,
         rayVolumeBeginReady,
         NONE.module,
         REFRACTION_FRAME_COUNT.module,
