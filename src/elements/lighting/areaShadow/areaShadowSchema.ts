@@ -11,18 +11,8 @@ export const AREA_SHADOW_POINT_FORMAT: GPUTextureFormat = 'rgba32float';
 export const AREA_SHADOW_HISTORY = 32;
 /** Os canais temporais (spec 037): a média e o ponto com os quadros do histórico. */
 export const AREA_SHADOW_CHANNELS = ['accumulated', 'history'] as const;
-/**
- * Os alvos sem histórico: o traçado do quadro, o ponto de cada texel, o par das passadas do filtro e a espessura
- * atravessada pela luz com o cosseno na saída (por luz; sem sorteio: um raio ao centro da fonte).
- */
-export const AREA_SHADOW_TARGETS = [
-    'traced',
-    'point',
-    'work',
-    'output',
-    'thickness',
-    'entry',
-] as const;
+/** Os alvos sem histórico: o traçado do quadro, o ponto de cada texel e o par das passadas do filtro. */
+export const AREA_SHADOW_TARGETS = ['traced', 'point', 'work', 'output'] as const;
 
 /** Parâmetros da sombra das luzes de área (uniform `AreaShadow`): a câmera da saída, as luzes vivas e os quadros da média. */
 export const AreaShadowSchema = new StructSchema(

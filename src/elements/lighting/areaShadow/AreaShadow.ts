@@ -5,7 +5,7 @@ import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import type { SceneContribution } from '../../../scene/shaders/WgslPoint';
 import type { Light } from '../../scene/Light';
-import { lightThicknessPoint, lightVisibilityPoint } from '../../scene/points/lighting';
+import { lightVisibilityPoint } from '../../scene/points/lighting';
 import {
     AREA_SHADOW_FORMAT,
     AREA_SHADOW_HISTORY,
@@ -13,7 +13,7 @@ import {
     AREA_SHADOW_POINT_FORMAT,
     AreaShadowSchema,
 } from './areaShadowSchema';
-import { areaShadowRead, areaShadowThickness } from './shaders';
+import { areaShadowRead } from './shaders';
 
 interface AreaShadowData extends Record<string, unknown> {
     /** O slot da câmera com que a saída foi calculada (pool das matrizes). */
@@ -72,8 +72,6 @@ export class AreaShadow extends Entity<AreaShadowData> implements Resource {
             { ...target('history', AREA_SHADOW_POINT_FORMAT), history: { depth: 2 } },
             target('work', AREA_SHADOW_FORMAT),
             target('output', AREA_SHADOW_FORMAT),
-            target('thickness', AREA_SHADOW_FORMAT),
-            target('entry', AREA_SHADOW_FORMAT),
         ];
     }
 
@@ -81,14 +79,8 @@ export class AreaShadow extends Entity<AreaShadowData> implements Resource {
         return [];
     }
 
-    /**
-     * A leitura da sombra da luz de área em `light_visibility` (as outras luzes ficam com 1 nela) e da espessura
-     * atravessada em `light_thickness` (as outras, desconhecida).
-     */
+    /** A leitura da sombra da luz de área em `light_visibility` (as outras luzes ficam com 1 nela). */
     getSceneContributions(): readonly SceneContribution[] {
-        return [
-            { point: lightVisibilityPoint, order: 1, pools: [], build: () => areaShadowRead },
-            { point: lightThicknessPoint, order: 1, pools: [], build: () => areaShadowThickness },
-        ];
+        return [{ point: lightVisibilityPoint, order: 1, pools: [], build: () => areaShadowRead }];
     }
 }

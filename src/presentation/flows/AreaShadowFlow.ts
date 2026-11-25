@@ -206,17 +206,13 @@ export class AreaShadowFlow extends Flow<AreaShadowSlots, 'idle'> {
         if (shadow.data.camera !== cameraSlot) shadow.data.camera = cameraSlot;
         const view = (r: Resource, id: string): BindingSource | undefined =>
             this.resources.textureViewOf(r, id);
-        const [traced, point, work, output, thickness, entry] = AREA_SHADOW_TARGETS.map((id) =>
-            view(shadow, id),
-        );
+        const [traced, point, work, output] = AREA_SHADOW_TARGETS.map((id) => view(shadow, id));
         const params = this.resources.bufferOf(this.work, PARAMS);
         if (
             traced === undefined
             || point === undefined
             || work === undefined
             || output === undefined
-            || thickness === undefined
-            || entry === undefined
             || params === undefined
         )
             return false;
@@ -242,17 +238,7 @@ export class AreaShadowFlow extends Flow<AreaShadowSlots, 'idle'> {
             }),
         );
         const multisampled = (depth.texture.sampleCount ?? 1) > 1;
-        const sources = [
-            depth.view,
-            params,
-            traced,
-            point,
-            work,
-            output,
-            thickness,
-            entry,
-            multisampled,
-        ];
+        const sources = [depth.view, params, traced, point, work, output, multisampled];
         if (sources.some((v, k) => v !== this.bound[k])) {
             c.bind(
                 new Map<WgslResource, BindingSource>([
@@ -265,8 +251,6 @@ export class AreaShadowFlow extends Flow<AreaShadowSlots, 'idle'> {
                     [R.workOut, work],
                     [R.work, work],
                     [R.outputOut, output],
-                    [R.thicknessOut, thickness],
-                    [R.entryOut, entry],
                 ]),
             );
             this.bound = sources;
