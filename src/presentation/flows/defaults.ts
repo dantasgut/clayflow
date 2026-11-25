@@ -35,6 +35,8 @@ import { Sky } from '../../elements/scene/sky/Sky';
 import { EnvironmentMap } from '../../elements/scene/environment/EnvironmentMap';
 import { RefractionVolumeRequestFlow } from './RefractionVolumeRequestFlow';
 import { ShadowRequestFlow } from './ShadowRequestFlow';
+import { AreaShadowFlow } from './AreaShadowFlow';
+import { areaShadowsByEvent } from '../../elements/lighting/areaShadow/areaShadowsByEvent';
 import { EmitterFlow } from '../../elements/particles/EmitterFlow';
 import { DiffuseFlow } from '../../elements/particles/DiffuseFlow';
 import { SurfaceFlow } from '../../elements/geometry/SurfaceFlow';
@@ -203,6 +205,8 @@ export function registerPresentationDefaults(
                 ? {}
                 : { maxBindingSize: options.maxStorageBufferBindingSize }),
         })),
+        // As luzes de área com sombra (spec 013, R5): um canal do `AreaShadow` para cada uma, até o teto do perfil.
+        areaShadowsByEvent(options.world, events, () => renderer.shadows.areaLights),
         warnShadowUnavailable(events),
     ];
     const unsubscribe = (): void => {
@@ -598,6 +602,13 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'forward',
         priority: -55,
     });
+    // Sombra das luzes de área por raios (spec 013, R5): pela profundidade da cena deste quadro, para o desenho do
+    // quadro seguinte.
+    const areaShadowRegistration = flows.register((ctx) => new AreaShadowFlow(ctx), {
+        type: 'areaShadow',
+        phase: 'forward',
+        priority: -56,
+    });
     // Pedido da refração pelos volumes (spec 034, T065f): a superfície da água à frente dos opacos (ou todo pixel com a
     // câmera dentro dela) no pedido, depois do dos transmissivos (forward) e dos sprites, antes do traçado.
     const volumeRequestRegistration = flows.register(
@@ -745,6 +756,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             particleRegistration,
             volumeRequestRegistration,
             shadowRequestRegistration,
+            areaShadowRegistration,
             refractionRegistration,
             refractionDenoiseRegistration,
             refractionCompositeRegistration,

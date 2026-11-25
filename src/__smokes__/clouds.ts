@@ -29,7 +29,8 @@
 //   - interior-timing: o custo da camada com a câmera numa sala fechada (SC-005);
 //   - inside-timing: o custo da camada com a câmera dentro da nuvem, no perfil alto (SC-005, T074);
 //   - sky-timing: o custo novo do céu sem a camada (SC-009).
-// Para rodar: `npm run smoke -- clouds --headless --timeout 400`. Resultado: `CLOUDS SMOKE PASSED` ou `FAIL: …`.
+// Para rodar: `npm run smoke -- clouds --headless --timeout 3600` (em 2026-11-24 não coube em 1500 s no M4: os casos com
+// referência f64 por região — `sunset`, `types` — levam minutos cada). Resultado: `CLOUDS SMOKE PASSED` ou `FAIL: …`.
 import {
     CLOUD_OCTAVES,
     CLOUD_SCATTER_EXTENT,

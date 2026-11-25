@@ -34,6 +34,11 @@
 //   - point-shadow (spec 013, FR-008): uma placa sob a luz pontual, com a borda da sombra cruzando a aresta entre duas
 //     faces do cubo — a borda contra a posição geométrica ao longo da linha que cruza a aresta, sem degrau, e o chão sem
 //     sombra igual ao da luz sem sombra dos dois lados da aresta (sem emenda);
+//   - rect-shadow (spec 013, SC-003): um anteparo horizontal entre a luz de área e o chão, com a borda sob o meio do
+//     painel — a razão entre o chão com a sombra ligada e desligada (a fração do painel visível de cada ponto) contra a
+//     referência f64 `rectVisibleFraction`, ao longo da penumbra.
+//   - rect-travel (spec 013, SC-002): a luz de área andando 1 cm por quadro e mudando de tamanho, com o anteparo e uma
+//     esfera sobre o chão — o último quadro contra o estado parado (a média no tempo não deixa rastro).
 //   - spot-travel, point-travel (spec 013, SC-002): a luz de foco e a pontual andando a cada quadro — o último quadro
 //     contra o da luz parada no lugar final.
 // Para rodar: `npm run smoke -- lighting [--query case=furnace]`. Resultado: `LIGHTING SMOKE PASSED` ou `FAIL: …`.
@@ -60,6 +65,7 @@ import { hdrAt, readHdrTexture, temporalVariance, type HdrImage } from './suppor
 import { ambientParamsUniform, evalParams } from '../elements/material/reference/closure';
 import { cookTorrance, normalize3, type Vec3 } from '../elements/material/reference/bsdf';
 import { areaExact, type AreaRect } from '../elements/material/reference/areaLight';
+import { rectVisibleFraction, type RectSource } from '../elements/scene/reference/rectVisibility';
 
 function log(msg: string): void {
     console.log(`[lighting] ${msg}`);
@@ -652,6 +658,8 @@ const CASES: Record<string, () => Promise<void>> = {
     'point-shadow': casePointShadow,
     'spot-travel': caseSpotTravel,
     'point-travel': casePointTravel,
+    'rect-shadow': caseRectShadow,
+    'rect-travel': caseRectTravel,
 };
 
 /** Fração do disco de raio 1 com x < s (o disco coberto por uma borda reta em s). */
@@ -962,6 +970,184 @@ async function sunTravelMany(): Promise<void> {
         check(
             mean <= 0.0005 && far <= 0.0005,
             `sun-travel: três luzes em movimento, ${frames} quadros — difere do estado parado: média ${(100 * mean).toFixed(4)} %, ${(100 * far).toFixed(4)} % dos pixels a mais de 25 %`,
+        );
+    }
+}
+
+/**
+ * A sombra da luz de área contra a referência (spec 013, SC-003): o painel de 1,2 × 0,7 m a 1,2 m do chão, virado para
+ * baixo, e um anteparo horizontal a 0,6 m cobrindo x ≤ 0,4 (a borda sob o meio do painel). Do chão em x > 0,4 a fração
+ * visível vai de ½ (junto à borda) a 1 (em x = 1): a razão entre a imagem com a sombra e a sem ela, na linha do meio.
+ */
+async function caseRectShadow(): Promise<void> {
+    const W = 600;
+    const H = 200;
+    const height = 1.2;
+    const source: RectSource = {
+        center: [0.4, 1.2, 0],
+        normal: [0, -1, 0],
+        axis: [1, 0, 0],
+        size: [1.2, 0.7],
+    };
+    const edge = 0.4;
+    const screenY = 0.6;
+    const shot = async (castShadow: boolean): Promise<HdrImage> => {
+        const { app, canvas } = await createApp(W, H);
+        noAmbient(app);
+        topCamera(app, height);
+        diffusePlane(app);
+        // O anteparo: uma placa fina com a borda em x = `edge`.
+        app.world.insert(
+            new BoxGeometry({ size: [4, 0.01, 4] })
+                .add(new StandardMaterial({ albedo: [0, 0, 0, 1] }))
+                .add(new Transform({ position: [edge - 2, screenY, 0, 1] })),
+        );
+        app.world.insert(
+            new RectLight({
+                position: [...source.center, 1],
+                direction: [0, -1, 0, 0],
+                right: [1, 0, 0],
+                size: [source.size[0], source.size[1]],
+                intensity: 5,
+                castShadow,
+            }),
+        );
+        await settle(app, 600);
+        // A média no tempo da sombra: um raio por texel e por quadro.
+        for (let i = 0; i < 96; i++) {
+            if (i > 0) await nextGpuFrame(app);
+            app.step(1 / 60);
+        }
+        const texture = app.resources.textureOf(app.defaults.targets, 'color');
+        if (texture === undefined) throw new Error('alvo HDR não alocado');
+        const hdr = await readHdrTexture(app, texture);
+        dispose(app, canvas);
+        return hdr;
+    };
+    const lit = await shot(false);
+    const shadowed = await shot(true);
+    const row = Math.floor(H / 2);
+    let worst = 0;
+    let at = 0;
+    let sum = 0;
+    let count = 0;
+    const samples: string[] = [];
+    for (let px = 0; px < W; px++) {
+        const x = topWorldX(px, height, W, H);
+        // O chão visto por cima, fora do anteparo (com folga da borda dele na imagem) e até além do fim da penumbra.
+        if (x < edge + 0.03 || x > 1.15) continue;
+        const base = hdrAt(lit, px, row)[0];
+        if (base <= 1e-6) continue;
+        const got = hdrAt(shadowed, px, row)[0] / base;
+        const expected = rectVisibleFraction(
+            [x, 0, 0],
+            source,
+            [
+                {
+                    kind: 'halfPlane',
+                    point: [edge, screenY, 0],
+                    normal: [0, 1, 0],
+                    inside: [1, 0, 0],
+                },
+            ],
+            512,
+        );
+        const e = Math.abs(got - expected);
+        sum += e;
+        count++;
+        if (e > worst) {
+            worst = e;
+            at = x;
+        }
+        if (px % 40 === 0)
+            samples.push(`${x.toFixed(2)}: ${got.toFixed(3)}/${expected.toFixed(3)}`);
+    }
+    log(
+        `rect-shadow: fração visível do painel ao longo da penumbra (${count} pixels) — erro médio ${((100 * sum) / Math.max(count, 1)).toFixed(2)} %, maior ${(100 * worst).toFixed(2)} % em x = ${at.toFixed(2)} m; x: motor/referência ${samples.join(' · ')}`,
+    );
+    check(count > 100, `rect-shadow: só ${count} pixels medidos`);
+    check(
+        worst <= 0.05,
+        `rect-shadow: a fração visível difere ${(100 * worst).toFixed(2)} % da referência em x = ${at.toFixed(2)} m (≤ 5 %)`,
+    );
+}
+
+/**
+ * O alvo HDR do caso `rect-travel` depois de `frames` quadros: com `moving`, a luz de área anda 1 cm por quadro em x e
+ * alarga 2 mm por quadro até o estado final; sem ele, parada no estado final.
+ */
+async function rectTravelImage(moving: boolean, frames: number): Promise<HdrImage> {
+    const { app, canvas } = await createApp(600, 200);
+    noAmbient(app);
+    topCamera(app, 1.2);
+    diffusePlane(app);
+    app.world.insert(
+        new BoxGeometry({ size: [4, 0.01, 4] })
+            .add(new StandardMaterial({ albedo: [0, 0, 0, 1] }))
+            .add(new Transform({ position: [-1.6, 0.6, 0, 1] })),
+    );
+    app.world.insert(
+        new SphereGeometry({ radius: 0.12 })
+            .add(new StandardMaterial({ albedo: [0.6, 0.6, 0.6, 1] }))
+            .add(new Transform({ position: [1.1, 0.12, 0.2, 1] })),
+    );
+    const centre = (left: number): [number, number, number, number] => [
+        0.4 - (moving ? 0.01 * left : 0),
+        1.2,
+        0,
+        1,
+    ];
+    const half = (left: number): number => 0.6 - (moving ? 0.001 * left : 0);
+    const light = new RectLight({
+        position: centre(frames),
+        direction: [0, -1, 0, 0],
+        right: [1, 0, 0],
+        size: [2 * half(frames), 0.7],
+        intensity: 5,
+        castShadow: true,
+    });
+    app.world.insert(light);
+    await settle(app, 600);
+    for (let i = 1; i <= frames; i++) {
+        const left = frames - i;
+        if (moving) {
+            light.data.position = centre(left);
+            const c = light.data.cones;
+            light.data.cones = [half(left), c[1] ?? 0.35, c[2] ?? 0, c[3] ?? 0];
+        }
+        if (i > 1) await nextGpuFrame(app);
+        app.step(1 / 60);
+    }
+    const texture = app.resources.textureOf(app.defaults.targets, 'color');
+    if (texture === undefined) throw new Error('alvo HDR não alocado');
+    const hdr = await readHdrTexture(app, texture);
+    dispose(app, canvas);
+    return hdr;
+}
+
+/** A luz de área em movimento (spec 013, SC-002): o último quadro contra o estado parado. */
+async function caseRectTravel(): Promise<void> {
+    const still = await rectTravelImage(false, 96);
+    let peak = 0;
+    for (let i = 0; i < still.width * still.height; i++) peak = Math.max(peak, still.data[i * 4]!);
+    for (const frames of [96, 93]) {
+        const moving = await rectTravelImage(true, frames);
+        let sum = 0;
+        let wrong = 0;
+        const n = still.width * still.height;
+        for (let i = 0; i < n; i++) {
+            const e = Math.abs(moving.data[i * 4]! - still.data[i * 4]!) / peak;
+            sum += e;
+            if (e > 0.25) wrong++;
+        }
+        const mean = sum / n;
+        const far = wrong / n;
+        log(
+            `rect-travel: a luz de área andando 1 cm e alargando 2 mm por quadro, ${frames} quadros — diferença média ${(100 * mean).toFixed(3)} % do chão aceso; ${(100 * far).toFixed(4)} % dos pixels a mais de 25 %`,
+        );
+        check(
+            mean <= 0.01 && far <= 0.0005,
+            `rect-travel: ${frames} quadros — difere do estado parado: média ${(100 * mean).toFixed(3)} %, ${(100 * far).toFixed(4)} % dos pixels a mais de 25 %`,
         );
     }
 }
