@@ -321,8 +321,9 @@ export const skinDetailed = Subgraph.point(
  * pele ((1,8; 0,75; 0,5) mm, estimado: a camada de cima é fina e o vermelho atravessa mais), com `scale` unidades do
  * mundo por metro. Os padrões são maciços (a posição no objeto, `pattern_scale` por unidade; as linhas correm ao longo
  * do eixo y do objeto: o lábio de uma cabeça em pé). Num rosto, mistura-se à pele por uma máscara (`closure.mix`).
- * Os vincos e as linhas abrem em leque e curvam para fora a partir do meio da boca (`centre`, na coordenada dos
- * padrões; `fan`, a curvatura: 0 dá retas paralelas, o padrão — numa cabeça de 1,4 unidade, 140).
+ * Os vincos e as linhas são arcos: verticais na linha entre os lábios e fechando para o meio ao se afastar dela,
+ * como parênteses de cada lado (`centre`, o meio da boca na coordenada dos padrões; `fan`, a curvatura: 0 dá retas
+ * paralelas, o padrão — numa cabeça de 1,4 unidade, 140).
  * Parâmetros: `color`, `line_color`, `centre`, `fan`, `line_height`, `fold_height`, `dome_height` (0,8 mm: o abaulado de cada gomo, que
  * dá a cada um o seu realce), `gloss`, `roughness`, `wet_roughness`, `ior`, `radius`, `scale`,
  * `pattern_scale`.
@@ -334,9 +335,10 @@ export const lips = Subgraph.point(
             solid: surface.solidSpace,
             tile: math.value.with({ value: 1 }),
             world: math.value.with({ value: 1 }),
-            // Os vincos de um lábio não são retas paralelas: abrem-se em leque e curvam para fora ao se afastar da linha da
-            // boca. A coordenada dos padrões é a posição relativa ao meio da boca (`centre`) com o x dividido por
-            // 1 + `fan` · y²: as linhas de fase constante são parábolas que se afastam do meio (`fan` 0: retas).
+            // Os vincos de um lábio não são retas: são arcos, verticais na linha da boca e fechando para o meio ao se
+            // afastar dela. A coordenada dos padrões é a posição relativa ao meio da boca (`centre`) com o x multiplicado por
+            // 1 + `fan` · y²: as linhas de fase constante são arcos x = c / (1 + fan · y²), mais largos na linha entre
+            // os lábios (`fan` 0: retas).
             centre: math.value3.with({ value: [0, 0, 0] }),
             fan: math.value.with({ value: 0 }),
             rel: math.sub3,
@@ -345,7 +347,7 @@ export const lips = Subgraph.point(
             spread: math.mul,
             one: math.value.with({ value: 1 }),
             den: math.add,
-            qx: math.div,
+            qx: math.mul,
             bent: math.combine3,
             // Os sulcos: variam depressa na horizontal e devagar na vertical (correm de cima a baixo).
             lines: pattern.grain3.with({ scale: [90, 6, 30], octaves: 2, gain: 0.6, seed: 81 }),
