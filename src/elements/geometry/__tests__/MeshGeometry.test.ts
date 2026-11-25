@@ -109,4 +109,34 @@ describe('MeshGeometry', () => {
         }
         expect([...seen.values()].every((n) => n === 2)).toBe(true);
     });
+
+    it('refined: divide só a região, sem vértice no meio de aresta alheia, e não muda a forma', () => {
+        // Dois triângulos que partilham a aresta (1, 2); só o primeiro está na região.
+        const mesh = new MeshGeometry({
+            positions: [0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0],
+            indices: [0, 1, 2, 2, 1, 3],
+        });
+        const fine = mesh.refined(1, (x, y) => x + y < 0.9);
+        // O primeiro vira 4; o vizinho divide só a aresta partilhada (2).
+        expect(fine.data.indexCount / 3).toBe(6);
+        expect(fine.data.vertexCount).toBe(7);
+        // Toda aresta interna aparece em dois triângulos: nenhuma fresta.
+        const uses = new Map<string, number>();
+        const ix = fine.data.indices;
+        for (let t = 0; t < ix.length; t += 3)
+            for (let k = 0; k < 3; k++) {
+                const [a, b] = [ix[t + k]!, ix[t + ((k + 1) % 3)]!];
+                const key = a < b ? `${a}-${b}` : `${b}-${a}`;
+                uses.set(key, (uses.get(key) ?? 0) + 1);
+            }
+        expect([...uses.values()].filter((n) => n > 2)).toEqual([]);
+        expect([...uses.values()].filter((n) => n === 1).length).toBe(6);
+        // Tudo no plano z = 0, normais +z.
+        for (let i = 0; i < fine.data.vertexCount; i++) {
+            expect(fine.data.vertices[i * 8 + 2]).toBe(0);
+            expect(fine.data.vertices[i * 8 + 5]).toBeCloseTo(1, 6);
+        }
+        expect(mesh.refined(0, () => true).data.vertexCount).toBe(4);
+        expect(() => mesh.refined(9, () => true)).toThrow(RangeError);
+    });
 });

@@ -1,6 +1,6 @@
 // Nós de conjunto da C3 (spec 031, US3, R12): malha, pontos, primitivas paralelas e saídas — sobre o contrato da C2
 // (`defineSetNode`, `GraphFlow`).
-export { grid, displace, recomputeNormals } from './mesh';
+export { grid, mesh, displace, recomputeNormals, type MeshSourceData } from './mesh';
 export { distributeOnMesh, realizeInstances, realizeTable } from './points';
 export { sequence, prefixSum, sort, compact, reduce } from './primitives';
 export { meshOutput, pointsOutput } from './output';

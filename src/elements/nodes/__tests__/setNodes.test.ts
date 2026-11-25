@@ -19,7 +19,7 @@ import type {
 import { specName, workHarness } from '../../gpu/__tests__/helpers/workHarness';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
 import { MeshVertexSchema } from '../../geometry/MeshVertexSchema';
-import { defaultNodeRegistry, nodes } from '../index';
+import { defaultNodeRegistry, meshSource, nodes } from '../index';
 import { MeshTriangleSchema, SetPointSchema } from '../set/schemas';
 
 // Nós de conjunto da C3 (spec 031, T077): cada nó cria os kernels sobre os conjuntos do contexto (montagem dos módulos,
@@ -155,6 +155,24 @@ describe('nós de conjunto — kernels e passes', () => {
             input: () => 0,
         });
         expect(cap).toEqual({ 'mesh.vertices': 10, 'mesh.triangles': 8 });
+    });
+
+    it('set.mesh: a malha dada sobe na criação e cada gravação a copia para a saída; capacidades = contagens', () => {
+        const h = workHarness();
+        const def = meshSource({
+            vertices: new Float32Array(3 * 8),
+            indices: [0, 1, 2],
+        });
+        expect(def.capacity({ values: {}, input: () => 0 })).toEqual({
+            'mesh.vertices': 3,
+            'mesh.triangles': 1,
+        });
+        const rec = run(def, context(h, { outputs: mesh(3, 0, 1, 1) }));
+        expect(rec.passes).toEqual([]);
+        expect(rec.copies).toBe(2);
+        expect(() => meshSource({ vertices: new Float32Array(7), indices: [0, 1, 2] })).toThrow(
+            RangeError,
+        );
     });
 
     it('set.displace: despacho indireto pelo registro dos vértices e cópia dos triângulos; pronto = 0', () => {

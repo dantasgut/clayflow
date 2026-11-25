@@ -44,6 +44,13 @@ export const GridParamsSchema = new StructSchema(
     uniform,
 );
 
+/** Parâmetros de `set.mesh` (as contagens da malha dada). */
+export const MeshSourceParamsSchema = new StructSchema(
+    'MeshSourceParams',
+    { vertices: FieldType.u32, triangles: FieldType.u32 },
+    uniform,
+);
+
 /** Parâmetros de `set.displace`. */
 export const DisplaceParamsSchema = new StructSchema(
     'DisplaceParams',

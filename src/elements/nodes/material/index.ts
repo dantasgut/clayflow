@@ -43,6 +43,7 @@ import {
     glass,
     jade,
     lips,
+    lipsHeight,
     marble,
     milk,
     porcelain,
@@ -156,3 +157,6 @@ export const material = {
 } as const;
 
 export { relief } from './relief';
+
+/** Alturas por posição (a entrada `height` de `set.displace`): o relevo de um material pronto como geometria. */
+export const height = { lips: lipsHeight } as const;
