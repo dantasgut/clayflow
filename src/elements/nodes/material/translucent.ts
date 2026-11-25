@@ -320,9 +320,9 @@ const LIP = {
     hatchScale: [200, 22, 22],
     hatchTurn: 0.62,
     tub: { scale: [85, 85, 85], octaves: 3, gain: 0.55, seed: 91 },
-    upper: { in_min: -0.004, in_max: 0.004, out_min: 1, out_max: 2.4 },
-    netPart: { in_min: -0.004, in_max: 0.004, out_min: 0.12, out_max: 1.7 },
-    hatchPart: { in_min: -0.004, in_max: 0.004, out_min: 0.45, out_max: 2 },
+    upper: { in_min: -0.004, in_max: 0.004, out_min: 1, out_max: 1.5 },
+    netPart: { in_min: -0.004, in_max: 0.004, out_min: 0.12, out_max: 1.2 },
+    hatchPart: { in_min: -0.004, in_max: 0.004, out_min: 0.45, out_max: 1.3 },
     tubPart: { in_min: 1, in_max: 0.35, out_min: 0, out_max: 1 },
     /** Fundos e alturas em milímetros. */
     height: { line: 0.07, fold: 0.28, dome: 0.12, net: 0.12, hatch: 0.14 },
